@@ -1,7 +1,7 @@
 /* ===== EDIT THESE ===== */
 const CONFIG = {
   brand: 'CV RecGen',
-  siteLink: 'www.yoursite.com',   // printed at the bottom of every receipt
+  siteLink: 'Court Vision',   // printed at the bottom of every receipt
   logo: 'icons/logo.png'          // printed at the top of every receipt
 };
 /* ====================== */
