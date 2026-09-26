@@ -4,8 +4,8 @@ const CONFIG = {
   siteLink: 'Court Vision',   // printed at the bottom of every receipt
   logo: 'icons/logo.png',         // printed at the top of every receipt
   portfolio: {
-    endpoint: '',   // paste your deployed Apps Script Web App URL here (see apps-script/Code.gs)
-    secret: ''      // must match the SECRET constant in Code.gs
+    endpoint: 'https://script.google.com/macros/s/AKfycbzL7Fs7HbRE2LHWYqyO1edz5JZUQPI0RKAFI0LHf-BZ5xM9aKtvI738Soqh1FYsHVVw6g/exec',
+    secret: 'courtvision_$0819'   // must match the SECRET constant in Code.gs
   }
 };
 /* ====================== */
@@ -263,18 +263,30 @@ function draw(x, d, s, dry, logo) {
 const loadImg = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
 
 /* ---------- Portfolio sync (Google Sheets via Apps Script) ---------- */
-function syncPortfolio(d) {
+async function syncPortfolio(d) {
   if (!CONFIG.portfolio.endpoint) return;  // not set up yet — see apps-script/Code.gs
   const flagged = d.items.filter(i => i.portfolio);
   if (!flagged.length) return;
-  fetch(CONFIG.portfolio.endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // avoids a CORS preflight to Apps Script
-    body: JSON.stringify({
-      secret: CONFIG.portfolio.secret, date: d.date, seller: d.party, people: d.people, notes: d.notes,
-      items: flagged.map(i => ({ name: i.name, cost: i.cost, photo: i.photo }))
-    })
-  }).catch(err => { console.warn('Portfolio sync failed', err); toast('Receipt saved, but portfolio sync failed (offline?).'); });
+  try {
+    const res = await fetch(CONFIG.portfolio.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // avoids a CORS preflight to Apps Script
+      body: JSON.stringify({
+        secret: CONFIG.portfolio.secret, date: d.date, seller: d.party, people: d.people, notes: d.notes,
+        items: flagged.map(i => ({ name: i.name, cost: i.cost, photo: i.photo }))
+      })
+    });
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok || !data || data.ok !== true) {
+      const msg = (data && data.error) || `HTTP ${res.status}`;
+      console.warn('Portfolio sync rejected:', msg, data);
+      toast('Portfolio sync failed: ' + msg);
+    }
+  } catch (err) {
+    console.warn('Portfolio sync failed', err);
+    toast('Receipt saved, but portfolio sync failed (network/CORS?).');
+  }
 }
 
 function render(d, logo) {
