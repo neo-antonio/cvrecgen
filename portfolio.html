@@ -36,9 +36,27 @@
     <b id="portTotal">PHP 0.00</b>
     <button type="button" class="ghost sm" id="portRefresh">Refresh</button>
   </div>
+  <div class="field" style="margin-bottom:12px">
+    <input type="search" id="portSearch" placeholder="Search by item name" autocomplete="off">
+  </div>
+  <div class="filter-chips" id="portFilters">
+    <button type="button" class="chip active" data-tag="all">All</button>
+    <button type="button" class="chip" data-tag="onhand">Onhand</button>
+    <button type="button" class="chip" data-tag="shipping">Shipping</button>
+    <button type="button" class="chip" data-tag="shipped">Shipped</button>
+    <button type="button" class="chip" data-tag="sold">Sold</button>
+  </div>
   <p class="stub-note" id="portState">Loading&hellip;</p>
   <div id="portList" class="port-list" hidden></div>
 </main>
+
+<div class="modal" id="imgView" hidden>
+  <div class="sheet small">
+    <img id="imgViewImg" alt="">
+    <div class="acts"><button type="button" class="ghost" id="imgViewClose">Close</button></div>
+  </div>
+</div>
+<div class="toast" id="portToast" hidden></div>
 
 <footer class="site-footer">
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>

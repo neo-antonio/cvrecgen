@@ -340,8 +340,9 @@ async function postBlind_(payload, failMsg) {
 }
 
 // Every purchased item bills to Finance (portfolio-flagged or not, e.g. packaging supplies);
-// portfolio-flagged items also get a new Cards row.
-async function syncPortfolio(d) {
+// portfolio-flagged items also get a new Cards row. The receipt image itself is archived to
+// Drive so it can be linked back to from Portfolio/Finance cards and the receipts archive.
+async function syncPortfolio(d, receiptPhoto) {
   if (!CONFIG.portfolio.endpoint || !d.items.length) return;
   const payload = {
     method: 'POST',
@@ -349,14 +350,17 @@ async function syncPortfolio(d) {
     body: JSON.stringify({
       action: 'purchase', secret: CONFIG.portfolio.secret,
       date: d.date, seller: d.party, people: d.people, pay: d.pay, notes: d.notes,
-      items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: i.portfolio }))
+      items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: i.portfolio })),
+      receiptPhoto
     })
   };
   await postBlind_(payload, 'Receipt saved, but Finance sync failed (offline?).');
 }
 
-// Cards sold move to "shipping" (or straight to "shipped" if there's no shipping at all).
-async function syncSale(d) {
+// Cards sold always move to "shipping" so they show up under To ship, even when there's no
+// shipping fee (care of buyer with no cost, or a straight meet-up) — the shipping tab is where
+// you confirm it actually went out, and that's also what creates the Finance entry to record.
+async function syncSale(d, receiptPhoto) {
   const sold = d.items.filter(i => i.cardId);
   if (!CONFIG.portfolio.endpoint || !sold.length) return;
   const payload = {
@@ -366,11 +370,19 @@ async function syncSale(d) {
       action: 'sell', secret: CONFIG.portfolio.secret,
       date: d.date, buyer: d.party, notes: d.notes,
       shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
-      items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost }))
+      items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
+      receiptPhoto
     })
   };
   await postBlind_(payload, 'Receipt saved, but portfolio/shipping sync failed (offline?).');
 }
+
+const blobToDataUrl = blob => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(r.result);
+  r.onerror = () => rej(r.error);
+  r.readAsDataURL(blob);
+});
 
 function render(d, logo) {
   const c = document.createElement('canvas'); c.width = c.height = 1080;
@@ -402,7 +414,8 @@ async function generate() {
     const now = new Date();
     const name = `CVRecGen-${d.mode}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.jpg`;
     showPreview(blob, name);
-    if (d.mode === 'purchase') syncPortfolio(d); else syncSale(d);
+    const receiptPhoto = { kind: 'camera', src: await blobToDataUrl(blob) };
+    if (d.mode === 'purchase') syncPortfolio(d, receiptPhoto); else syncSale(d, receiptPhoto);
     if (skipped) toast('Logo skipped. Open the app from http://localhost or your website to include it.');
   } catch (e) {
     console.error(e);

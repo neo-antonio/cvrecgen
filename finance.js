@@ -24,6 +24,11 @@ function jsonp(url) {
   });
 }
 
+function toast(m) {
+  const t = document.getElementById('finToast'); t.textContent = m; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600);
+}
+
 function fmtDay(v) {
   if (!v) return '';
   const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -32,13 +37,18 @@ function fmtDay(v) {
 }
 
 function rowHtml(it, recordable) {
-  return `<div class="port-card fin-row" data-id="${it.id}">
-      <label class="fin-chk">${recordable ? '<input type="checkbox" class="fin-mark">' : '<span class="fin-done">&check;</span>'}</label>
-      <div class="port-info">
-        <b>${escFin(it.description)}</b>
-        <span>${fmtDay(it.date)}${it.payMethod ? ' \u00b7 ' + escFin(it.payMethod) : ''}</span>
+  const receiptBtn = it.receipt ? `<button type="button" class="ghost sm fin-receipt" data-url="${escFin(it.receipt)}">Receipt</button>` : '';
+  const revertBtn = !recordable ? `<button type="button" class="ghost sm fin-unrecord" data-id="${it.id}">Undo</button>` : '';
+  return `<div class="fin-item" data-id="${it.id}">
+      <div class="port-card fin-row">
+        <label class="fin-chk">${recordable ? '<input type="checkbox" class="fin-mark">' : '<span class="fin-done">&check;</span>'}</label>
+        <div class="port-info">
+          <b>${escFin(it.description)}</b>
+          <span>${fmtDay(it.date)}${it.payMethod ? ' \u00b7 ' + escFin(it.payMethod) : ''}</span>
+        </div>
+        <div class="port-cost">${finPhp(it.amount)}</div>
       </div>
-      <div class="port-cost">${finPhp(it.amount)}</div>
+      <div class="fin-item-acts">${receiptBtn}${revertBtn}<button type="button" class="ghost sm fin-delete" data-id="${it.id}">Delete</button></div>
     </div>`;
 }
 
@@ -80,7 +90,7 @@ $finRefresh.onclick = loadFinance;
 
 $finList.addEventListener('change', async e => {
   if (!e.target.classList.contains('fin-mark')) return;
-  const row = e.target.closest('.fin-row');
+  const row = e.target.closest('.fin-item');
   const id = row.dataset.id;
   e.target.disabled = true;
   try {
@@ -91,8 +101,43 @@ $finList.addEventListener('change', async e => {
   } catch (err) {
     console.warn('Record failed', err);
     e.target.disabled = false; e.target.checked = false;
-    row.classList.add('fin-row-error');
-    setTimeout(() => row.classList.remove('fin-row-error'), 1500);
+    row.querySelector('.fin-row').classList.add('fin-row-error');
+    setTimeout(() => row.querySelector('.fin-row').classList.remove('fin-row-error'), 1500);
+  }
+});
+
+$finList.addEventListener('click', async e => {
+  const receiptBtn = e.target.closest('.fin-receipt');
+  if (receiptBtn) { window.open(receiptBtn.dataset.url, '_blank'); return; }
+
+  const delBtn = e.target.closest('.fin-delete');
+  if (delBtn) {
+    if (!confirm('Delete this Finance entry permanently?')) return;
+    delBtn.disabled = true; delBtn.textContent = 'Deleting\u2026';
+    try {
+      const url = CONFIG.portfolio.endpoint + '?action=deleteFinance&financeId=' + encodeURIComponent(delBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+      const data = await jsonp(url);
+      if (!data.ok) throw new Error(data.error || 'Request failed');
+      await loadFinance();
+    } catch (err) {
+      delBtn.disabled = false; delBtn.textContent = 'Delete';
+      toast('Could not delete: ' + err.message);
+    }
+    return;
+  }
+
+  const undoBtn = e.target.closest('.fin-unrecord');
+  if (undoBtn) {
+    undoBtn.disabled = true; undoBtn.textContent = 'Undoing\u2026';
+    try {
+      const url = CONFIG.portfolio.endpoint + '?action=unrecord&financeId=' + encodeURIComponent(undoBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+      const data = await jsonp(url);
+      if (!data.ok) throw new Error(data.error || 'Request failed');
+      await loadFinance();
+    } catch (err) {
+      undoBtn.disabled = false; undoBtn.textContent = 'Undo';
+      toast('Could not undo: ' + err.message);
+    }
   }
 });
 

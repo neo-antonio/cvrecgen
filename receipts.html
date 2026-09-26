@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>trackello &ndash; Finance</title>
+<title>trackello &ndash; Receipts</title>
 <meta name="theme-color" content="#f7f7f7">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
@@ -20,27 +20,28 @@
 <body>
 <header class="top">
   <div class="hbar">
-    <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
-    <h2>Finance</h2>
+    <a href="receipt.html" class="back" aria-label="Back to receipt">&lsaquo;</a>
+    <h2>Receipts</h2>
     <span class="hbar-spacer" aria-hidden="true"></span>
   </div>
   <nav class="tabs" role="tablist">
-    <button type="button" class="tab active" data-ftab="torecord" role="tab">To record</button>
-    <button type="button" class="tab" data-ftab="recorded" role="tab">Recorded</button>
+    <button type="button" class="tab active" data-rtab="all" role="tab">All</button>
+    <button type="button" class="tab" data-rtab="purchase" role="tab">Purchases</button>
+    <button type="button" class="tab" data-rtab="sale" role="tab">Sales</button>
   </nav>
 </header>
 
 <main class="port-wrap">
-  <div class="port-summary">
-    <span>Total</span>
-    <b id="finTotal">PHP 0.00</b>
-    <button type="button" class="ghost sm" id="finRefresh">Refresh</button>
-  </div>
-  <p class="stub-note" id="finState">Loading&hellip;</p>
-  <div id="finList" class="port-list" hidden></div>
+  <p class="stub-note" id="recState">Loading&hellip;</p>
+  <div id="recList" class="receipt-grid" hidden></div>
 </main>
 
-<div class="toast" id="finToast" hidden></div>
+<div class="modal" id="imgView" hidden>
+  <div class="sheet small">
+    <img id="imgViewImg" alt="">
+    <div class="acts"><button type="button" class="ghost" id="imgViewClose">Close</button></div>
+  </div>
+</div>
 
 <footer class="site-footer">
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
@@ -48,6 +49,6 @@
 </footer>
 <script src="boot.js"></script>
 <script src="config.js"></script>
-<script src="finance.js"></script>
+<script src="receipts.js"></script>
 </body>
 </html>

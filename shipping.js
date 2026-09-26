@@ -39,7 +39,7 @@ function fmtDay(v) {
 }
 
 function cardHtml(it, isToShip) {
-  const img = it.photo ? `<img src="${it.photo}" alt="${escShip(it.name)}" loading="lazy">` : `<div class="port-noimg">No photo</div>`;
+  const img = it.photo ? `<img src="${it.photo}" alt="${escShip(it.name)}" loading="lazy" class="ship-clickphoto" data-full="${it.photo}">` : `<div class="port-noimg">No photo</div>`;
   const careLine = CARE_LABEL[it.shipType] || it.shipType || '';
   const metaLines = [
     `Sold to ${escShip(it.soldTo || '\u2014')} for ${shipPhp(it.soldPrice)}`,
@@ -48,10 +48,11 @@ function cardHtml(it, isToShip) {
       ? (it.scheduledDate ? `Scheduled ${fmtDay(it.scheduledDate)}` : 'No schedule set')
       : `Shipped ${fmtDay(it.shippedDate)}`
   ];
-  const proof = !isToShip && it.proofPhoto ? `<div class="port-thumb" style="width:36px;height:36px"><img src="${it.proofPhoto}" alt="Proof of shipment"></div>` : '';
+  const proof = !isToShip && it.proofPhoto ? `<div class="port-thumb" style="width:36px;height:36px"><img src="${it.proofPhoto}" alt="Proof of shipment" class="ship-clickphoto" data-full="${it.proofPhoto}"></div>` : '';
+  const receiptBtn = it.saleReceipt ? `<button type="button" class="ghost sm ship-receipt" data-url="${escShip(it.saleReceipt)}">Receipt</button>` : '';
   const actions = isToShip
-    ? `<div class="ship-actions"><button type="button" class="ghost sm ship-mark" data-id="${it.id}">Mark shipped</button></div>`
-    : `<div class="ship-actions">${proof}<button type="button" class="ghost sm ship-addphoto" data-id="${it.id}">${it.proofPhoto ? 'Replace photo' : 'Add photo'}</button></div>`;
+    ? `<div class="ship-actions"><button type="button" class="ghost sm ship-mark" data-id="${it.id}">Mark shipped</button>${receiptBtn}<button type="button" class="ghost sm ship-delete" data-id="${it.id}">Delete</button></div>`
+    : `<div class="ship-actions">${proof}<button type="button" class="ghost sm ship-addphoto" data-id="${it.id}">${it.proofPhoto ? 'Replace photo' : 'Add photo'}</button><button type="button" class="ghost sm ship-revert" data-id="${it.id}">Revert</button>${receiptBtn}</div>`;
   return `<div class="ship-card" data-id="${it.id}">
       <div class="ship-top">
         <div class="port-thumb">${img}</div>
@@ -99,6 +100,15 @@ document.querySelectorAll('.tab[data-stab]').forEach(t => t.onclick = () => {
 $shipRefresh.onclick = loadShipping;
 
 $shipList.addEventListener('click', async e => {
+  const photo = e.target.closest('.ship-clickphoto');
+  if (photo) {
+    document.getElementById('imgViewImg').src = photo.dataset.full;
+    document.getElementById('imgView').hidden = false;
+    return;
+  }
+  const receiptBtn = e.target.closest('.ship-receipt');
+  if (receiptBtn) { window.open(receiptBtn.dataset.url, '_blank'); return; }
+
   const markBtn = e.target.closest('.ship-mark');
   if (markBtn) {
     markBtn.disabled = true; markBtn.textContent = 'Marking\u2026';
@@ -114,9 +124,44 @@ $shipList.addEventListener('click', async e => {
     }
     return;
   }
+
+  const revertBtn = e.target.closest('.ship-revert');
+  if (revertBtn) {
+    revertBtn.disabled = true; revertBtn.textContent = 'Reverting\u2026';
+    try {
+      const url = CONFIG.portfolio.endpoint + '?action=unmarkShipped&cardId=' + encodeURIComponent(revertBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+      const data = await jsonp(url);
+      if (!data.ok) throw new Error(data.error || 'Request failed');
+      await loadShipping();
+    } catch (err) {
+      revertBtn.disabled = false; revertBtn.textContent = 'Revert';
+      toast('Could not revert: ' + err.message);
+    }
+    return;
+  }
+
+  const delBtn = e.target.closest('.ship-delete');
+  if (delBtn) {
+    if (!confirm('Delete this card permanently? This cannot be undone.')) return;
+    delBtn.disabled = true; delBtn.textContent = 'Deleting\u2026';
+    try {
+      const url = CONFIG.portfolio.endpoint + '?action=deleteCard&cardId=' + encodeURIComponent(delBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+      const data = await jsonp(url);
+      if (!data.ok) throw new Error(data.error || 'Request failed');
+      await loadShipping();
+    } catch (err) {
+      delBtn.disabled = false; delBtn.textContent = 'Delete';
+      toast('Could not delete: ' + err.message);
+    }
+    return;
+  }
+
   const photoBtn = e.target.closest('.ship-addphoto');
   if (photoBtn) openShipPhotoSheet(photoBtn.dataset.id);
 });
+
+document.getElementById('imgViewClose').onclick = () => document.getElementById('imgView').hidden = true;
+document.getElementById('imgView').addEventListener('click', e => { if (e.target.id === 'imgView') document.getElementById('imgView').hidden = true; });
 
 /* ---------- Proof-of-shipment photo modal ---------- */
 function openShipPhotoSheet(cardId) {
