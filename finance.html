@@ -24,10 +24,20 @@
     <h2>Finance</h2>
     <span class="hbar-spacer" aria-hidden="true"></span>
   </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-ftab="torecord" role="tab">To record</button>
+    <button type="button" class="tab" data-ftab="recorded" role="tab">Recorded</button>
+  </nav>
 </header>
 
-<main class="stub">
-  <p class="stub-note">See your cash flow and balances here. This section is coming soon.</p>
+<main class="port-wrap">
+  <div class="port-summary">
+    <span>Total</span>
+    <b id="finTotal">PHP 0.00</b>
+    <button type="button" class="ghost sm" id="finRefresh">Refresh</button>
+  </div>
+  <p class="stub-note" id="finState">Loading&hellip;</p>
+  <div id="finList" class="port-list" hidden></div>
 </main>
 
 <footer class="site-footer">
@@ -35,5 +45,7 @@
   <p>trackello <span class="ver">v1.1</span></p>
 </footer>
 <script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="finance.js"></script>
 </body>
 </html>

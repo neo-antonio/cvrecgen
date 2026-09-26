@@ -1,6 +1,6 @@
-const V = 'cv-recgen-v10';
+const V = 'cv-recgen-v11';
 const SHELL = ['./', 'index.html', 'receipt.html', 'portfolio.html', 'shipping.html', 'finance.html', 'marketing.html', 'settings.html',
-  'styles.css', 'config.js', 'app.js', 'boot.js', 'portfolio.js', 'manifest.webmanifest',
+  'styles.css', 'config.js', 'app.js', 'boot.js', 'portfolio.js', 'finance.js', 'shipping.js', 'manifest.webmanifest',
   'icons/logo.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-512-maskable.png',
   'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
 self.addEventListener('install', e => {

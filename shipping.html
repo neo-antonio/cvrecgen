@@ -24,16 +24,48 @@
     <h2>Shipping</h2>
     <span class="hbar-spacer" aria-hidden="true"></span>
   </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-stab="toship" role="tab">To ship</button>
+    <button type="button" class="tab" data-stab="shipped" role="tab">Shipped</button>
+  </nav>
 </header>
 
-<main class="stub">
-  <p class="stub-note">Manage outgoing and incoming shipments here. This section is coming soon.</p>
+<main class="port-wrap">
+  <div class="port-summary">
+    <span>Total shipping</span>
+    <b id="shipTotal">PHP 0.00</b>
+    <button type="button" class="ghost sm" id="shipRefresh">Refresh</button>
+  </div>
+  <p class="stub-note" id="shipState">Loading&hellip;</p>
+  <div id="shipList" class="port-list" hidden></div>
 </main>
+
+<input type="file" accept="image/*" id="shipFileCamera" capture="environment" hidden>
+<input type="file" accept="image/*" id="shipFileUpload" hidden>
+
+<div class="modal" id="shipPhotoSheet" hidden>
+  <div class="sheet small">
+    <h3>Attach proof of shipment</h3>
+    <div class="acts">
+      <button type="button" class="ghost" id="shipPsCamera">Take a picture</button>
+      <button type="button" class="ghost" id="shipPsUpload">Upload from device</button>
+      <button type="button" class="ghost" id="shipPsLink">Paste image link</button>
+      <div class="field" id="shipPsLinkField" hidden>
+        <input type="url" id="shipPsLinkInput" placeholder="https://example.com/proof.jpg" inputmode="url">
+        <button type="button" class="go sm" id="shipPsLinkUse">Use link</button>
+      </div>
+      <button type="button" class="ghost" id="shipPsCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="shipToast" hidden></div>
 
 <footer class="site-footer">
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
   <p>trackello <span class="ver">v1.1</span></p>
 </footer>
 <script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="shipping.js"></script>
 </body>
 </html>

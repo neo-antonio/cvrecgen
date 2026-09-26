@@ -9,7 +9,37 @@ const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad(
 const fmtDate = v => { const [y, m, d] = v.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' }); };
 const shipType = () => $('input[name=st]:checked').value;
 const SHIP_LABEL = { buyer: 'c/o buyer', us: 'c/o us', none: 'No shipping' };
+const escHtml = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let mode = 'purchase';
+
+// Apps Script GET responses aren't reliably CORS-readable via fetch(), so reads go through
+// JSONP (a <script> tag) instead — see portfolio.js for the same helper.
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cbName = 'cvCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+    const script = document.createElement('script');
+    let settled = false;
+    const cleanup = () => { delete window[cbName]; script.remove(); clearTimeout(timer); };
+    const timer = setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('Timed out')); } }, 15000);
+    window[cbName] = data => { if (!settled) { settled = true; cleanup(); resolve(data); } };
+    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
+    script.onerror = () => { if (!settled) { settled = true; cleanup(); reject(new Error('Script load failed')); } };
+    document.body.appendChild(script);
+  });
+}
+
+let onhandCards = [];
+async function loadOnhandCards() {
+  if (!CONFIG.portfolio.endpoint) return;
+  try {
+    const url = CONFIG.portfolio.endpoint + '?action=onhandCards&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+    const data = await jsonp(url);
+    onhandCards = (data && data.ok && data.cards) || [];
+  } catch (err) {
+    console.warn('Could not load portfolio cards for sale picker', err);
+    onhandCards = [];
+  }
+}
 
 /* ---------- Items ---------- */
 const CAMERA_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.4"/></svg>';
@@ -22,13 +52,25 @@ function addItem() {
   const block = document.createElement('div');
   block.className = 'item-block';
   block.dataset.id = id;
-  block.innerHTML = `<div class="item">
-      <button type="button" class="photo-btn" data-id="${id}" aria-label="Add photo">${CAMERA_ICON}</button>
-      <input class="in-name" placeholder="Item name" autocomplete="off">
-      <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00">
-      <button type="button" class="x" aria-label="Remove item">&times;</button>
-    </div>
-    <label class="port-chk"><input type="checkbox" class="in-port" checked><span>Record to portfolio</span></label>`;
+  if (mode === 'sold') {
+    const opts = onhandCards.map(c => `<option value="${c.id}" data-name="${escHtml(c.name)}">${escHtml(c.name)} \u2014 bought ${php(c.cost)}</option>`).join('');
+    block.innerHTML = `<div class="item">
+        <select class="in-card">
+          <option value="">${onhandCards.length ? 'Select a card\u2026' : 'No onhand cards found'}</option>
+          ${opts}
+        </select>
+        <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Sold price">
+        <button type="button" class="x" aria-label="Remove item">&times;</button>
+      </div>`;
+  } else {
+    block.innerHTML = `<div class="item">
+        <button type="button" class="photo-btn" data-id="${id}" aria-label="Add photo">${CAMERA_ICON}</button>
+        <input class="in-name" placeholder="Item name" autocomplete="off">
+        <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00">
+        <button type="button" class="x" aria-label="Remove item">&times;</button>
+      </div>
+      <label class="port-chk"><input type="checkbox" class="in-port" checked><span>Record to portfolio</span></label>`;
+  }
   $('#items').append(block);
   update();
 }
@@ -38,13 +80,28 @@ $('#items').addEventListener('click', e => {
   const pb = e.target.closest('.photo-btn'); if (pb) openPhotoSheet(pb.dataset.id);
 });
 $('#items').addEventListener('input', update);
-const items = () => $$('.item-block').map(b => ({
-  id: b.dataset.id,
-  name: b.querySelector('.in-name').value.trim(),
-  cost: parseFloat(b.querySelector('.in-cost').value) || 0,
-  portfolio: mode === 'purchase' && b.querySelector('.in-port').checked,
-  photo: itemPhotos[b.dataset.id] || null
-})).filter(i => i.name || i.cost);
+const items = () => $$('.item-block').map(b => {
+  if (mode === 'sold') {
+    const sel = b.querySelector('.in-card');
+    const opt = sel && sel.selectedOptions[0];
+    return {
+      id: b.dataset.id,
+      cardId: sel ? sel.value : '',
+      name: (opt && opt.dataset.name) || '',
+      cost: parseFloat(b.querySelector('.in-cost').value) || 0,
+      portfolio: false,
+      photo: null
+    };
+  }
+  return {
+    id: b.dataset.id,
+    cardId: '',
+    name: b.querySelector('.in-name').value.trim(),
+    cost: parseFloat(b.querySelector('.in-cost').value) || 0,
+    portfolio: mode === 'purchase' && b.querySelector('.in-port').checked,
+    photo: itemPhotos[b.dataset.id] || null
+  };
+}).filter(i => i.name || i.cost);
 const subtotal = () => items().reduce((a, i) => a + i.cost, 0);
 
 /* ---------- Item photo sheet ---------- */
@@ -111,7 +168,7 @@ function people() {
 }
 
 /* ---------- Mode + UI sync ---------- */
-function setMode(m) {
+async function setMode(m) {
   mode = m;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.mode === m));
   $('#items').classList.toggle('mode-purchase', m === 'purchase');
@@ -121,6 +178,12 @@ function setMode(m) {
   $('#lPay').textContent = p ? 'Purchased using' : 'Received in';
   $('#lTotal').textContent = p ? 'Total spent' : 'Total received';
   $('#notes').placeholder = p ? 'Add notes e.g. box size, supplier link.' : 'Add notes e.g. excess cash from shipping overpay, for CV storing, for reimbursements';
+  // item shape (free text vs card picker) differs enough between modes that we reset on switch
+  Object.keys(itemPhotos).forEach(k => delete itemPhotos[k]);
+  $('#items').innerHTML = '';
+  itemSeq = 0;
+  if (m === 'sold') { $('#items').innerHTML = '<p class="stub-note">Loading onhand cards\u2026</p>'; await loadOnhandCards(); $('#items').innerHTML = ''; }
+  addItem();
   update();
 }
 $$('.tab').forEach(t => t.onclick = () => setMode(t.dataset.mode));
@@ -252,19 +315,8 @@ function draw(x, d, s, dry, logo) {
 
 const loadImg = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
 
-/* ---------- Portfolio sync (Google Sheets via Apps Script) ---------- */
-async function syncPortfolio(d) {
-  if (!CONFIG.portfolio.endpoint) return;  // not set up yet — see apps-script/Code.gs
-  const flagged = d.items.filter(i => i.portfolio);
-  if (!flagged.length) return;
-  const payload = {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // avoids a CORS preflight to Apps Script
-    body: JSON.stringify({
-      secret: CONFIG.portfolio.secret, date: d.date, seller: d.party, people: d.people, notes: d.notes,
-      items: flagged.map(i => ({ name: i.name, cost: i.cost, photo: i.photo }))
-    })
-  };
+/* ---------- Purchase / sale sync (Google Sheets via Apps Script) ---------- */
+async function postBlind_(payload, failMsg) {
   try {
     // Try a normal request first so we can read back real success/failure.
     const res = await fetch(CONFIG.portfolio.endpoint, payload);
@@ -272,8 +324,8 @@ async function syncPortfolio(d) {
     try { data = await res.json(); } catch (_) {}
     if (!res.ok || !data || data.ok !== true) {
       const msg = (data && data.error) || `HTTP ${res.status}`;
-      console.warn('Portfolio sync rejected:', msg, data);
-      toast('Portfolio sync failed: ' + msg);
+      console.warn('Sync rejected:', msg, data);
+      toast('Sync failed: ' + msg);
     }
   } catch (err) {
     // Google Apps Script often skips CORS headers on POST responses, which fetch()
@@ -281,10 +333,43 @@ async function syncPortfolio(d) {
     // Fall back to a no-cors request: it still reaches the script and gets executed,
     // we just can't read anything back — including a wrong-secret rejection — so
     // check your Sheet the first few times to be sure it's actually landing.
-    console.warn('Portfolio sync: readable response blocked (likely CORS), retrying blind.', err);
+    console.warn('Sync: readable response blocked (likely CORS), retrying blind.', err);
     try { await fetch(CONFIG.portfolio.endpoint, { ...payload, mode: 'no-cors' }); }
-    catch (err2) { console.warn('Portfolio sync failed outright', err2); toast('Receipt saved, but portfolio sync failed (offline?).'); }
+    catch (err2) { console.warn('Sync failed outright', err2); toast(failMsg); }
   }
+}
+
+// Every purchased item bills to Finance (portfolio-flagged or not, e.g. packaging supplies);
+// portfolio-flagged items also get a new Cards row.
+async function syncPortfolio(d) {
+  if (!CONFIG.portfolio.endpoint || !d.items.length) return;
+  const payload = {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // avoids a CORS preflight to Apps Script
+    body: JSON.stringify({
+      action: 'purchase', secret: CONFIG.portfolio.secret,
+      date: d.date, seller: d.party, people: d.people, pay: d.pay, notes: d.notes,
+      items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: i.portfolio }))
+    })
+  };
+  await postBlind_(payload, 'Receipt saved, but Finance sync failed (offline?).');
+}
+
+// Cards sold move to "shipping" (or straight to "shipped" if there's no shipping at all).
+async function syncSale(d) {
+  const sold = d.items.filter(i => i.cardId);
+  if (!CONFIG.portfolio.endpoint || !sold.length) return;
+  const payload = {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      action: 'sell', secret: CONFIG.portfolio.secret,
+      date: d.date, buyer: d.party, notes: d.notes,
+      shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
+      items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost }))
+    })
+  };
+  await postBlind_(payload, 'Receipt saved, but portfolio/shipping sync failed (offline?).');
 }
 
 function render(d, logo) {
@@ -299,6 +384,7 @@ function render(d, logo) {
 async function generate() {
   const d = collect();
   if (!d.items.length) return toast('Add at least one item.');
+  if (d.mode === 'sold' && d.items.some(i => !i.cardId)) return toast('Select a card for every item before generating.');
   $('#gen').disabled = true;
   try {
     await Promise.all([
@@ -316,7 +402,7 @@ async function generate() {
     const now = new Date();
     const name = `CVRecGen-${d.mode}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.jpg`;
     showPreview(blob, name);
-    if (d.mode === 'purchase') syncPortfolio(d);
+    if (d.mode === 'purchase') syncPortfolio(d); else syncSale(d);
     if (skipped) toast('Logo skipped. Open the app from http://localhost or your website to include it.');
   } catch (e) {
     console.error(e);
@@ -345,5 +431,4 @@ function toast(m) {
 
 /* ---------- Init ---------- */
 $('#date').value = todayStr();
-addItem();
 setMode('purchase');
