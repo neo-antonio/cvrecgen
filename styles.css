@@ -103,6 +103,24 @@ body.home-body{padding-top:0}
 .stub{padding-top:40px;padding-bottom:20px}
 .stub-note{color:var(--mut);font-size:14px;line-height:1.6}
 
+/* ---------- Portfolio ---------- */
+.port-wrap{padding-top:18px}
+.port-summary{display:flex;align-items:baseline;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.port-summary span{font:500 12px Poppins,sans-serif;color:var(--mut)}
+.port-summary b{font:400 20px "Archivo Black",Poppins,sans-serif;margin-right:auto}
+.port-summary .ghost.sm{align-self:center}
+.port-list{display:flex;flex-direction:column;gap:10px}
+.port-card{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;
+  padding:8px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+.port-thumb{width:52px;height:52px;border-radius:8px;overflow:hidden;background:#ececec;
+  display:flex;align-items:center;justify-content:center;flex:none}
+.port-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.port-noimg{font-size:9px;color:var(--mut);text-align:center;padding:2px;line-height:1.3}
+.port-info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.port-info b{font:500 14px Poppins,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.port-info span{font-size:11px;color:var(--mut)}
+.port-cost{font:600 13px Poppins,sans-serif;white-space:nowrap}
+
 /* ---------- Global footer ---------- */
 .site-footer{max-width:560px;margin:36px auto 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));
   text-align:center;border-top:1px solid var(--line);color:var(--mut);font:400 12px/1.6 Poppins,sans-serif}

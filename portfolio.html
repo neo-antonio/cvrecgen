@@ -26,8 +26,14 @@
   </div>
 </header>
 
-<main class="stub">
-  <p class="stub-note">Track your basketball card collection here. This section is coming soon.</p>
+<main class="port-wrap">
+  <div class="port-summary">
+    <span>Total value</span>
+    <b id="portTotal">PHP 0.00</b>
+    <button type="button" class="ghost sm" id="portRefresh">Refresh</button>
+  </div>
+  <p class="stub-note" id="portState">Loading&hellip;</p>
+  <div id="portList" class="port-list" hidden></div>
 </main>
 
 <footer class="site-footer">
@@ -35,5 +41,7 @@
   <p>trackello <span class="ver">v1.1</span></p>
 </footer>
 <script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="portfolio.js"></script>
 </body>
 </html>
