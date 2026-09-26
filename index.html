@@ -3,113 +3,59 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>CV RecGen</title>
-<meta name="theme-color" content="#ffffff">
+<title>trackello</title>
+<meta name="theme-color" content="#000000">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="CV RecGen">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="trackello">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
-<body>
-<header class="top">
-  <div class="brand">
-    <img src="icons/logo.png" alt="" id="logo" onerror="this.remove()">
-    <h1>CV RecGen</h1>
-  </div>
-  <nav class="tabs" role="tablist">
-    <button type="button" class="tab active" data-mode="purchase" role="tab">Purchase</button>
-    <button type="button" class="tab" data-mode="sold" role="tab">Sold</button>
-  </nav>
+<body class="home-body">
+<header class="home-header">
+  <h1>trackello</h1>
+  <p class="home-sub">Tracker for Court Vision</p>
 </header>
 
-<main>
-  <div class="field">
-    <label for="date">Date</label>
-    <input type="date" id="date">
+<main class="launcher">
+  <div class="grid6">
+    <a class="tile" href="receipt.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.2h12v19.6l-2-1.1-2 1.1-2-1.1-2 1.1-2-1.1-2 1.1z"/><line x1="8.2" y1="7" x2="15.8" y2="7"/><line x1="8.2" y1="11" x2="15.8" y2="11"/><line x1="8.2" y1="15" x2="13" y2="15"/></svg>
+      <span>Receipt</span>
+    </a>
+    <a class="tile" href="portfolio.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3v18M5.6 5.6c2.9 3 2.9 9.9 0 12.8M18.4 5.6c-2.9 3-2.9 9.9 0 12.8"/></svg>
+      <span>Portfolio</span>
+    </a>
+    <a class="tile" href="shipping.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 6.5h12.5v10.5h-12.5z"/><path d="M14 9.8h4.2l3.3 3.3v3.9h-7.5z"/><circle cx="6" cy="18.6" r="1.9"/><circle cx="17.8" cy="18.6" r="1.9"/></svg>
+      <span>Shipping</span>
+    </a>
+    <a class="tile" href="finance.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5h14.5a3 3 0 013 3v8a3 3 0 01-3 3H6a3 3 0 01-3-3z"/><path d="M3 6.5V5a2 2 0 012-2h9.5"/><circle cx="16.3" cy="13.7" r="1.3" fill="currentColor" stroke="none"/></svg>
+      <span>Finance</span>
+    </a>
+    <a class="tile" href="marketing.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7.8" r="4"/><path d="M4.2 20.5c0-4.3 3.5-6.8 7.8-6.8s7.8 2.5 7.8 6.8"/></svg>
+      <span>Marketing</span>
+    </a>
+    <a class="tile" href="settings.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5.6"/><circle cx="12" cy="12" r="2"/><line x1="18.2" y1="12" x2="21.3" y2="12"/><line x1="16.38" y1="16.38" x2="18.58" y2="18.58"/><line x1="12" y1="18.2" x2="12" y2="21.3"/><line x1="7.62" y1="16.38" x2="5.42" y2="18.58"/><line x1="5.8" y1="12" x2="2.7" y2="12"/><line x1="7.62" y1="7.62" x2="5.42" y2="5.42"/><line x1="12" y1="5.8" x2="12" y2="2.7"/><line x1="16.38" y1="7.62" x2="18.58" y2="5.42"/></svg>
+      <span>Settings</span>
+    </a>
   </div>
-
-  <div class="field">
-    <label for="party" id="lParty">Seller</label>
-    <input type="text" id="party" autocomplete="off">
-  </div>
-
-  <div class="field">
-    <label id="lPeople">Bought by</label>
-    <div class="ms" id="ms">
-      <button type="button" class="ms-btn" id="msBtn"><span id="msText" class="ph">Select name(s)</span><i></i></button>
-      <div class="ms-panel" id="msPanel" hidden></div>
-    </div>
-  </div>
-
-  <div class="field">
-    <label>Items</label>
-    <div id="items"></div>
-    <button type="button" class="ghost" id="addItem">+ Add item</button>
-  </div>
-
-  <div class="sum" id="subRow" hidden><span>Item subtotal</span><b id="subVal">PHP 0.00</b></div>
-
-  <div class="field" data-only="sold" hidden>
-    <label for="method">Shipping method</label>
-    <select id="method">
-      <option>LBC</option><option>Lalamove</option><option>Grab</option><option>Meet-up</option><option>Others</option>
-    </select>
-    <input type="text" id="methodOther" placeholder="Specify shipping method" hidden>
-  </div>
-
-  <div class="field">
-    <label for="ship">Shipping</label>
-    <div class="radios" data-only="sold" hidden>
-      <label class="rad"><input type="radio" name="st" value="buyer" checked><span>Care of buyer</span></label>
-      <label class="rad"><input type="radio" name="st" value="us"><span>Care of us</span></label>
-      <label class="rad"><input type="radio" name="st" value="none"><span>No shipping</span></label>
-    </div>
-    <div class="money"><em>PHP</em><input type="number" id="ship" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
-  </div>
-
-  <div class="field" data-only="sold" hidden>
-    <label for="sched">Scheduled shipping date <small>(optional)</small></label>
-    <div class="row">
-      <input type="date" id="sched">
-      <button type="button" class="ghost sm" id="schedClear">Clear</button>
-    </div>
-  </div>
-
-  <div class="field" id="deductRow" hidden>
-    <label for="deduct">Shipping deducted from</label>
-    <select id="deduct"><option>Cash</option><option>Maribank</option><option>Others</option></select>
-    <input type="text" id="deductOther" placeholder="Specify source" hidden>
-  </div>
-
-  <div class="sum total"><span id="lTotal">Total spent</span><b id="totalVal">PHP 0.00</b></div>
-
-  <div class="field">
-    <label for="notes">Notes</label>
-    <textarea id="notes" rows="3"></textarea>
-  </div>
-
-  <button type="button" class="go" id="gen">Generate receipt</button>
 </main>
 
-<div class="modal" id="modal" hidden>
-  <div class="sheet">
-    <img id="prevImg" alt="Generated receipt">
-    <div class="acts">
-      <a class="go" id="dl" download>Download JPG</a>
-      <button type="button" class="ghost" id="share" hidden>Share</button>
-      <button type="button" class="ghost" id="close">Close</button>
-    </div>
-  </div>
-</div>
-<div class="toast" id="toast" hidden></div>
-
-<script src="app.js"></script>
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+  <p>trackello <span class="ver">v1.1</span></p>
+</footer>
+<script src="boot.js"></script>
 </body>
 </html>

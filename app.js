@@ -2,7 +2,11 @@
 const CONFIG = {
   brand: 'CV RecGen',
   siteLink: 'Court Vision',   // printed at the bottom of every receipt
-  logo: 'icons/logo.png'          // printed at the top of every receipt
+  logo: 'icons/logo.png',         // printed at the top of every receipt
+  portfolio: {
+    endpoint: '',   // paste your deployed Apps Script Web App URL here (see apps-script/Code.gs)
+    secret: ''      // must match the SECRET constant in Code.gs
+  }
 };
 /* ====================== */
 
@@ -14,23 +18,90 @@ const pad = n => String(n).padStart(2, '0');
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const fmtDate = v => { const [y, m, d] = v.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' }); };
 const shipType = () => $('input[name=st]:checked').value;
-const SHIP_LABEL = { buyer: 'Care of buyer', us: 'Care of us', none: 'No shipping' };
+const SHIP_LABEL = { buyer: 'c/o buyer', us: 'c/o us', none: 'No shipping' };
 let mode = 'purchase';
 
 /* ---------- Items ---------- */
+const CAMERA_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.4"/></svg>';
+let itemSeq = 0;
+const itemPhotos = {};  // id -> {kind:'camera'|'upload'|'link', src}
+let activePhotoId = null;
+
 function addItem() {
-  const r = document.createElement('div');
-  r.className = 'item';
-  r.innerHTML = '<input class="in-name" placeholder="Item name" autocomplete="off"><input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"><button type="button" class="x" aria-label="Remove item">&times;</button>';
-  $('#items').append(r);
+  const id = 'p' + (++itemSeq);
+  const block = document.createElement('div');
+  block.className = 'item-block';
+  block.dataset.id = id;
+  block.innerHTML = `<div class="item">
+      <button type="button" class="photo-btn" data-id="${id}" aria-label="Add photo">${CAMERA_ICON}</button>
+      <input class="in-name" placeholder="Item name" autocomplete="off">
+      <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00">
+      <button type="button" class="x" aria-label="Remove item">&times;</button>
+    </div>
+    <label class="port-chk"><input type="checkbox" class="in-port" checked><span>Record to portfolio</span></label>`;
+  $('#items').append(block);
   update();
 }
 $('#addItem').onclick = () => { addItem(); $$('.in-name').pop().focus(); };
-$('#items').addEventListener('click', e => { if (e.target.classList.contains('x')) { e.target.parentNode.remove(); update(); } });
+$('#items').addEventListener('click', e => {
+  if (e.target.classList.contains('x')) { const b = e.target.closest('.item-block'); delete itemPhotos[b.dataset.id]; b.remove(); update(); }
+  const pb = e.target.closest('.photo-btn'); if (pb) openPhotoSheet(pb.dataset.id);
+});
 $('#items').addEventListener('input', update);
-const items = () => $$('.item').map(r => ({ name: r.querySelector('.in-name').value.trim(), cost: parseFloat(r.querySelector('.in-cost').value) || 0 })).filter(i => i.name || i.cost);
+const items = () => $$('.item-block').map(b => ({
+  id: b.dataset.id,
+  name: b.querySelector('.in-name').value.trim(),
+  cost: parseFloat(b.querySelector('.in-cost').value) || 0,
+  portfolio: mode === 'purchase' && b.querySelector('.in-port').checked,
+  photo: itemPhotos[b.dataset.id] || null
+})).filter(i => i.name || i.cost);
 const subtotal = () => items().reduce((a, i) => a + i.cost, 0);
+
+/* ---------- Item photo sheet ---------- */
+function updateThumb(id) {
+  const btn = $(`.photo-btn[data-id="${id}"]`);
+  if (!btn) return;
+  const p = itemPhotos[id];
+  btn.innerHTML = p ? `<img src="${p.src}" alt="">` : CAMERA_ICON;
+}
+function openPhotoSheet(id) {
+  activePhotoId = id;
+  $('#psLinkField').hidden = true;
+  $('#psLinkInput').value = '';
+  $('#psRemove').hidden = !itemPhotos[id];
+  $('#photoSheet').hidden = false;
+}
+function closePhotoSheet() { $('#photoSheet').hidden = true; activePhotoId = null; }
+$('#psCancel').onclick = closePhotoSheet;
+$('#photoSheet').addEventListener('click', e => { if (e.target.id === 'photoSheet') closePhotoSheet(); });
+$('#psCamera').onclick = () => $('#fileCamera').click();
+$('#psUpload').onclick = () => $('#fileUpload').click();
+$('#psLink').onclick = () => { $('#psLinkField').hidden = false; $('#psLinkInput').focus(); };
+$('#psRemove').onclick = () => { delete itemPhotos[activePhotoId]; updateThumb(activePhotoId); closePhotoSheet(); };
+$('#psLinkUse').onclick = () => {
+  const url = $('#psLinkInput').value.trim();
+  if (!url) return;
+  itemPhotos[activePhotoId] = { kind: 'link', src: url };
+  updateThumb(activePhotoId);
+  closePhotoSheet();
+};
+function handleFile(input, kind) {
+  input.addEventListener('change', () => {
+    const f = input.files[0]; input.value = '';
+    if (!f || !activePhotoId) return;
+    const id = activePhotoId;
+    const reader = new FileReader();
+    reader.onload = () => { itemPhotos[id] = { kind, src: reader.result }; updateThumb(id); };
+    reader.readAsDataURL(f);
+    closePhotoSheet();
+  });
+}
+handleFile($('#fileCamera'), 'camera');
+handleFile($('#fileUpload'), 'upload');
 const shipping = () => (mode === 'sold' && shipType() === 'none') ? 0 : (parseFloat($('#ship').value) || 0);
+// Purchase: shipping always counted in the total. Sold: shipping counts only when the buyer shoulders it (c/o buyer);
+// it's excluded when it's on us (c/o us) or when there's no shipping at all.
+const grandTotal = () => mode === 'purchase' ? subtotal() + shipping() : (shipType() === 'buyer' ? subtotal() + shipping() : subtotal());
 
 /* ---------- People multi-select ---------- */
 $('#msPanel').innerHTML = [...PEOPLE, 'Others'].map(p => `<label class="chk"><input type="checkbox" value="${p}"><span>${p}</span></label>`).join('') +
@@ -53,9 +124,11 @@ function people() {
 function setMode(m) {
   mode = m;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.mode === m));
+  $('#items').classList.toggle('mode-purchase', m === 'purchase');
   const p = m === 'purchase';
   $('#lParty').textContent = p ? 'Seller' : 'Buyer';
   $('#lPeople').textContent = p ? 'Bought by' : 'Sold by';
+  $('#lPay').textContent = p ? 'Purchased using' : 'Received in';
   $('#lTotal').textContent = p ? 'Total spent' : 'Total received';
   $('#notes').placeholder = p ? 'Add notes e.g. box size, supplier link.' : 'Add notes e.g. excess cash from shipping overpay, for CV storing, for reimbursements';
   update();
@@ -77,9 +150,10 @@ function update() {
     $('#deductOther').hidden = $('#deduct').value !== 'Others';
   } else $('#deductRow').hidden = true;
   $('#ship').disabled = mode === 'sold' && shipType() === 'none';
-  $('#totalVal').textContent = php(mode === 'purchase' ? subtotal() + shipping() : subtotal());
+  $('#payOther').hidden = $('#pay').value !== 'Others';
+  $('#totalVal').textContent = php(grandTotal());
 }
-['#ship', '#method', '#deduct'].forEach(s => $(s).addEventListener('input', update));
+['#ship', '#method', '#deduct', '#pay'].forEach(s => $(s).addEventListener('input', update));
 $$('input[name=st]').forEach(r => r.addEventListener('change', update));
 
 $('#sched').addEventListener('click', e => { if (!e.target.value) { e.target.value = todayStr(); try { e.target.showPicker(); } catch (_) {} } });
@@ -92,8 +166,9 @@ function collect() {
   return {
     mode, date: $('#date').value || todayStr(),
     party: $('#party').value.trim(), people: people().join(', '),
+    pay: $('#pay').value === 'Others' ? ($('#payOther').value.trim() || 'Others') : $('#pay').value,
     items: items(), multi: $$('.item').length > 1, sub: subtotal(), ship: shipping(),
-    total: sold ? subtotal() : subtotal() + shipping(),
+    total: grandTotal(),
     method: $('#method').value === 'Others' ? ($('#methodOther').value.trim() || 'Others') : $('#method').value,
     shipType: t, sched: $('#sched').value,
     deduct: $('#deduct').value === 'Others' ? ($('#deductOther').value.trim() || 'Others') : $('#deduct').value,
@@ -146,6 +221,7 @@ function draw(x, d, s, dry, logo) {
   row('Date', fmtDate(d.date));
   row(sold ? 'Buyer' : 'Seller', d.party);
   row(sold ? 'Sold by' : 'Bought by', d.people);
+  row(sold ? 'Received in' : 'Purchased using', d.pay);
   y += 8 * s; rule(y); y += 22 * s;
   sec('Items');
   d.items.forEach(i => {
@@ -186,6 +262,21 @@ function draw(x, d, s, dry, logo) {
 
 const loadImg = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
 
+/* ---------- Portfolio sync (Google Sheets via Apps Script) ---------- */
+function syncPortfolio(d) {
+  if (!CONFIG.portfolio.endpoint) return;  // not set up yet — see apps-script/Code.gs
+  const flagged = d.items.filter(i => i.portfolio);
+  if (!flagged.length) return;
+  fetch(CONFIG.portfolio.endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // avoids a CORS preflight to Apps Script
+    body: JSON.stringify({
+      secret: CONFIG.portfolio.secret, date: d.date, seller: d.party, people: d.people, notes: d.notes,
+      items: flagged.map(i => ({ name: i.name, cost: i.cost, photo: i.photo }))
+    })
+  }).catch(err => { console.warn('Portfolio sync failed', err); toast('Receipt saved, but portfolio sync failed (offline?).'); });
+}
+
 function render(d, logo) {
   const c = document.createElement('canvas'); c.width = c.height = 1080;
   const x = c.getContext('2d');
@@ -215,6 +306,7 @@ async function generate() {
     const now = new Date();
     const name = `CVRecGen-${d.mode}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.jpg`;
     showPreview(blob, name);
+    if (d.mode === 'purchase') syncPortfolio(d);
     if (skipped) toast('Logo skipped. Open the app from http://localhost or your website to include it.');
   } catch (e) {
     console.error(e);
@@ -245,4 +337,3 @@ function toast(m) {
 $('#date').value = todayStr();
 addItem();
 setMode('purchase');
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));

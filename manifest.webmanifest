@@ -1,13 +1,13 @@
 {
-  "name": "CV RecGen",
-  "short_name": "CV RecGen",
-  "description": "Purchase and sales receipt generator",
+  "name": "trackello",
+  "short_name": "trackello",
+  "description": "Court Vision operations hub: receipts, portfolio, shipping, finance, marketing and settings",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#f7f7f7",
+  "theme_color": "#f7f7f7",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },

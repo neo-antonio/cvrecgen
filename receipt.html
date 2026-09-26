@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>trackello &ndash; Receipt</title>
+<meta name="theme-color" content="#f7f7f7">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="trackello">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="hbar">
+    <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
+    <h2>Receipt</h2>
+    <span class="hbar-spacer" aria-hidden="true"></span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-mode="purchase" role="tab">Purchase</button>
+    <button type="button" class="tab" data-mode="sold" role="tab">Sold</button>
+  </nav>
+</header>
+
+<main>
+  <div class="field">
+    <label for="date">Date</label>
+    <input type="date" id="date">
+  </div>
+
+  <div class="field">
+    <label for="party" id="lParty">Seller</label>
+    <input type="text" id="party" autocomplete="off">
+  </div>
+
+  <div class="field">
+    <label id="lPeople">Bought by</label>
+    <div class="ms" id="ms">
+      <button type="button" class="ms-btn" id="msBtn"><span id="msText" class="ph">Select name(s)</span><i></i></button>
+      <div class="ms-panel" id="msPanel" hidden></div>
+    </div>
+  </div>
+
+  <div class="field">
+    <label id="lPay">Purchased using</label>
+    <select id="pay"><option>Cash</option><option>Maribank</option><option>Others</option></select>
+    <input type="text" id="payOther" placeholder="Specify" hidden>
+  </div>
+
+  <div class="field">
+    <label>Items</label>
+    <div id="items"></div>
+    <button type="button" class="ghost" id="addItem">+ Add item</button>
+  </div>
+
+  <div class="sum" id="subRow" hidden><span>Item subtotal</span><b id="subVal">PHP 0.00</b></div>
+
+  <div class="field" data-only="sold" hidden>
+    <label for="method">Shipping method</label>
+    <select id="method">
+      <option>LBC</option><option>Lalamove</option><option>Grab</option><option>Meet-up</option><option>Others</option>
+    </select>
+    <input type="text" id="methodOther" placeholder="Specify shipping method" hidden>
+  </div>
+
+  <div class="field">
+    <label for="ship">Shipping</label>
+    <div class="radios" data-only="sold" hidden>
+      <label class="rad"><input type="radio" name="st" value="buyer" checked><span>Care of buyer</span></label>
+      <label class="rad"><input type="radio" name="st" value="us"><span>Care of us</span></label>
+      <label class="rad"><input type="radio" name="st" value="none"><span>No shipping</span></label>
+    </div>
+    <div class="money"><em>PHP</em><input type="number" id="ship" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+  </div>
+
+  <div class="field" data-only="sold" hidden>
+    <label for="sched">Scheduled shipping date <small>(optional)</small></label>
+    <div class="row">
+      <input type="date" id="sched">
+      <button type="button" class="ghost sm" id="schedClear">Clear</button>
+    </div>
+  </div>
+
+  <div class="field" id="deductRow" hidden>
+    <label for="deduct">Shipping deducted from</label>
+    <select id="deduct"><option>Cash</option><option>Maribank</option><option>Others</option></select>
+    <input type="text" id="deductOther" placeholder="Specify source" hidden>
+  </div>
+
+  <div class="sum total"><span id="lTotal">Total spent</span><b id="totalVal">PHP 0.00</b></div>
+
+  <div class="field">
+    <label for="notes">Notes</label>
+    <textarea id="notes" rows="3"></textarea>
+  </div>
+
+  <button type="button" class="go" id="gen">Generate receipt</button>
+</main>
+
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+  <p>trackello <span class="ver">v1.1</span></p>
+</footer>
+
+<input type="file" accept="image/*" id="fileCamera" capture="environment" hidden>
+<input type="file" accept="image/*" id="fileUpload" hidden>
+
+<div class="modal" id="photoSheet" hidden>
+  <div class="sheet small">
+    <h3>Add a photo</h3>
+    <div class="acts">
+      <button type="button" class="ghost" id="psCamera">Take a picture</button>
+      <button type="button" class="ghost" id="psUpload">Upload from device</button>
+      <button type="button" class="ghost" id="psLink">Paste image link</button>
+      <div class="field" id="psLinkField" hidden>
+        <input type="url" id="psLinkInput" placeholder="https://example.com/photo.jpg" inputmode="url">
+        <button type="button" class="go sm" id="psLinkUse">Use link</button>
+      </div>
+      <button type="button" class="ghost" id="psRemove" hidden>Remove photo</button>
+      <button type="button" class="ghost" id="psCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="sheet">
+    <img id="prevImg" alt="Generated receipt">
+    <div class="acts">
+      <a class="go" id="dl" download>Download JPG</a>
+      <button type="button" class="ghost" id="share" hidden>Share</button>
+      <button type="button" class="ghost" id="close">Close</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="boot.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
