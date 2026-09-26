@@ -267,15 +267,17 @@ async function syncPortfolio(d) {
   if (!CONFIG.portfolio.endpoint) return;  // not set up yet — see apps-script/Code.gs
   const flagged = d.items.filter(i => i.portfolio);
   if (!flagged.length) return;
+  const payload = {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // avoids a CORS preflight to Apps Script
+    body: JSON.stringify({
+      secret: CONFIG.portfolio.secret, date: d.date, seller: d.party, people: d.people, notes: d.notes,
+      items: flagged.map(i => ({ name: i.name, cost: i.cost, photo: i.photo }))
+    })
+  };
   try {
-    const res = await fetch(CONFIG.portfolio.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // avoids a CORS preflight to Apps Script
-      body: JSON.stringify({
-        secret: CONFIG.portfolio.secret, date: d.date, seller: d.party, people: d.people, notes: d.notes,
-        items: flagged.map(i => ({ name: i.name, cost: i.cost, photo: i.photo }))
-      })
-    });
+    // Try a normal request first so we can read back real success/failure.
+    const res = await fetch(CONFIG.portfolio.endpoint, payload);
     let data = null;
     try { data = await res.json(); } catch (_) {}
     if (!res.ok || !data || data.ok !== true) {
@@ -284,8 +286,14 @@ async function syncPortfolio(d) {
       toast('Portfolio sync failed: ' + msg);
     }
   } catch (err) {
-    console.warn('Portfolio sync failed', err);
-    toast('Receipt saved, but portfolio sync failed (network/CORS?).');
+    // Google Apps Script often skips CORS headers on POST responses, which fetch()
+    // treats as a hard failure even though the script ran fine on Google's end.
+    // Fall back to a no-cors request: it still reaches the script and gets executed,
+    // we just can't read anything back — including a wrong-secret rejection — so
+    // check your Sheet the first few times to be sure it's actually landing.
+    console.warn('Portfolio sync: readable response blocked (likely CORS), retrying blind.', err);
+    try { await fetch(CONFIG.portfolio.endpoint, { ...payload, mode: 'no-cors' }); }
+    catch (err2) { console.warn('Portfolio sync failed outright', err2); toast('Receipt saved, but portfolio sync failed (offline?).'); }
   }
 }
 

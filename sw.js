@@ -1,4 +1,4 @@
-const V = 'cv-recgen-v6';
+const V = 'cv-recgen-v8';
 const SHELL = ['./', 'index.html', 'receipt.html', 'portfolio.html', 'shipping.html', 'finance.html', 'marketing.html', 'settings.html',
   'styles.css', 'app.js', 'boot.js', 'manifest.webmanifest',
   'icons/logo.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-512-maskable.png',
@@ -12,7 +12,7 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
+  if (e.request.method !== 'GET' || !e.request.url.startsWith('http')) return;
   e.respondWith(caches.match(e.request).then(hit => {
     const net = fetch(e.request).then(r => {
       if (r && (r.ok || r.type === 'opaque')) { const copy = r.clone(); caches.open(V).then(c => c.put(e.request, copy)); }
