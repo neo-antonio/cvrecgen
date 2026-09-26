@@ -7,6 +7,22 @@ const $portState = document.getElementById('portState');
 const $portTotal = document.getElementById('portTotal');
 const $portRefresh = document.getElementById('portRefresh');
 
+// Apps Script GET responses aren't reliably CORS-readable via fetch(), so we
+// load the data as JSONP instead — a <script> tag request isn't subject to CORS.
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cbName = 'portfolioCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+    const script = document.createElement('script');
+    let settled = false;
+    const cleanup = () => { delete window[cbName]; script.remove(); clearTimeout(timer); };
+    const timer = setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('Timed out')); } }, 15000);
+    window[cbName] = data => { if (!settled) { settled = true; cleanup(); resolve(data); } };
+    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
+    script.onerror = () => { if (!settled) { settled = true; cleanup(); reject(new Error('Script load failed')); } };
+    document.body.appendChild(script);
+  });
+}
+
 function fmtCardDate(v) {
   if (!v) return '';
   const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -35,8 +51,7 @@ async function loadPortfolio() {
   $portList.hidden = true;
   try {
     const url = CONFIG.portfolio.endpoint + '?secret=' + encodeURIComponent(CONFIG.portfolio.secret);
-    const res = await fetch(url);
-    const data = await res.json();
+    const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error || 'Unknown error');
     const items = data.items || [];
     if (!items.length) {

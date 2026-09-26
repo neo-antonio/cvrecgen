@@ -1,4 +1,4 @@
-const V = 'cv-recgen-v9';
+const V = 'cv-recgen-v10';
 const SHELL = ['./', 'index.html', 'receipt.html', 'portfolio.html', 'shipping.html', 'finance.html', 'marketing.html', 'settings.html',
   'styles.css', 'config.js', 'app.js', 'boot.js', 'portfolio.js', 'manifest.webmanifest',
   'icons/logo.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-512-maskable.png',
@@ -12,12 +12,14 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET' || !e.request.url.startsWith('http')) return;
-  e.respondWith(caches.match(e.request).then(hit => {
-    const net = fetch(e.request).then(r => {
-      if (r && (r.ok || r.type === 'opaque')) { const copy = r.clone(); caches.open(V).then(c => c.put(e.request, copy)); }
+  const req = e.request;
+  if (req.method !== 'GET' || !req.url.startsWith('http')) return;
+  if (new URL(req.url).origin !== self.location.origin) return; // Apps Script calls, JSONP scripts, etc. go straight to the network
+  e.respondWith(caches.match(req).then(hit => {
+    const net = fetch(req).then(r => {
+      if (r && (r.ok || r.type === 'opaque')) { const copy = r.clone(); caches.open(V).then(c => c.put(req, copy)); }
       return r;
-    }).catch(() => hit);
+    }).catch(() => hit || Response.error());
     return hit || net;
   }));
 });
