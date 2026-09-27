@@ -14,15 +14,23 @@
  *
  *    Tab "Cards" — header row (columns A-X):
  *      ID | PurchaseDate | Seller | BoughtBy | ItemName | PurchaseCost | PurchasePayMethod | Photo | PurchaseNotes | Status | SoldDate | SoldTo | SoldPrice | ShipType | ShippingMethod | ShippingFee | ShippingDeductedFrom | ShippingScheduledDate | ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID
+ *      Status is one of: onhand, shipping, shipped, traded.
+ *      A "traded" card (given away in a Trade receipt) reuses the SoldDate/
+ *      SoldTo/SoldPrice/SaleReceiptURL columns to hold TradedDate/TradedWith/
+ *      TradeValue/TradeReceiptURL instead — it never goes through shipping,
+ *      so those columns are otherwise unused for it.
  *
- *    Tab "Finance" — header row (columns A-J):
- *      ID | CardID | Type | Date | Description | Amount | PayMethod | Recorded | RecordedDate | ReceiptURL
+ *    Tab "Finance" — header row (columns A-K):
+ *      ID | CardID | Type | Date | Description | Amount | PayMethod | Recorded | RecordedDate | ReceiptURL | Flow
+ *      Type is one of: purchase, sale, shipping, trade.
+ *      Flow is one of: inflow (money received into PayMethod), outflow (money spent from PayMethod).
  *
  *    Tab "Receipts" — header row (columns A-E):
  *      ID | Type | Date | URL | Description
+ *      Type is one of: purchase, sale, trade.
  *
  *    If you're upgrading from an older version of this sheet that only had
- *    columns A-U on Cards and A-I on Finance, just add the new headers at
+ *    columns A-U on Cards and A-J on Finance, just add the new headers at
  *    the end of row 1 on each tab — existing rows don't need to change,
  *    the new cells just read as blank until the app fills them in.
  *
@@ -46,7 +54,10 @@
  *   GET  ?action=deleteCard&cardId=..&secret=..&callback=..        -> { ok }
  *   GET  ?action=deleteFinance&financeId=..&secret=..&callback=.. -> { ok }
  *   POST { action:'purchase', secret, date, seller, people, pay, notes, items:[{name,cost,photo,portfolio}], receiptPhoto:{src} }
- *   POST { action:'sell', secret, date, buyer, notes, shipType, shipMethod, shipFee, shipDeductFrom, shipSched, items:[{cardId,name,cost}], receiptPhoto:{src} }
+ *   POST { action:'sell', secret, date, buyer, notes, pay, shipType, shipMethod, shipFee, shipDeductFrom, shipSched, items:[{cardId,name,cost}], receiptPhoto:{src} }
+ *   POST { action:'trade', secret, date, tradedTo, tradedBy, notes,
+ *          tradedItems:[{cardId,name,cost}], receivedItems:[{name,photo}], receivedPortfolio,
+ *          cashDirection:'none'|'paid'|'received', cashAmount, cashMethod, receiptPhoto:{src} }
  *   POST { action:'shipPhoto', secret, cardId, photo:{kind,src} }
  *
  *   GET actions that mutate state are deliberately GET, not POST: Apps
@@ -83,6 +94,7 @@ function doPost(e) {
     const action = body.action || 'purchase';
     if (action === 'purchase') return json_(handlePurchase_(body));
     if (action === 'sell') return json_(handleSell_(body));
+    if (action === 'trade') return json_(handleTrade_(body));
     if (action === 'shipPhoto') return json_(handleShipPhoto_(body));
     return json_({ ok: false, error: 'unknown action' });
   } catch (err) {
@@ -140,13 +152,13 @@ function handlePurchase_(body) {
         receiptUrl, '', '']);
     }
     // every purchased item bills to Finance, portfolio or not
-    fin.appendRow([newId_('f'), cardId, 'purchase', body.date || '', it.name || '(unnamed item)', it.cost || 0, body.pay || '', false, '', receiptUrl]);
+    fin.appendRow([newId_('f'), cardId, 'purchase', body.date || '', it.name || '(unnamed item)', it.cost || 0, body.pay || '', false, '', receiptUrl, 'outflow']);
   });
   return { ok: true };
 }
 
 function handleSell_(body) {
-  const cards = cardsSheet_();
+  const cards = cardsSheet_(), fin = financeSheet_();
   const list = body.items || [];
   if (!list.length) return { ok: true };
   const noShip = body.shipType === 'none';
@@ -172,6 +184,9 @@ function handleSell_(body) {
     ]]);
     cards.getRange(found.idx, 23, 1, 1).setValue(receiptUrl); // SaleReceiptURL (col W)
     cards.getRange(found.idx, 24, 1, 1).setValue(batchId);    // ShipBatchID (col X)
+    // the sale amount itself bills to Finance right away (as an inflow), separate from the
+    // shipping-fee entry, which is only created later once the whole batch is marked shipped
+    fin.appendRow([newId_('f'), it.cardId, 'sale', body.date || '', 'Sale: ' + (it.name || '(unnamed item)'), Number(it.cost) || 0, body.pay || '', false, '', receiptUrl, 'inflow']);
   });
   return { ok: true };
 }
@@ -185,6 +200,62 @@ function handleShipPhoto_(body) {
     url = body.photo.kind === 'link' ? body.photo.src : saveImage_(body.photo.src, 'shipped-' + todayStr_() + '-' + newId_('s'), SHIP_PHOTO_FOLDER_ID);
   }
   cards.getRange(found.idx, 20, 1, 1).setValue(url); // ShippingProofPhoto (col T)
+  return { ok: true };
+}
+
+// A trade moves items in both directions with no sale price on either side:
+// items given away are marked "traded" on Cards (reusing the Sold* columns to
+// hold TradedDate/TradedWith/TradeValue instead, since a traded card never
+// goes through shipping); items received optionally become new onhand Cards
+// (one "record to portfolio" checkbox governs ALL received items, never
+// per-item); and any cash that changed hands as part of the trade bills to
+// Finance as a single entry, tagged with the direction it flowed.
+function handleTrade_(body) {
+  const cards = cardsSheet_(), fin = financeSheet_();
+  const tradedItems = body.tradedItems || [];
+  const receivedItems = body.receivedItems || [];
+  if (!tradedItems.length && !receivedItems.length) return { ok: true };
+
+  const partyLabel = body.tradedTo || body.tradedBy || '\u2014';
+  let receiptUrl = '';
+  if (body.receiptPhoto && body.receiptPhoto.src) {
+    receiptUrl = saveImage_(body.receiptPhoto.src, 'trade-receipt-' + (body.date || todayStr_()) + '-' + newId_('r'), RECEIPT_FOLDER_ID);
+    if (receiptUrl) receiptsSheet_().appendRow([newId_('rc'), 'trade', body.date || todayStr_(), receiptUrl, 'Trade with ' + partyLabel]);
+  }
+
+  // Items given away: mark the existing Cards row "traded". SoldDate/SoldTo/SoldPrice
+  // hold TradedDate/TradedWith/TradeValue and SaleReceiptURL holds the trade receipt —
+  // safe to reuse since a traded card never carries real sale/shipping data.
+  tradedItems.forEach(it => {
+    const found = findRow_(cards, it.cardId);
+    if (!found) return;
+    cards.getRange(found.idx, 10, 1, 1).setValue('traded'); // Status (col J)
+    cards.getRange(found.idx, 11, 1, 3).setValues([[body.date || '', body.tradedTo || '', Number(it.cost) || 0]]); // SoldDate/SoldTo/SoldPrice (K-M)
+    cards.getRange(found.idx, 23, 1, 1).setValue(receiptUrl); // SaleReceiptURL (col W)
+  });
+
+  // Items received: one checkbox (receivedPortfolio) decides whether ALL of them
+  // become new onhand Cards, at zero purchase cost (a trade has no per-item price).
+  if (body.receivedPortfolio) {
+    receivedItems.forEach(it => {
+      let photoUrl = '';
+      if (it.photo && it.photo.src) photoUrl = it.photo.kind === 'link' ? it.photo.src : saveImage_(it.photo.src, it.name, DRIVE_FOLDER_ID);
+      cards.appendRow([newId_('c'), body.date || '', body.tradedTo || '', body.tradedBy || '', it.name || '', 0,
+        '', photoUrl, body.notes || '', 'onhand', '', '', '', '', '', '', '', '', '', '', false,
+        receiptUrl, '', '']);
+    });
+  }
+
+  // Any cash paid or received as part of the trade bills to Finance as one entry
+  // (not per item), so it shows up in the finance to-do list like any other billable event.
+  const amt = Number(body.cashAmount) || 0;
+  if ((body.cashDirection === 'paid' || body.cashDirection === 'received') && amt > 0) {
+    const names = tradedItems.map(i => i.name).concat(receivedItems.map(i => i.name)).filter(Boolean).join(', ');
+    const flow = body.cashDirection === 'received' ? 'inflow' : 'outflow';
+    const desc = (body.cashDirection === 'received' ? 'Cash received \u2014 trade with ' : 'Cash paid \u2014 trade with ') + partyLabel + (names ? ' (' + names + ')' : '');
+    fin.appendRow([newId_('f'), '', 'trade', body.date || '', desc, amt, body.cashMethod || '', false, '', receiptUrl, flow]);
+  }
+
   return { ok: true };
 }
 
@@ -306,7 +377,7 @@ function maybeCreateBatchFinance_(batchId) {
   const payMethod = group[0][16] || '';
   const receiptUrl = group[0][22] || '';
   const idField = group.length > 1 ? batchId : group[0][0];
-  fin.appendRow([newId_('f'), idField, 'shipping', todayStr_(), 'Shipping for ' + names, totalFee, payMethod, false, '', receiptUrl]);
+  fin.appendRow([newId_('f'), idField, 'shipping', todayStr_(), 'Shipping for ' + names, totalFee, payMethod, false, '', receiptUrl, 'outflow']);
 }
 
 /* ---------- reads ---------- */
@@ -317,7 +388,10 @@ function getPortfolio_() {
   rows.forEach(r => {
     if (!r[4]) return;
     const status = r[9] || 'onhand';
-    const tag = status === 'onhand' ? 'onhand' : status === 'shipping' ? 'shipping' : (r[20] === true ? 'sold' : 'shipped');
+    const tag = status === 'onhand' ? 'onhand'
+      : status === 'shipping' ? 'shipping'
+      : status === 'traded' ? 'traded'
+      : (r[20] === true ? 'sold' : 'shipped');
     const item = {
       id: r[0], name: r[4], photo: toDisplayUrl_(r[7]),
       purchaseDate: fmtDateCell_(r[1]), purchaseCost: Number(r[5]) || 0,
@@ -340,7 +414,7 @@ function getFinance_() {
   const toRecord = [], recorded = [];
   rows.forEach(r => {
     if (!r[0]) return;
-    const item = { id: r[0], date: fmtDateCell_(r[3]), description: r[4], amount: Number(r[5]) || 0, payMethod: r[6], receipt: r[9] || '' };
+    const item = { id: r[0], date: fmtDateCell_(r[3]), description: r[4], amount: Number(r[5]) || 0, payMethod: r[6], receipt: r[9] || '', flow: r[10] || 'outflow' };
     (r[7] === true ? recorded : toRecord).push(item);
   });
   return { ok: true, toRecord: toRecord.reverse(), recorded: recorded.reverse() };

@@ -47,6 +47,9 @@ let itemSeq = 0;
 const itemPhotos = {};  // id -> {kind:'camera'|'upload'|'link', src}
 let activePhotoId = null;
 
+// "Record to portfolio" is one checkbox for the whole receipt now (purchase mode's
+// #globalPortfolio, trade mode's #receivedPortfolio) — it applies to every item in that
+// list, not per item, so a multi-item receipt can't have some items in and some out.
 function addItem() {
   const id = 'p' + (++itemSeq);
   const block = document.createElement('div');
@@ -68,8 +71,7 @@ function addItem() {
         <input class="in-name" placeholder="Item name" autocomplete="off">
         <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00">
         <button type="button" class="x" aria-label="Remove item">&times;</button>
-      </div>
-      <label class="port-chk"><input type="checkbox" class="in-port" checked><span>Record to portfolio</span></label>`;
+      </div>`;
   }
   $('#items').append(block);
   update();
@@ -80,7 +82,7 @@ $('#items').addEventListener('click', e => {
   const pb = e.target.closest('.photo-btn'); if (pb) openPhotoSheet(pb.dataset.id);
 });
 $('#items').addEventListener('input', update);
-const items = () => $$('.item-block').map(b => {
+const items = () => $$('#items .item-block').map(b => {
   if (mode === 'sold') {
     const sel = b.querySelector('.in-card');
     const opt = sel && sel.selectedOptions[0];
@@ -89,7 +91,6 @@ const items = () => $$('.item-block').map(b => {
       cardId: sel ? sel.value : '',
       name: (opt && opt.dataset.name) || '',
       cost: parseFloat(b.querySelector('.in-cost').value) || 0,
-      portfolio: false,
       photo: null
     };
   }
@@ -98,11 +99,80 @@ const items = () => $$('.item-block').map(b => {
     cardId: '',
     name: b.querySelector('.in-name').value.trim(),
     cost: parseFloat(b.querySelector('.in-cost').value) || 0,
-    portfolio: mode === 'purchase' && b.querySelector('.in-port').checked,
     photo: itemPhotos[b.dataset.id] || null
   };
 }).filter(i => i.name || i.cost);
 const subtotal = () => items().reduce((a, i) => a + i.cost, 0);
+
+/* ---------- Trade items: two independent lists, plus one cash flow field ---------- */
+// Traded (given away): must come from an existing onhand card, cost defaults to that
+// card's purchase amount but stays editable.
+function addTradedItem() {
+  const id = 'tr' + (++itemSeq);
+  const block = document.createElement('div');
+  block.className = 'item-block';
+  block.dataset.id = id;
+  const opts = onhandCards.map(c => `<option value="${c.id}" data-name="${escHtml(c.name)}" data-cost="${c.cost}">${escHtml(c.name)} \u2014 bought ${php(c.cost)}</option>`).join('');
+  block.innerHTML = `<div class="item">
+      <select class="in-card">
+        <option value="">${onhandCards.length ? 'Select a card\u2026' : 'No onhand cards found'}</option>
+        ${opts}
+      </select>
+      <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Value">
+      <button type="button" class="x" aria-label="Remove item">&times;</button>
+    </div>`;
+  $('#tradedItems').append(block);
+  update();
+}
+$('#addTradedItem').onclick = () => addTradedItem();
+$('#tradedItems').addEventListener('click', e => { if (e.target.classList.contains('x')) { e.target.closest('.item-block').remove(); update(); } });
+$('#tradedItems').addEventListener('change', e => {
+  if (!e.target.classList.contains('in-card')) return;
+  const opt = e.target.selectedOptions[0];
+  const costInput = e.target.closest('.item-block').querySelector('.in-cost');
+  if (opt && opt.value) costInput.value = opt.dataset.cost || 0;
+});
+$('#tradedItems').addEventListener('input', update);
+const tradedItems = () => $$('#tradedItems .item-block').map(b => {
+  const sel = b.querySelector('.in-card');
+  const opt = sel && sel.selectedOptions[0];
+  return {
+    id: b.dataset.id,
+    cardId: sel ? sel.value : '',
+    name: (opt && opt.dataset.name) || '',
+    cost: parseFloat(b.querySelector('.in-cost').value) || 0
+  };
+}).filter(i => i.cardId);
+
+// Received: free-text, no value field — whether they're recorded to the portfolio is
+// decided once for the whole list by #receivedPortfolio, not per item.
+function addReceivedItem() {
+  const id = 'rc' + (++itemSeq);
+  const block = document.createElement('div');
+  block.className = 'item-block';
+  block.dataset.id = id;
+  block.innerHTML = `<div class="item">
+      <button type="button" class="photo-btn" data-id="${id}" aria-label="Add photo">${CAMERA_ICON}</button>
+      <input class="in-name" placeholder="Item name" autocomplete="off">
+      <button type="button" class="x" aria-label="Remove item">&times;</button>
+    </div>`;
+  $('#receivedItems').append(block);
+  update();
+}
+$('#addReceivedItem').onclick = () => { addReceivedItem(); $$('#receivedItems .in-name').pop().focus(); };
+$('#receivedItems').addEventListener('click', e => {
+  if (e.target.classList.contains('x')) { const b = e.target.closest('.item-block'); delete itemPhotos[b.dataset.id]; b.remove(); update(); }
+  const pb = e.target.closest('.photo-btn'); if (pb) openPhotoSheet(pb.dataset.id);
+});
+$('#receivedItems').addEventListener('input', update);
+const receivedItems = () => $$('#receivedItems .item-block').map(b => ({
+  id: b.dataset.id,
+  name: b.querySelector('.in-name').value.trim(),
+  photo: itemPhotos[b.dataset.id] || null
+})).filter(i => i.name);
+
+const cashDirection = () => $('input[name=cashDir]:checked').value;
+const cashAmount = () => cashDirection() === 'none' ? 0 : (parseFloat($('#cashAmount').value) || 0);
 
 /* ---------- Item photo sheet ---------- */
 function updateThumb(id) {
@@ -147,8 +217,12 @@ handleFile($('#fileCamera'), 'camera');
 handleFile($('#fileUpload'), 'upload');
 const shipping = () => (mode === 'sold' && shipType() === 'none') ? 0 : (parseFloat($('#ship').value) || 0);
 // Purchase: shipping always counted in the total. Sold: shipping counts only when the buyer shoulders it (c/o buyer);
-// it's excluded when it's on us (c/o us) or when there's no shipping at all.
-const grandTotal = () => mode === 'purchase' ? subtotal() + shipping() : (shipType() === 'buyer' ? subtotal() + shipping() : subtotal());
+// it's excluded when it's on us (c/o us) or when there's no shipping at all. Trade: there's no
+// item-for-item price, so the "total" is just whatever cash changed hands (if any).
+const grandTotal = () => {
+  if (mode === 'trade') return cashAmount();
+  return mode === 'purchase' ? subtotal() + shipping() : (shipType() === 'buyer' ? subtotal() + shipping() : subtotal());
+};
 
 /* ---------- People multi-select ---------- */
 $('#msPanel').innerHTML = [...PEOPLE, 'Others'].map(p => `<label class="chk"><input type="checkbox" value="${p}"><span>${p}</span></label>`).join('') +
@@ -168,32 +242,46 @@ function people() {
 }
 
 /* ---------- Mode + UI sync ---------- */
+const MODE_LABELS = {
+  purchase: { party: 'Seller', people: 'Bought by', pay: 'Purchased using', total: 'Total spent', notes: 'Add notes e.g. box size, supplier link.' },
+  sold: { party: 'Buyer', people: 'Sold by', pay: 'Received in', total: 'Total received', notes: 'Add notes e.g. excess cash from shipping overpay, for CV storing, for reimbursements' },
+  trade: { party: 'Traded to', people: 'Traded by', pay: 'Purchased using', total: 'Cash amount', notes: 'Add notes about the trade.' }
+};
 async function setMode(m) {
   mode = m;
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.mode === m));
   $('#items').classList.toggle('mode-purchase', m === 'purchase');
-  const p = m === 'purchase';
-  $('#lParty').textContent = p ? 'Seller' : 'Buyer';
-  $('#lPeople').textContent = p ? 'Bought by' : 'Sold by';
-  $('#lPay').textContent = p ? 'Purchased using' : 'Received in';
-  $('#lTotal').textContent = p ? 'Total spent' : 'Total received';
-  $('#notes').placeholder = p ? 'Add notes e.g. box size, supplier link.' : 'Add notes e.g. excess cash from shipping overpay, for CV storing, for reimbursements';
-  // item shape (free text vs card picker) differs enough between modes that we reset on switch
+  const L = MODE_LABELS[m];
+  $('#lParty').textContent = L.party;
+  $('#lPeople').textContent = L.people;
+  $('#lPay').textContent = L.pay;
+  $('#lTotal').textContent = L.total;
+  $('#notes').placeholder = L.notes;
+  // item shape (free text vs card picker vs traded/received pair) differs enough between
+  // modes that we reset every item list on switch
   Object.keys(itemPhotos).forEach(k => delete itemPhotos[k]);
-  $('#items').innerHTML = '';
+  $('#items').innerHTML = ''; $('#tradedItems').innerHTML = ''; $('#receivedItems').innerHTML = '';
   itemSeq = 0;
-  if (m === 'sold') { $('#items').innerHTML = '<p class="stub-note">Loading onhand cards\u2026</p>'; await loadOnhandCards(); $('#items').innerHTML = ''; }
-  addItem();
+  if (m === 'sold' || m === 'trade') {
+    const loading = '<p class="stub-note">Loading onhand cards\u2026</p>';
+    if (m === 'sold') $('#items').innerHTML = loading; else $('#tradedItems').innerHTML = loading;
+    await loadOnhandCards();
+    $('#items').innerHTML = ''; $('#tradedItems').innerHTML = '';
+  }
+  if (m === 'trade') { addTradedItem(); addReceivedItem(); } else addItem();
   update();
 }
 $$('.tab').forEach(t => t.onclick = () => setMode(t.dataset.mode));
 
 function update() {
-  $$('[data-only]').forEach(e => e.hidden = e.dataset.only !== mode);
-  const rows = $$('.item');
-  rows.forEach(r => r.classList.toggle('solo', rows.length === 1));
-  $('#subRow').hidden = rows.length < 2;
-  $('#subVal').textContent = php(subtotal());
+  $$('[data-only]').forEach(e => { e.hidden = !e.dataset.only.split(' ').includes(mode); });
+
+  if (mode === 'purchase' || mode === 'sold') {
+    const rows = $$('#items .item');
+    rows.forEach(r => r.classList.toggle('solo', rows.length === 1));
+    $('#subRow').hidden = rows.length < 2;
+    $('#subVal').textContent = php(subtotal());
+  }
   if (mode === 'sold') {
     const none = shipType() === 'none';
     $('#ship').disabled = none;
@@ -201,37 +289,62 @@ function update() {
     $('#deductRow').hidden = shipType() !== 'us';
     $('#methodOther').hidden = $('#method').value !== 'Others';
     $('#deductOther').hidden = $('#deduct').value !== 'Others';
-  } else $('#deductRow').hidden = true;
+  } else {
+    $('#deductRow').hidden = true;
+  }
   $('#ship').disabled = mode === 'sold' && shipType() === 'none';
   $('#payOther').hidden = $('#pay').value !== 'Others';
+
+  if (mode === 'trade') {
+    const tRows = $$('#tradedItems .item');
+    tRows.forEach(r => r.classList.toggle('solo', tRows.length === 1));
+    const rRows = $$('#receivedItems .item');
+    rRows.forEach(r => r.classList.toggle('solo', rRows.length === 1));
+    const none = cashDirection() === 'none';
+    $('#cashAmount').disabled = none;
+    if (none) $('#cashAmount').value = '';
+    $('#cashMethodOther').hidden = $('#cashMethod').value !== 'Others';
+  }
+
   $('#totalVal').textContent = php(grandTotal());
 }
-['#ship', '#method', '#deduct', '#pay'].forEach(s => $(s).addEventListener('input', update));
+['#ship', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod'].forEach(s => $(s).addEventListener('input', update));
 $$('input[name=st]').forEach(r => r.addEventListener('change', update));
+$$('input[name=cashDir]').forEach(r => r.addEventListener('change', update));
 
 $('#sched').addEventListener('click', e => { if (!e.target.value) { e.target.value = todayStr(); try { e.target.showPicker(); } catch (_) {} } });
 $('#schedClear').onclick = () => $('#sched').value = '';
 
 /* ---------- Collect data ---------- */
 function collect() {
-  const sold = mode === 'sold';
+  const trade = mode === 'trade';
   const t = shipType();
   return {
     mode, date: $('#date').value || todayStr(),
     party: $('#party').value.trim(), people: people().join(', '),
     pay: $('#pay').value === 'Others' ? ($('#payOther').value.trim() || 'Others') : $('#pay').value,
-    items: items(), multi: $$('.item').length > 1, sub: subtotal(), ship: shipping(),
+    items: trade ? [] : items(), multi: trade ? false : $$('#items .item').length > 1,
+    sub: trade ? 0 : subtotal(), ship: trade ? 0 : shipping(),
     total: grandTotal(),
     method: $('#method').value === 'Others' ? ($('#methodOther').value.trim() || 'Others') : $('#method').value,
     shipType: t, sched: $('#sched').value,
     deduct: $('#deduct').value === 'Others' ? ($('#deductOther').value.trim() || 'Others') : $('#deduct').value,
-    notes: $('#notes').value.trim()
+    notes: $('#notes').value.trim(),
+    // whole-receipt "record to portfolio" flag (purchase mode) — applies to every item
+    portfolio: $('#globalPortfolio').checked,
+    // trade-only fields
+    tradedItems: trade ? tradedItems() : [],
+    receivedItems: trade ? receivedItems() : [],
+    receivedPortfolio: $('#receivedPortfolio').checked,
+    cashDirection: trade ? cashDirection() : 'none',
+    cashAmount: trade ? cashAmount() : 0,
+    cashMethod: $('#cashMethod').value === 'Others' ? ($('#cashMethodOther').value.trim() || 'Others') : $('#cashMethod').value
   };
 }
 
 /* ---------- Receipt renderer (1080 x 1080) ---------- */
 function draw(x, d, s, dry, logo) {
-  const W = 1080, P = 72, R = W - P, G = '#b4b4b4', sold = d.mode === 'sold';
+  const W = 1080, P = 72, R = W - P, G = '#b4b4b4', sold = d.mode === 'sold', trade = d.mode === 'trade';
   if (!dry) { x.fillStyle = '#000'; x.fillRect(0, 0, W, W); }
   x.textBaseline = 'top';
   const set = (w, z, a) => x.font = `${w} ${Math.round(z * s)}px ${a ? '"Archivo Black"' : 'Poppins'}, sans-serif`;
@@ -259,7 +372,7 @@ function draw(x, d, s, dry, logo) {
   } else if (!dry) { x.font = '34px "Archivo Black"'; txt(CONFIG.brand, P, y + 20, '#fff'); }
   if (!dry) { x.font = '600 22px Poppins'; txt(CONFIG.brand, R, y + 26, G, 'right'); }
   y = 168;
-  if (!dry) { x.font = '58px "Archivo Black"'; txt(sold ? 'SALES RECEIPT' : 'PURCHASE RECEIPT', P, y, '#fff'); }
+  if (!dry) { x.font = '58px "Archivo Black"'; txt(trade ? 'TRADE RECEIPT' : (sold ? 'SALES RECEIPT' : 'PURCHASE RECEIPT'), P, y, '#fff'); }
   y += 92; rule(y); y += 28;
 
   const row = (l, v) => {
@@ -272,32 +385,71 @@ function draw(x, d, s, dry, logo) {
   const sec = t => { set(600, 20); txt(t.toUpperCase(), P, y, G); y += 34 * s; };
 
   row('Date', fmtDate(d.date));
-  row(sold ? 'Buyer' : 'Seller', d.party);
-  row(sold ? 'Sold by' : 'Bought by', d.people);
-  row(sold ? 'Received in' : 'Purchased using', d.pay);
+  if (trade) {
+    row('Traded to', d.party);
+    row('Traded by', d.people);
+  } else {
+    row(sold ? 'Buyer' : 'Seller', d.party);
+    row(sold ? 'Sold by' : 'Bought by', d.people);
+    row(sold ? 'Received in' : 'Purchased using', d.pay);
+  }
   y += 8 * s; rule(y); y += 22 * s;
-  sec('Items');
-  d.items.forEach(i => {
-    set(600, 28);
-    const lines = wrap(i.name || '(unnamed)', 600);
-    lines.forEach((t, k) => txt(t, P, y + k * lh, '#fff'));
-    txt(php(i.cost), R, y, '#fff', 'right');
-    y += lines.length * lh + 8 * s;
-  });
-  if (d.multi) { y += 4 * s; row('Item subtotal', php(d.sub)); }
-  y += 4 * s; rule(y); y += 22 * s;
 
-  if (sold) {
-    row('Shipping method', d.method);
-    row('Shipping', d.shipType === 'none' ? 'No shipping (PHP 0.00)' : `${php(d.ship)} (${SHIP_LABEL[d.shipType]})`);
-    if (d.sched) row('Scheduled shipping', fmtDate(d.sched));
-    if (d.shipType === 'us') row('Shipping deducted from', d.deduct);
-  } else row('Shipping', php(d.ship));
+  if (trade) {
+    sec('Items traded');
+    if (d.tradedItems.length) {
+      d.tradedItems.forEach(i => {
+        set(600, 28);
+        const lines = wrap(i.name || '(unnamed)', 600);
+        lines.forEach((t, k) => txt(t, P, y + k * lh, '#fff'));
+        txt(php(i.cost), R, y, '#fff', 'right');
+        y += lines.length * lh + 8 * s;
+      });
+    } else { set(400, 24); txt('None', P, y, '#888'); y += lh; }
+    y += 10 * s;
+    sec('Items received');
+    if (d.receivedItems.length) {
+      d.receivedItems.forEach(i => {
+        set(600, 28);
+        const lines = wrap(i.name || '(unnamed)', R - P);
+        lines.forEach((t, k) => txt(t, P, y + k * lh, '#fff'));
+        y += lines.length * lh + 8 * s;
+      });
+    } else { set(400, 24); txt('None', P, y, '#888'); y += lh; }
+    y += 4 * s; rule(y); y += 22 * s;
 
-  y += 6 * s; rule(y, G); y += 24 * s;
-  set(400, 30, true); txt(sold ? 'TOTAL RECEIVED' : 'TOTAL SPENT', P, y + 12 * s, '#fff');
-  set(400, 44, true); txt(php(d.total), R, y, '#fff', 'right');
-  y += 66 * s;
+    row('Cash', d.cashDirection === 'none' ? 'None' : `${php(d.cashAmount)} (${d.cashDirection === 'paid' ? 'Paid' : 'Received'})`);
+    if (d.cashDirection !== 'none') row(d.cashDirection === 'paid' ? 'Paid using' : 'Received in', d.cashMethod);
+
+    y += 6 * s; rule(y, G); y += 24 * s;
+    const cashTitle = d.cashDirection === 'received' ? 'CASH RECEIVED' : d.cashDirection === 'paid' ? 'CASH PAID' : 'NO CASH INVOLVED';
+    set(400, 30, true); txt(cashTitle, P, y + 12 * s, '#fff');
+    set(400, 44, true); txt(php(d.cashAmount), R, y, '#fff', 'right');
+    y += 66 * s;
+  } else {
+    sec('Items');
+    d.items.forEach(i => {
+      set(600, 28);
+      const lines = wrap(i.name || '(unnamed)', 600);
+      lines.forEach((t, k) => txt(t, P, y + k * lh, '#fff'));
+      txt(php(i.cost), R, y, '#fff', 'right');
+      y += lines.length * lh + 8 * s;
+    });
+    if (d.multi) { y += 4 * s; row('Item subtotal', php(d.sub)); }
+    y += 4 * s; rule(y); y += 22 * s;
+
+    if (sold) {
+      row('Shipping method', d.method);
+      row('Shipping', d.shipType === 'none' ? 'No shipping (PHP 0.00)' : `${php(d.ship)} (${SHIP_LABEL[d.shipType]})`);
+      if (d.sched) row('Scheduled shipping', fmtDate(d.sched));
+      if (d.shipType === 'us') row('Shipping deducted from', d.deduct);
+    } else row('Shipping', php(d.ship));
+
+    y += 6 * s; rule(y, G); y += 24 * s;
+    set(400, 30, true); txt(sold ? 'TOTAL RECEIVED' : 'TOTAL SPENT', P, y + 12 * s, '#fff');
+    set(400, 44, true); txt(php(d.total), R, y, '#fff', 'right');
+    y += 66 * s;
+  }
 
   if (d.notes) {
     y += 8 * s; sec('Notes');
@@ -340,7 +492,8 @@ async function postBlind_(payload, failMsg) {
 }
 
 // Every purchased item bills to Finance (portfolio-flagged or not, e.g. packaging supplies);
-// portfolio-flagged items also get a new Cards row. The receipt image itself is archived to
+// portfolio-flagged items also get a new Cards row — d.portfolio is ONE checkbox for the whole
+// receipt, so it applies to every item the same way. The receipt image itself is archived to
 // Drive so it can be linked back to from Portfolio/Finance cards and the receipts archive.
 async function syncPortfolio(d, receiptPhoto) {
   if (!CONFIG.portfolio.endpoint || !d.items.length) return;
@@ -350,7 +503,7 @@ async function syncPortfolio(d, receiptPhoto) {
     body: JSON.stringify({
       action: 'purchase', secret: CONFIG.portfolio.secret,
       date: d.date, seller: d.party, people: d.people, pay: d.pay, notes: d.notes,
-      items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: i.portfolio })),
+      items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: d.portfolio })),
       receiptPhoto
     })
   };
@@ -359,7 +512,8 @@ async function syncPortfolio(d, receiptPhoto) {
 
 // Cards sold always move to "shipping" so they show up under To ship, even when there's no
 // shipping fee (care of buyer with no cost, or a straight meet-up) — the shipping tab is where
-// you confirm it actually went out, and that's also what creates the Finance entry to record.
+// you confirm it actually went out, and that's also what creates the Finance entry for the
+// shipping fee to record. The sale amount itself bills to Finance right away, separately.
 async function syncSale(d, receiptPhoto) {
   const sold = d.items.filter(i => i.cardId);
   if (!CONFIG.portfolio.endpoint || !sold.length) return;
@@ -368,13 +522,34 @@ async function syncSale(d, receiptPhoto) {
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       action: 'sell', secret: CONFIG.portfolio.secret,
-      date: d.date, buyer: d.party, notes: d.notes,
+      date: d.date, buyer: d.party, notes: d.notes, pay: d.pay,
       shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
       items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
       receiptPhoto
     })
   };
   await postBlind_(payload, 'Receipt saved, but portfolio/shipping sync failed (offline?).');
+}
+
+// Items traded away are marked "traded" on their Cards row; items received become new onhand
+// Cards ONLY if d.receivedPortfolio is checked — one checkbox for the whole received list, same
+// as purchase's single portfolio flag. Any cash paid/received bills to Finance as one entry.
+async function syncTrade(d, receiptPhoto) {
+  if (!CONFIG.portfolio.endpoint || (!d.tradedItems.length && !d.receivedItems.length)) return;
+  const payload = {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      action: 'trade', secret: CONFIG.portfolio.secret,
+      date: d.date, tradedTo: d.party, tradedBy: d.people, notes: d.notes,
+      tradedItems: d.tradedItems.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
+      receivedItems: d.receivedItems.map(i => ({ name: i.name, photo: i.photo })),
+      receivedPortfolio: d.receivedPortfolio,
+      cashDirection: d.cashDirection, cashAmount: d.cashAmount, cashMethod: d.cashMethod,
+      receiptPhoto
+    })
+  };
+  await postBlind_(payload, 'Receipt saved, but portfolio/finance sync failed (offline?).');
 }
 
 const blobToDataUrl = blob => new Promise((res, rej) => {
@@ -395,8 +570,13 @@ function render(d, logo) {
 
 async function generate() {
   const d = collect();
-  if (!d.items.length) return toast('Add at least one item.');
-  if (d.mode === 'sold' && d.items.some(i => !i.cardId)) return toast('Select a card for every item before generating.');
+  if (d.mode === 'trade') {
+    if (!d.tradedItems.length && !d.receivedItems.length) return toast('Add at least one traded or received item.');
+    if (d.cashDirection !== 'none' && !d.cashAmount) return toast('Enter a cash amount, or set cash to None.');
+  } else {
+    if (!d.items.length) return toast('Add at least one item.');
+    if (d.mode === 'sold' && d.items.some(i => !i.cardId)) return toast('Select a card for every item before generating.');
+  }
   $('#gen').disabled = true;
   try {
     await Promise.all([
@@ -415,7 +595,9 @@ async function generate() {
     const name = `CVRecGen-${d.mode}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.jpg`;
     showPreview(blob, name);
     const receiptPhoto = { kind: 'camera', src: await blobToDataUrl(blob) };
-    if (d.mode === 'purchase') syncPortfolio(d, receiptPhoto); else syncSale(d, receiptPhoto);
+    if (d.mode === 'purchase') syncPortfolio(d, receiptPhoto);
+    else if (d.mode === 'sold') syncSale(d, receiptPhoto);
+    else syncTrade(d, receiptPhoto);
     if (skipped) toast('Logo skipped. Open the app from http://localhost or your website to include it.');
   } catch (e) {
     console.error(e);

@@ -24,9 +24,10 @@
     <h2>Receipt</h2>
     <a href="receipts.html" class="back" aria-label="Past receipts">&#128193;</a>
   </div>
-  <nav class="tabs" role="tablist">
+  <nav class="tabs tabs-3" role="tablist">
     <button type="button" class="tab active" data-mode="purchase" role="tab">Purchase</button>
     <button type="button" class="tab" data-mode="sold" role="tab">Sold</button>
+    <button type="button" class="tab" data-mode="trade" role="tab">Trade</button>
   </nav>
 </header>
 
@@ -49,19 +50,20 @@
     </div>
   </div>
 
-  <div class="field">
+  <div class="field" data-only="purchase sold" hidden>
     <label id="lPay">Purchased using</label>
     <select id="pay"><option>Cash</option><option>Maribank</option><option>Others</option></select>
     <input type="text" id="payOther" placeholder="Specify" hidden>
   </div>
 
-  <div class="field">
+  <div class="field" data-only="purchase sold" hidden>
     <label>Items</label>
     <div id="items"></div>
     <button type="button" class="ghost" id="addItem">+ Add item</button>
+    <label class="port-chk" id="globalPortfolioWrap" data-only="purchase" hidden><input type="checkbox" id="globalPortfolio" checked><span>Record to portfolio</span></label>
   </div>
 
-  <div class="sum" id="subRow" hidden><span>Item subtotal</span><b id="subVal">PHP 0.00</b></div>
+  <div class="sum" id="subRow" data-only="purchase sold" hidden><span>Item subtotal</span><b id="subVal">PHP 0.00</b></div>
 
   <div class="field" data-only="sold" hidden>
     <label for="method">Shipping method</label>
@@ -71,7 +73,7 @@
     <input type="text" id="methodOther" placeholder="Specify shipping method" hidden>
   </div>
 
-  <div class="field">
+  <div class="field" data-only="purchase sold" hidden>
     <label for="ship">Shipping</label>
     <div class="radios" data-only="sold" hidden>
       <label class="rad"><input type="radio" name="st" value="buyer" checked><span>Care of buyer</span></label>
@@ -95,6 +97,35 @@
     <input type="text" id="deductOther" placeholder="Specify source" hidden>
   </div>
 
+  <div class="field" data-only="trade" hidden>
+    <label>Items traded <small>(from portfolio)</small></label>
+    <div id="tradedItems"></div>
+    <button type="button" class="ghost" id="addTradedItem">+ Add traded item</button>
+  </div>
+
+  <div class="field" data-only="trade" hidden>
+    <label>Items received</label>
+    <div id="receivedItems"></div>
+    <button type="button" class="ghost" id="addReceivedItem">+ Add received item</button>
+    <label class="port-chk"><input type="checkbox" id="receivedPortfolio" checked><span>Record to portfolio</span></label>
+  </div>
+
+  <div class="field" data-only="trade" hidden>
+    <label>Cash</label>
+    <div class="radios">
+      <label class="rad"><input type="radio" name="cashDir" value="none" checked><span>None</span></label>
+      <label class="rad"><input type="radio" name="cashDir" value="paid"><span>Paid</span></label>
+      <label class="rad"><input type="radio" name="cashDir" value="received"><span>Received</span></label>
+    </div>
+    <div class="money"><em>PHP</em><input type="number" id="cashAmount" inputmode="decimal" min="0" step="0.01" placeholder="0.00" disabled></div>
+  </div>
+
+  <div class="field" data-only="trade" hidden>
+    <label for="cashMethod">Paid/received using</label>
+    <select id="cashMethod"><option>Cash</option><option>Maribank</option><option>Others</option></select>
+    <input type="text" id="cashMethodOther" placeholder="Specify" hidden>
+  </div>
+
   <div class="sum total"><span id="lTotal">Total spent</span><b id="totalVal">PHP 0.00</b></div>
 
   <div class="field">
@@ -107,7 +138,7 @@
 
 <footer class="site-footer">
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
-  <p>trackello <span class="ver">v1.1</span></p>
+  <p>trackello <span class="ver">v1.2</span></p>
 </footer>
 
 <input type="file" accept="image/*" id="fileCamera" capture="environment" hidden>

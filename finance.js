@@ -39,6 +39,8 @@ function fmtDay(v) {
 function rowHtml(it, recordable) {
   const receiptBtn = it.receipt ? `<button type="button" class="ghost sm fin-receipt" data-url="${escFin(it.receipt)}">Receipt</button>` : '';
   const revertBtn = !recordable ? `<button type="button" class="ghost sm fin-unrecord" data-id="${it.id}">Undo</button>` : '';
+  const inflow = it.flow === 'inflow';
+  const flowTag = `<span class="port-tag ${inflow ? 'tag-inflow' : 'tag-outflow'}">${inflow ? 'Inflow' : 'Outflow'}</span>`;
   return `<div class="fin-item" data-id="${it.id}">
       <div class="port-card fin-row">
         <label class="fin-chk">${recordable ? '<input type="checkbox" class="fin-mark">' : '<span class="fin-done">&check;</span>'}</label>
@@ -46,7 +48,10 @@ function rowHtml(it, recordable) {
           <b>${escFin(it.description)}</b>
           <span>${fmtDay(it.date)}${it.payMethod ? ' \u00b7 ' + escFin(it.payMethod) : ''}</span>
         </div>
-        <div class="port-cost">${finPhp(it.amount)}</div>
+        <div class="port-right">
+          ${flowTag}
+          <div class="port-cost">${inflow ? '+' : '\u2212'}${finPhp(it.amount)}</div>
+        </div>
       </div>
       <div class="fin-item-acts">${receiptBtn}${revertBtn}<button type="button" class="ghost sm fin-delete" data-id="${it.id}">Delete</button></div>
     </div>`;

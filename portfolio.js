@@ -14,7 +14,7 @@ let statusFilter = 'all';
 let searchQuery = '';
 let portData = { owned: [], sold: [] };
 
-const TAG_LABEL = { onhand: 'Onhand', shipping: 'Shipping', shipped: 'Shipped', sold: 'Sold' };
+const TAG_LABEL = { onhand: 'Onhand', shipping: 'Shipping', shipped: 'Shipped', sold: 'Sold', traded: 'Traded' };
 
 function jsonp(url) {
   return new Promise((resolve, reject) => {
@@ -50,7 +50,7 @@ function cardHtml(it) {
   const costLine = portTab === 'owned' ? it.purchaseCost : it.soldPrice;
   const receiptUrl = it.tag === 'onhand' || it.tag === 'shipping' ? it.purchaseReceipt : (it.saleReceipt || it.purchaseReceipt);
   const receiptBtn = receiptUrl ? `<button type="button" class="ghost sm port-receipt" data-url="${escHtml(receiptUrl)}">Receipt</button>` : '';
-  const revertBtn = (it.tag === 'shipping' || it.tag === 'shipped') ? `<button type="button" class="ghost sm port-revert" data-id="${it.id}">Revert to onhand</button>` : '';
+  const revertBtn = (it.tag === 'shipping' || it.tag === 'shipped' || it.tag === 'traded') ? `<button type="button" class="ghost sm port-revert" data-id="${it.id}">Revert to onhand</button>` : '';
   return `<div class="port-card-wrap" data-id="${it.id}">
       <div class="port-card">
         <div class="port-thumb">${img}</div>

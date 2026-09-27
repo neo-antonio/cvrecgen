@@ -3,7 +3,7 @@ const escRec = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<
 
 const $recList = document.getElementById('recList');
 const $recState = document.getElementById('recState');
-const TYPE_LABEL = { purchase: 'Purchase', sale: 'Sale' };
+const TYPE_LABEL = { purchase: 'Purchase', sale: 'Sale', trade: 'Trade' };
 
 let recTab = 'all';
 let receipts = [];
