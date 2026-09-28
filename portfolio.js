@@ -71,8 +71,8 @@ function cardHtml(it) {
   const receiptBtn = rcpts.length ? icon('doc', 'port-receipt', rcpts.length > 1 ? 'Receipts' : 'Receipt', it.id) : '';
   const revertBtn = (it.tag === 'shipping' || it.tag === 'shipped' || it.tag === 'traded') ? icon('undo', 'port-revert', 'Revert to onhand', it.id) : '';
   const deleteBtn = icon('trash', 'port-delete danger', 'Delete card', it.id);
-  return `<div class="port-card-wrap" data-id="${it.id}">
-      <div class="port-card">
+  return `<div class="port-card" data-id="${it.id}">
+      <div class="port-card-main">
         <div class="port-thumb">${img}</div>
         <div class="port-info">
           <b>${escHtml(it.name)}</b>

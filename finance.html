@@ -42,33 +42,53 @@
 </main>
 
 <div class="modal" id="taskSheet" hidden>
-  <div class="sheet small">
-    <h3>Add task</h3>
-    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">A standalone task. It isn&rsquo;t linked to any card or receipt.</p>
+  <div class="sheet small wide">
+    <h3 id="taskHeading">Add task</h3>
+    <p class="stub-note" id="taskHint" style="margin:-6px 0 14px;font-size:12px;text-align:center" hidden>Title, description and images can be edited. Amount, date and payment stay as recorded.</p>
     <div class="field">
-      <label for="taskDesc">Description</label>
-      <input type="text" id="taskDesc" autocomplete="off" placeholder="e.g. Reimburse Justine">
+      <label for="taskTitle">Title</label>
+      <input type="text" id="taskTitle" autocomplete="off" placeholder="e.g. Reimburse Justine">
     </div>
     <div class="field">
-      <label>Money</label>
-      <div class="radios">
-        <label class="rad"><input type="radio" name="taskFlow" value="outflow" checked><span>Outflow</span></label>
-        <label class="rad"><input type="radio" name="taskFlow" value="inflow"><span>Inflow</span></label>
-        <label class="rad"><input type="radio" name="taskFlow" value="none"><span>None</span></label>
+      <label for="taskDesc">Description <small>(optional)</small></label>
+      <textarea id="taskDesc" rows="3" placeholder="Details, reference numbers, who to contact&hellip;"></textarea>
+    </div>
+    <div id="taskNewOnly">
+      <div class="field">
+        <label>Money</label>
+        <div class="radios">
+          <label class="rad"><input type="radio" name="taskFlow" value="outflow" checked><span>Outflow</span></label>
+          <label class="rad"><input type="radio" name="taskFlow" value="inflow"><span>Inflow</span></label>
+          <label class="rad"><input type="radio" name="taskFlow" value="none"><span>None</span></label>
+        </div>
+      </div>
+      <div class="field" id="taskMoney">
+        <label for="taskAmt">Amount</label>
+        <div class="money"><em>PHP</em><input type="number" id="taskAmt" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+      </div>
+      <div class="field" id="taskPayWrap">
+        <label for="taskPay">Paid / received using</label>
+        <select id="taskPay"><option>Cash</option><option>Maribank</option><option>Others</option></select>
+        <input type="text" id="taskPayOther" placeholder="Specify" hidden>
+      </div>
+      <div class="field">
+        <label for="taskDate">Date</label>
+        <input type="date" id="taskDate">
       </div>
     </div>
-    <div class="field" id="taskMoney">
-      <label for="taskAmt">Amount</label>
-      <div class="money"><em>PHP</em><input type="number" id="taskAmt" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
-    </div>
-    <div class="field" id="taskPayWrap">
-      <label for="taskPay">Paid / received using</label>
-      <select id="taskPay"><option>Cash</option><option>Maribank</option><option>Others</option></select>
-      <input type="text" id="taskPayOther" placeholder="Specify" hidden>
-    </div>
     <div class="field">
-      <label for="taskDate">Date</label>
-      <input type="date" id="taskDate">
+      <label>Images <small id="imgCount">0/5</small></label>
+      <div class="img-grid" id="imgGrid"></div>
+      <div class="img-add" id="imgAdd">
+        <button type="button" class="ghost sm" id="imgUpload">Upload</button>
+        <button type="button" class="ghost sm" id="imgExisting">Existing receipt</button>
+        <button type="button" class="ghost sm" id="imgLink">Paste link</button>
+      </div>
+      <div class="row img-link" id="imgLinkField" hidden>
+        <input type="url" id="imgLinkInput" placeholder="https://example.com/photo.jpg" inputmode="url">
+        <button type="button" class="ghost sm" id="imgLinkUse">Add</button>
+      </div>
+      <div class="rs-list img-link" id="rsList" hidden></div>
     </div>
     <div class="acts">
       <button type="button" class="go sm" id="taskSave">Add task</button>
@@ -76,25 +96,11 @@
     </div>
   </div>
 </div>
-<input type="file" accept="image/*" id="finFileCamera" capture="environment" hidden>
-<input type="file" accept="image/*" id="finFileUpload" hidden>
-<div class="modal" id="rcptSheet" hidden>
-  <div class="sheet small">
-    <h3>Task receipt</h3>
-    <div class="acts">
-      <button type="button" class="ghost" id="rsView" hidden>View current receipt</button>
-      <button type="button" class="ghost" id="rsCamera">Take a picture</button>
-      <button type="button" class="ghost" id="rsUpload">Upload from device</button>
-      <button type="button" class="ghost" id="rsLink">Paste image link</button>
-      <div class="field" id="rsLinkField" hidden>
-        <input type="url" id="rsLinkInput" placeholder="https://example.com/receipt.jpg" inputmode="url">
-        <button type="button" class="go sm" id="rsLinkUse">Use link</button>
-      </div>
-      <button type="button" class="ghost" id="rsExisting">Link an existing receipt</button>
-      <div class="rs-list" id="rsList" hidden></div>
-      <button type="button" class="ghost danger" id="rsRemove" hidden>Remove receipt</button>
-      <button type="button" class="ghost" id="rsCancel">Cancel</button>
-    </div>
+<input type="file" accept="image/*" id="finFileUpload" multiple hidden>
+<div class="modal" id="imgView" hidden>
+  <div class="sheet">
+    <div id="imgViewBody"></div>
+    <div class="acts"><button type="button" class="ghost" id="imgViewClose">Close</button></div>
   </div>
 </div>
 <div class="toast" id="finToast" hidden></div>

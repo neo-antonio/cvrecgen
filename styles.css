@@ -118,8 +118,8 @@ body.home-body{padding-top:0}
 .port-summary b{font:400 20px "Archivo Black",Poppins,sans-serif;margin-right:auto}
 .port-summary .ghost.sm{align-self:center}
 .port-list{display:flex;flex-direction:column;gap:10px}
-.port-card{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;
-  padding:8px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+.port-card{display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);min-width:0}
+.port-card-main{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center}
 .port-thumb{width:52px;height:52px;border-radius:8px;overflow:hidden;background:#ececec;
   display:flex;align-items:center;justify-content:center;flex:none}
 .port-thumb img{width:100%;height:100%;object-fit:cover;display:block}
@@ -145,11 +145,11 @@ body.home-body{padding-top:0}
 .fin-chk{display:flex;align-items:center;justify-content:center;cursor:pointer}
 .fin-chk input{width:20px;height:20px;min-height:0;padding:0;accent-color:var(--fg)}
 .fin-done{color:#1c6b2e;font-weight:700;font-size:16px}
-.ship-card{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+.ship-card{display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
 .ship-top{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center}
 .ship-meta{font-size:11px;color:var(--mut);line-height:1.6;padding-left:64px}
-.ship-actions{display:flex;gap:8px;padding-left:64px;flex-wrap:wrap}
-.ship-actions .ghost.sm{flex:none}
+.ship-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:8px}
+.ship-actions .port-thumb{width:36px;height:36px;margin-right:auto}
 .fin-row-error{outline:2px solid #c0392b;outline-offset:-2px}
 
 /* ---------- Search / filter chips (Portfolio) ---------- */
@@ -158,8 +158,7 @@ body.home-body{padding-top:0}
 .chip.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 
 /* ---------- Card action rows (Portfolio / Finance / Shipping: delete, revert, receipt) ---------- */
-.port-card-wrap{display:flex;flex-direction:column;gap:6px}
-.port-card-acts,.fin-item-acts{display:flex;gap:8px;flex-wrap:wrap;padding-left:2px}
+.port-card-acts,.fin-item-acts{display:flex;gap:8px;flex-wrap:wrap}
 .port-card-acts .ghost.sm,.fin-item-acts .ghost.sm{flex:none}
 .port-clickphoto,.ship-clickphoto{cursor:zoom-in}
 
@@ -222,7 +221,7 @@ body.home-body{padding-top:0}
 .icon-btn.flat{width:30px;height:30px;background:none;border:0;color:var(--mut)}
 .icon-btn.flat svg{width:16px;height:16px}
 .icon-btn.flat.danger{color:#c0392b}
-.port-card-acts{justify-content:flex-end;gap:6px}
+.port-card-acts{justify-content:flex-end;gap:6px;border-top:1px solid var(--line);padding-top:8px}
 
 /* ---------- Global footer ---------- */
 .site-footer{max-width:720px;margin:36px auto 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));
@@ -238,3 +237,25 @@ body.home-body{padding-top:0}
   .port-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .receipt-grid{grid-template-columns:repeat(6,1fr)}
 }
+
+/* ---------- Finance: task editor (images), notes, thumbnails ---------- */
+.sheet.small.wide{max-width:420px}
+.img-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}
+.img-grid:empty{display:none}
+.img-tile{position:relative;aspect-ratio:1/1;border-radius:var(--r);overflow:hidden;border:1px solid var(--line);background:#ececec}
+.sheet .img-tile img{width:100%;height:100%;object-fit:cover;border:0;border-radius:0;margin:0;display:block}
+.img-x{position:absolute;top:4px;right:4px;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:rgba(36,36,36,.85);color:#fff;font-size:16px;line-height:1;cursor:pointer}
+.img-add{display:flex;gap:8px;flex-wrap:wrap}
+.img-add .ghost.sm{flex:1 1 auto;padding:0 10px;font-size:12px}
+.img-link{margin-top:8px}
+.fin-notes{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--fg)!important}
+.fin-thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.fin-thumb{width:34px;height:34px;padding:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#ececec;cursor:zoom-in}
+.fin-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+
+/* ---------- Receipts archive: date filter ---------- */
+.rec-dates{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.rec-dates .field{margin-bottom:12px}
+.rec-tools{display:flex;gap:8px;margin-bottom:8px}
+.rec-tools select{flex:1;min-width:0}
+.rec-count{margin:0 0 14px;font-size:12px;color:var(--mut)}

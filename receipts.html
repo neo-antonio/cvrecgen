@@ -33,6 +33,17 @@
 </header>
 
 <main class="port-wrap">
+  <div class="rec-filter">
+    <div class="rec-dates">
+      <div class="field"><label for="recFrom">From</label><input type="date" id="recFrom"></div>
+      <div class="field"><label for="recTo">To</label><input type="date" id="recTo"></div>
+    </div>
+    <div class="rec-tools">
+      <select id="recSort" aria-label="Sort order"><option value="desc">Newest first</option><option value="asc">Oldest first</option></select>
+      <button type="button" class="ghost sm" id="recClear">Clear dates</button>
+    </div>
+    <p class="rec-count" id="recCount"></p>
+  </div>
   <p class="stub-note" id="recState">Loading&hellip;</p>
   <div id="recList" class="receipt-grid" hidden></div>
 </main>

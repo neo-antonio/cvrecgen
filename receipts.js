@@ -7,6 +7,7 @@ const TYPE_LABEL = { purchase: 'Purchase', sale: 'Sale', trade: 'Trade' };
 
 let recTab = 'all';
 let receipts = [];
+const $recFrom = document.getElementById('recFrom'), $recTo = document.getElementById('recTo'), $recSort = document.getElementById('recSort'), $recCount = document.getElementById('recCount');
 
 function jsonp(url) {
   return new Promise((resolve, reject) => {
@@ -36,10 +37,27 @@ function rowHtml(r) {
     </div>`;
 }
 
+/* Receipts are shown by receipt date, newest first by default (ties keep the archive's own order,
+   newest entry first). The date filter is inclusive on both ends; From/To can be set in either order. */
+function visibleReceipts() {
+  let list = recTab === 'all' ? receipts : receipts.filter(r => r.type === recTab);
+  let lo = $recFrom.value, hi = $recTo.value;
+  if (lo && hi && lo > hi) [lo, hi] = [hi, lo];
+  if (lo || hi) list = list.filter(r => { const d = String(r.date || '').slice(0, 10); return d && (!lo || d >= lo) && (!hi || d <= hi); });
+  const dir = $recSort.value === 'asc' ? 1 : -1;
+  return list.map((r, i) => ({ r, i })).sort((a, b) => {
+    const da = String(a.r.date || '').slice(0, 10), db = String(b.r.date || '').slice(0, 10);
+    if (da !== db) return !da ? 1 : !db ? -1 : da < db ? -dir : dir;   // undated receipts always last
+    return dir === -1 ? a.i - b.i : b.i - a.i;
+  }).map(x => x.r);
+}
+
 function render() {
-  const list = recTab === 'all' ? receipts : receipts.filter(r => r.type === recTab);
+  const list = visibleReceipts();
+  const filtered = $recFrom.value || $recTo.value;
+  $recCount.textContent = receipts.length ? `${list.length} receipt${list.length === 1 ? '' : 's'}` : '';
   if (!list.length) {
-    $recState.textContent = 'No receipts archived yet.';
+    $recState.textContent = receipts.length ? (filtered ? 'No receipts in that date range.' : 'No receipts in this category.') : 'No receipts archived yet.';
     $recState.hidden = false; $recList.hidden = true;
     return;
   }
@@ -68,6 +86,10 @@ document.querySelectorAll('.tab[data-rtab]').forEach(t => t.onclick = () => {
   recTab = t.dataset.rtab;
   render();
 });
+
+[$recFrom, $recTo].forEach(i => i.addEventListener('change', render));
+$recSort.addEventListener('change', render);
+document.getElementById('recClear').onclick = () => { $recFrom.value = ''; $recTo.value = ''; render(); };
 
 let activeReceiptId = null;
 function toast(m) {

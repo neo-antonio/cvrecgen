@@ -36,21 +36,23 @@ function fmtDay(v) {
   return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-const FIN_ICON = { doc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M9 12h7M9 16h7"/>', trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>', undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>' };
+const FIN_ICON = { doc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M9 12h7M9 16h7"/>', trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>', undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>', pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>' };
 const finIcon = (name, cls, label, id) => `<button type="button" class="icon-btn flat ${cls}" data-id="${id}" title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${FIN_ICON[name]}</svg></button>`;
 
 function rowHtml(it, recordable) {
-  const standalone = it.type === 'manual';
   const flowCls = it.flow === 'inflow' ? 'amt-in' : it.flow === 'none' ? 'amt-none' : 'amt-out';
   const sign = it.flow === 'inflow' ? '+' : it.flow === 'none' ? '' : '\u2212';
   const flowWord = it.flow === 'inflow' ? 'Inflow' : it.flow === 'none' ? 'No cash' : 'Outflow';
   const meta = [fmtDay(it.date), it.payMethod ? escFin(it.payMethod) : '', flowWord].filter(Boolean).join(' \u00b7 ');
-  const acts = (standalone ? finIcon('doc', 'fin-rcpt' + (it.receipt ? ' has' : ''), it.receipt ? 'Receipt' : 'Attach receipt', it.id) : '')
+  const acts = finIcon('pencil', 'fin-edit', 'Edit task', it.id)
     + (!recordable ? finIcon('undo', 'fin-unrecord', 'Undo', it.id) : '')
     + finIcon('trash', 'fin-delete danger', 'Delete task', it.id);
+  const notes = it.notes ? `<span class="fin-notes">${escFin(it.notes)}</span>` : '';
+  const imgs = it.images || [];
+  const thumbs = imgs.length ? `<div class="fin-thumbs">${imgs.map((im, i) => `<button type="button" class="fin-thumb" data-id="${it.id}" data-i="${i}" aria-label="View image ${i + 1}"><img src="${escFin(im.thumb)}" alt="" loading="lazy"></button>`).join('')}</div>` : '';
   return `<div class="fin-item fin-line" data-id="${it.id}">
       <label class="fin-chk">${recordable ? '<input type="checkbox" class="fin-mark">' : '<span class="fin-done">&check;</span>'}</label>
-      <div class="port-info"><b>${escFin(it.description)}</b><span>${meta}</span></div>
+      <div class="port-info"><b>${escFin(it.description)}</b>${notes}<span>${meta}</span>${thumbs}</div>
       <div class="fin-right">
         <div class="fin-amt ${flowCls}">${sign}${finPhp(it.amount)}</div>
         <div class="fin-line-acts">${acts}</div>
@@ -148,8 +150,11 @@ $finList.addEventListener('click', async e => {
   const receiptBtn = e.target.closest('.fin-receipt');
   if (receiptBtn) { window.open(receiptBtn.dataset.url, '_blank'); return; }
 
-  const taskRcpt = e.target.closest('.fin-rcpt');
-  if (taskRcpt) { openRcptSheet(taskRcpt.dataset.id); return; }
+  const editBtn = e.target.closest('.fin-edit');
+  if (editBtn) { openEditor(editBtn.dataset.id); return; }
+
+  const thumb = e.target.closest('.fin-thumb');
+  if (thumb) { openImgView(thumb.dataset.id, +thumb.dataset.i); return; }
 
   const delBtn = e.target.closest('.fin-delete');
   if (delBtn) {
@@ -182,101 +187,109 @@ $finList.addEventListener('click', async e => {
   }
 });
 
-/* ---------- Standalone task (touches no card or receipt) ---------- */
+/* ---------- Task editor: add a standalone task, or edit any task (title, description, up to 5 images) ---------- */
+const MAX_IMG = 5;
 const $ts = id => document.getElementById(id);
 const todayIso = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
-function openTaskSheet() {
-  $ts('taskDesc').value = ''; $ts('taskAmt').value = ''; $ts('taskPay').value = 'Cash';
-  $ts('taskPayOther').value = ''; $ts('taskPayOther').hidden = true; $ts('taskDate').value = todayIso();
-  document.querySelector('input[name=taskFlow][value=outflow]').checked = true;
-  syncTaskFlow();
+const newTaskId = () => 'f_' + Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, '0')).join('');
+const findTask = id => finData.toRecord.concat(finData.recorded).find(t => String(t.id) === String(id));
+const room = () => MAX_IMG - ed.images.length;
+// ed.images items: {kind:'keep',src:<stored url>} | {kind:'upload',src:<dataURL>} | {kind:'link',src:<url>} | {kind:'receipt',receiptId}; each also has .thumb for preview
+let ed = { id: null, isNew: true, images: [] };
+
+function openEditor(id) {
+  const t = id ? findTask(id) : null;
+  ed = { id: t ? t.id : newTaskId(), isNew: !t, images: t ? (t.images || []).map(im => ({ kind: 'keep', src: im.raw, thumb: im.thumb })) : [] };
+  $ts('taskHeading').textContent = t ? 'Edit task' : 'Add task';
+  $ts('taskHint').hidden = !t;
+  $ts('taskNewOnly').hidden = !!t;
+  $ts('taskTitle').value = t ? t.description : '';
+  $ts('taskDesc').value = t ? (t.notes || '') : '';
+  $ts('taskSave').textContent = t ? 'Save changes' : 'Add task';
+  if (!t) {
+    $ts('taskAmt').value = ''; $ts('taskPay').value = 'Cash';
+    $ts('taskPayOther').value = ''; $ts('taskPayOther').hidden = true; $ts('taskDate').value = todayIso();
+    document.querySelector('input[name=taskFlow][value=outflow]').checked = true;
+    syncTaskFlow();
+  }
+  closeImgTools();
+  renderImgs();
   $ts('taskSheet').hidden = false;
-  $ts('taskDesc').focus();
+  if (!t) $ts('taskTitle').focus();
 }
-function closeTaskSheet() { $ts('taskSheet').hidden = true; }
-$ts('finAdd').onclick = openTaskSheet;
-$ts('taskCancel').onclick = closeTaskSheet;
-$ts('taskSheet').addEventListener('click', e => { if (e.target.id === 'taskSheet') closeTaskSheet(); });
+function closeEditor() { $ts('taskSheet').hidden = true; closeImgTools(); }
+function closeImgTools() {
+  $ts('imgLinkField').hidden = true; $ts('imgLinkInput').value = '';
+  $ts('rsList').hidden = true; $ts('rsList').innerHTML = '';
+}
+function renderImgs() {
+  $ts('imgGrid').innerHTML = ed.images.map((im, i) => `<div class="img-tile"><img src="${escFin(im.thumb)}" alt=""><button type="button" class="img-x" data-i="${i}" aria-label="Remove image">&times;</button></div>`).join('');
+  $ts('imgCount').textContent = `${ed.images.length}/${MAX_IMG}`;
+  $ts('imgAdd').hidden = room() <= 0;
+  if (room() <= 0) closeImgTools();
+}
+$ts('finAdd').onclick = () => openEditor(null);
+$ts('taskCancel').onclick = closeEditor;
+$ts('taskSheet').addEventListener('click', e => { if (e.target.id === 'taskSheet') closeEditor(); });
+$ts('imgGrid').addEventListener('click', e => {
+  const x = e.target.closest('.img-x');
+  if (!x) return;
+  ed.images.splice(+x.dataset.i, 1);
+  renderImgs();
+});
 function syncTaskFlow() {
   const none = document.querySelector('input[name=taskFlow]:checked').value === 'none';
   $ts('taskMoney').hidden = none; $ts('taskPayWrap').hidden = none;
 }
 document.querySelectorAll('input[name=taskFlow]').forEach(r => r.addEventListener('change', syncTaskFlow));
 $ts('taskPay').addEventListener('change', () => { $ts('taskPayOther').hidden = $ts('taskPay').value !== 'Others'; });
-$ts('taskSave').onclick = async () => {
-  const description = $ts('taskDesc').value.trim();
-  const flow = document.querySelector('input[name=taskFlow]:checked').value;
-  const amount = flow === 'none' ? 0 : parseFloat($ts('taskAmt').value);
-  if (!description) return toast('Add a description.');
-  if (!isFinite(amount) || amount < 0) return toast('Enter a valid amount.');
-  if (!CONFIG.portfolio.endpoint) return toast("Sync isn't set up yet.");
-  const payMethod = flow === 'none' ? '' : $ts('taskPay').value === 'Others' ? ($ts('taskPayOther').value.trim() || 'Others') : $ts('taskPay').value;
-  const btn = $ts('taskSave'); btn.disabled = true; btn.textContent = 'Adding\u2026';
-  try {
-    const url = CONFIG.portfolio.endpoint + '?action=addFinance&description=' + encodeURIComponent(description) +
-      '&amount=' + encodeURIComponent(amount) + '&flow=' + flow + '&payMethod=' + encodeURIComponent(payMethod) +
-      '&date=' + encodeURIComponent($ts('taskDate').value || todayIso()) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
-    const data = await jsonp(url);
-    if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
-    closeTaskSheet();
-    toast('Task added.');
-    await loadFinance();
-    setFinTab('torecord');
-  } catch (err) {
-    toast('Could not add task: ' + err.message);
-  }
-  btn.disabled = false; btn.textContent = 'Add task';
-};
 
-/* ---------- Receipt for a standalone task: upload, paste a link, or link an existing receipt ---------- */
-let rcptTaskId = null;
-const findTask = id => finData.toRecord.concat(finData.recorded).find(t => String(t.id) === String(id));
-const backendMsg = err => err.message === 'unknown action' ? 'Code.gs needs the latest version deployed' : err.message;
-function openRcptSheet(id) {
-  rcptTaskId = id;
-  const t = findTask(id);
-  $ts('rsView').hidden = !(t && t.receipt);
-  $ts('rsRemove').hidden = !(t && t.receipt);
-  $ts('rsLinkField').hidden = true; $ts('rsLinkInput').value = '';
-  $ts('rsList').hidden = true; $ts('rsList').innerHTML = '';
-  $ts('rcptSheet').hidden = false;
+/* adding images: upload (several at once), an existing archived receipt, or a pasted link */
+function shrinkImage(file, max = 1600, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('unreadable')); };
+    img.src = url;
+  });
 }
-function closeRcptSheet() { $ts('rcptSheet').hidden = true; rcptTaskId = null; }
-async function taskReceiptCall(query, okMsg) {
-  try {
-    const data = await jsonp(CONFIG.portfolio.endpoint + '?' + query + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
-    if (!data.ok) throw new Error(data.error || 'Request failed');
-    toast(okMsg);
-    await loadFinance();
-  } catch (err) { toast('Could not update receipt: ' + backendMsg(err)); }
-}
-$ts('rsCancel').onclick = closeRcptSheet;
-$ts('rcptSheet').addEventListener('click', e => { if (e.target.id === 'rcptSheet') closeRcptSheet(); });
-$ts('rsView').onclick = () => { const t = findTask(rcptTaskId); if (t && t.receipt) window.open(t.receipt, '_blank'); };
-$ts('rsCamera').onclick = () => $ts('finFileCamera').click();
-$ts('rsUpload').onclick = () => $ts('finFileUpload').click();
-$ts('rsLink').onclick = () => { $ts('rsLinkField').hidden = false; $ts('rsLinkInput').focus(); };
-$ts('rsLinkUse').onclick = () => {
-  const url = $ts('rsLinkInput').value.trim(), id = rcptTaskId;
-  if (!id) return;
+$ts('imgUpload').onclick = () => $ts('finFileUpload').click();
+$ts('finFileUpload').addEventListener('change', async e => {
+  const files = Array.from(e.target.files || []); e.target.value = '';
+  if (!files.length) return;
+  const take = files.slice(0, Math.max(0, room()));
+  if (files.length > take.length) toast(`Only ${MAX_IMG} images per task \u2014 extra files skipped.`);
+  for (const f of take) {
+    try { const src = await shrinkImage(f); ed.images.push({ kind: 'upload', src, thumb: src }); }
+    catch (_) { toast('Could not read one of the images.'); }
+  }
+  renderImgs();
+});
+$ts('imgLink').onclick = () => { $ts('rsList').hidden = true; $ts('imgLinkField').hidden = false; $ts('imgLinkInput').focus(); };
+$ts('imgLinkUse').onclick = () => {
+  const url = $ts('imgLinkInput').value.trim();
   if (!/^https?:\/\//i.test(url)) return toast('Paste a full image address starting with http.');
-  closeRcptSheet();
-  taskReceiptCall('action=linkFinanceReceipt&financeId=' + encodeURIComponent(id) + '&url=' + encodeURIComponent(url), 'Receipt attached.');
+  if (room() <= 0) return;
+  ed.images.push({ kind: 'link', src: url, thumb: url });
+  $ts('imgLinkInput').value = ''; $ts('imgLinkField').hidden = true;
+  renderImgs();
 };
-$ts('rsRemove').onclick = () => {
-  const id = rcptTaskId;
-  if (!id) return;
-  closeRcptSheet();
-  taskReceiptCall('action=unlinkFinanceReceipt&financeId=' + encodeURIComponent(id), 'Receipt removed.');
-};
-$ts('rsExisting').onclick = async () => {
+$ts('imgExisting').onclick = async () => {
   const list = $ts('rsList');
+  $ts('imgLinkField').hidden = true;
   list.hidden = false; list.innerHTML = '<p class="stub-note" style="margin:6px 0">Loading receipts\u2026</p>';
   try {
     const data = await jsonp(CONFIG.portfolio.endpoint + '?action=receipts&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
     if (!data.ok) throw new Error(data.error || 'Request failed');
-    const rs = data.receipts || [];
-    list.innerHTML = rs.length ? rs.map(r => `<button type="button" class="rs-item" data-rid="${escFin(r.id)}">
+    const rs = (data.receipts || []).slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    list.innerHTML = rs.length ? rs.map(r => `<button type="button" class="rs-item" data-rid="${escFin(r.id)}" data-thumb="${escFin(r.url)}">
         <img src="${escFin(r.url)}" alt="" loading="lazy">
         <div><b>${escFin(r.description || 'Receipt')}</b><span>${fmtDay(r.date)}</span></div></button>`).join('')
       : '<p class="stub-note" style="margin:6px 0">No receipts archived yet.</p>';
@@ -284,44 +297,65 @@ $ts('rsExisting').onclick = async () => {
 };
 $ts('rsList').addEventListener('click', e => {
   const item = e.target.closest('.rs-item');
-  if (!item || !rcptTaskId) return;
-  const id = rcptTaskId;
-  closeRcptSheet();
-  taskReceiptCall('action=linkFinanceReceipt&financeId=' + encodeURIComponent(id) + '&receiptId=' + encodeURIComponent(item.dataset.rid), 'Receipt linked.');
+  if (!item || room() <= 0) return;
+  if (ed.images.some(im => im.kind === 'receipt' && im.receiptId === item.dataset.rid)) return toast('That receipt is already added.');
+  ed.images.push({ kind: 'receipt', receiptId: item.dataset.rid, thumb: item.dataset.thumb });
+  closeImgTools();
+  renderImgs();
 });
-function handleFinFile(input, kind) {
-  input.addEventListener('change', () => {
-    const f = input.files[0]; input.value = '';
-    if (!f || !rcptTaskId) return;
-    const id = rcptTaskId, reader = new FileReader();
-    reader.onload = () => sendTaskReceipt(id, { kind, src: reader.result });
-    reader.readAsDataURL(f);
-    closeRcptSheet();
-  });
+
+/* viewing a task's images */
+function openImgView(taskId, idx) {
+  const t = findTask(taskId), imgs = (t && t.images) || [];
+  if (!imgs.length) return;
+  $ts('imgViewBody').innerHTML = imgs.map((im, i) => `<a href="${escFin(im.full)}" target="_blank" rel="noopener"><img src="${escFin(im.full)}" alt="Image ${i + 1}" loading="lazy"></a>`).join('');
+  $ts('imgView').hidden = false;
+  const el = $ts('imgViewBody').children[idx || 0];
+  if (el) el.scrollIntoView({ block: 'start' });
 }
-handleFinFile($ts('finFileCamera'), 'camera');
-handleFinFile($ts('finFileUpload'), 'upload');
-async function sendTaskReceipt(financeId, photo) {
-  toast('Uploading receipt\u2026');
-  const payload = {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'financeReceipt', secret: CONFIG.portfolio.secret, financeId, photo })
+$ts('imgViewClose').onclick = () => $ts('imgView').hidden = true;
+$ts('imgView').addEventListener('click', e => { if (e.target.id === 'imgView') $ts('imgView').hidden = true; });
+
+/* saving: one POST for create and edit. The task ID is made in the browser and the backend upserts on it,
+   so if the response can't be read (Apps Script CORS) the blind retry can never create a duplicate task. */
+async function postFinance(body) {
+  const payload = { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) };
+  let data = null;
+  try { const res = await fetch(CONFIG.portfolio.endpoint, payload); try { data = await res.json(); } catch (_) {} } catch (_) {}
+  if (data && data.ok === true) return true;
+  if (data && data.ok === false) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
+  await fetch(CONFIG.portfolio.endpoint, { ...payload, mode: 'no-cors' });   // unreadable response: send once more, blind
+  return false;
+}
+$ts('taskSave').onclick = async () => {
+  const title = $ts('taskTitle').value.trim(), notes = $ts('taskDesc').value.trim();
+  if (!title) return toast('Add a title.');
+  if (!CONFIG.portfolio.endpoint) return toast("Sync isn't set up yet.");
+  const wasNew = ed.isNew;
+  const body = {
+    action: 'saveFinance', secret: CONFIG.portfolio.secret, financeId: ed.id, isNew: wasNew, title, notes,
+    images: ed.images.map(im => im.kind === 'receipt' ? { kind: 'receipt', receiptId: im.receiptId } : { kind: im.kind, src: im.src })
   };
-  try {
-    const res = await fetch(CONFIG.portfolio.endpoint, payload);
-    let data = null;
-    try { data = await res.json(); } catch (_) {}
-    if (!res.ok || !data || data.ok !== true) throw new Error((data && data.error) || `HTTP ${res.status}`);
-    toast('Receipt attached.');
-    await loadFinance();
-  } catch (err) {
-    console.warn('Receipt upload: readable response blocked (likely CORS), retrying blind.', err);
-    try {
-      await fetch(CONFIG.portfolio.endpoint, { ...payload, mode: 'no-cors' });
-      toast('Receipt sent \u2014 refresh in a moment to confirm it landed.');
-    } catch (err2) { toast('Receipt upload failed (offline?).'); }
+  if (wasNew) {
+    const flow = document.querySelector('input[name=taskFlow]:checked').value;
+    const amount = flow === 'none' ? 0 : parseFloat($ts('taskAmt').value);
+    if (!isFinite(amount) || amount < 0) return toast('Enter a valid amount.');
+    Object.assign(body, {
+      flow, amount, date: $ts('taskDate').value || todayIso(),
+      payMethod: flow === 'none' ? '' : $ts('taskPay').value === 'Others' ? ($ts('taskPayOther').value.trim() || 'Others') : $ts('taskPay').value
+    });
   }
-}
+  const btn = $ts('taskSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
+  try {
+    const confirmed = await postFinance(body);
+    closeEditor();
+    if (confirmed) { toast(wasNew ? 'Task added.' : 'Task updated.'); await loadFinance(); }
+    else { toast('Sent \u2014 refreshing in a moment\u2026'); await new Promise(r => setTimeout(r, 3000)); await loadFinance(); }
+    if (wasNew) setFinTab('torecord');
+  } catch (err) {
+    toast('Could not save: ' + err.message);
+  }
+  btn.disabled = false; btn.textContent = wasNew ? 'Add task' : 'Save changes';
+};
 
 loadFinance();

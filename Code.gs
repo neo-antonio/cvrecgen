@@ -20,8 +20,11 @@
  *      TradeValue/TradeReceiptURL instead — it never goes through shipping,
  *      so those columns are otherwise unused for it.
  *
- *    Tab "Finance" — header row (columns A-K):
- *      ID | CardID | Type | Date | Description | Amount | PayMethod | Recorded | RecordedDate | ReceiptURL | Flow
+ *    Tab "Finance" — header row (columns A-M):
+ *      ID | CardID | Type | Date | Description | Amount | PayMethod | Recorded | RecordedDate | ReceiptURL | Flow | Images | Notes
+ *      Images (col L) = up to 5 image URLs as a JSON array; Notes (col M) = the task's longer description
+ *      (Description, col E, is the task title). L and M are optional: older rows leave them blank, and
+ *      the script adds the two headers and columns by itself the first time a task is saved.
  *      Type is one of: purchase, sale, shipping, trade.
  *      Flow is one of: inflow (money received into PayMethod), outflow (money spent from PayMethod).
  *
@@ -80,6 +83,13 @@
  *   the app using the ReceiptURL column that already exists, and standalone tasks are simply
  *   Finance rows with Type "manual" and blank CardID/ReceiptURL.
  *
+ *   POST { action:'saveFinance', secret, financeId, isNew, title, notes, images:[{kind:'keep'|'link'|'upload'|'receipt', src|receiptId}],
+ *          (new tasks only:) amount, flow, payMethod, date }  -> { ok, id, images }
+ *        Upsert by financeId: creates a standalone task when isNew and the ID doesn't exist yet, otherwise edits
+ *        Title (col E), Images (col L) and Notes (col M) of the existing row — for ANY task, including
+ *        receipt-generated ones. Nothing else on the row is touched, so grouping, recording and the
+ *        receipt-delete cascade keep working. Safe to retry.
+ *
  *   GET actions that mutate state are deliberately GET, not POST: Apps
  *   Script doesn't reliably send CORS headers on responses, so a POST's
  *   result often can't be read back by fetch(). These small ID-only
@@ -104,6 +114,7 @@ const DRIVE_FOLDER_ID = '1CYJ4iiiulbWoxY-4gn809_EFyD_XvC00';       // item/purch
 const SHIP_PHOTO_FOLDER_ID = '1vYYjKr46QFs1C66ICvrGZpoMJyeYDfeC';  // proof-of-shipment photos
 const RECEIPT_FOLDER_ID = '1YDEr3rLQD5VGKXq6XdoOZnKp5V-Js3E8';     // generated receipt images
 const SECRET = 'courtvision_$0819';
+const MAX_TASK_IMAGES = 5;
 
 /* ---------- entry points ---------- */
 
@@ -118,6 +129,7 @@ function doPost(e) {
     if (action === 'shipPhoto') return json_(handleShipPhoto_(body));
     if (action === 'cardPhoto') return json_(handleCardPhoto_(body));
     if (action === 'financeReceipt') return json_(handleFinanceReceipt_(body));
+    if (action === 'saveFinance') return json_(handleSaveFinance_(body));
     return json_({ ok: false, error: 'unknown action' });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -360,6 +372,87 @@ function clearPhoto_(cardId, which) {
   return { ok: true };
 }
 
+// Create (standalone) or edit (any) Finance task: title, notes and up to MAX_TASK_IMAGES images.
+// Upsert keyed on financeId, so a retried request can never create a duplicate.
+function handleSaveFinance_(body) {
+  const title = String(body.title || '').trim().slice(0, 300);
+  if (!title) return { ok: false, error: 'missing title' };
+  const notes = String(body.notes || '').trim().slice(0, 2000);
+
+  // resolve images first (uploads are slow, so this happens before taking the lock)
+  const urls = [];
+  (Array.isArray(body.images) ? body.images : []).forEach(im => {
+    if (urls.length >= MAX_TASK_IMAGES) return;
+    const u = resolveTaskImage_(im);
+    if (u && urls.indexOf(u) < 0) urls.push(u);
+  });
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const fin = financeSheet_();
+    ensureFinanceColumns_(fin);
+    const found = findRow_(fin, body.financeId);
+    if (found) {
+      fin.getRange(found.idx, 5, 1, 1).setValue(title);                                        // Description (col E)
+      fin.getRange(found.idx, 12, 1, 2).setValues([[urls.length ? JSON.stringify(urls) : '', notes]]); // Images, Notes (L-M)
+      // a standalone task's old single receipt is now part of Images; clear it so it isn't shown twice
+      if (String(found.row[2]) === 'manual' && found.row[9]) fin.getRange(found.idx, 10, 1, 1).setValue('');
+      return { ok: true, id: String(found.row[0]), images: urls.length };
+    }
+    if (body.isNew !== true) return { ok: false, error: 'not found' };
+
+    const amount = Number(body.amount);
+    const flow = body.flow === 'inflow' ? 'inflow' : body.flow === 'none' ? 'none' : 'outflow';
+    if (flow !== 'none' && (!isFinite(amount) || amount < 0)) return { ok: false, error: 'invalid amount' };
+    const id = /^f_[0-9a-f]{4,16}$/.test(String(body.financeId || '')) ? String(body.financeId) : newId_('f');
+    fin.appendRow([id, '', 'manual', String(body.date || todayStr_()), title,
+      flow === 'none' ? 0 : amount, flow === 'none' ? '' : String(body.payMethod || ''), false, '', '', flow,
+      urls.length ? JSON.stringify(urls) : '', notes]);
+    return { ok: true, id, images: urls.length };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// One image spec from the app -> a stored URL ('' when it can't be used).
+function resolveTaskImage_(im) {
+  if (!im) return '';
+  if (im.kind === 'upload') return saveImage_(im.src, 'task-' + todayStr_() + '-' + newId_('i'), RECEIPT_FOLDER_ID);
+  if (im.kind === 'receipt') {
+    const r = findRow_(receiptsSheet_(), im.receiptId);
+    return r && r.row[3] ? String(r.row[3]) : '';
+  }
+  const u = String(im.src || '').trim();            // 'keep' (already stored) or 'link' (pasted)
+  return /^https?:\/\//i.test(u) ? u : '';
+}
+
+// Finance needs columns L (Images) and M (Notes). Older sheets don't have them; add on first use.
+function ensureFinanceColumns_(fin) {
+  const need = 13;
+  if (fin.getMaxColumns() < need) fin.insertColumnsAfter(fin.getMaxColumns(), need - fin.getMaxColumns());
+  const h = fin.getRange(1, 12, 1, 2).getValues()[0];
+  if (!h[0]) fin.getRange(1, 12, 1, 1).setValue('Images');
+  if (!h[1]) fin.getRange(1, 13, 1, 1).setValue('Notes');
+}
+
+function parseImages_(cell) {
+  const s = String(cell || '').trim();
+  if (!s) return [];
+  try { const a = JSON.parse(s); if (Array.isArray(a)) return a.map(String).filter(Boolean); } catch (e) {}
+  return s.split(/\s+/).filter(u => /^https?:\/\//i.test(u));
+}
+
+// Images of a Finance row: column L, plus (standalone tasks only) the older single receipt in column J.
+function taskImages_(row) {
+  const list = parseImages_(row[11]);
+  if (String(row[2]) === 'manual' && row[9]) {
+    const legacy = String(row[9]);
+    if (list.map(fileKey_).indexOf(fileKey_(legacy)) < 0) list.unshift(legacy);
+  }
+  return list.slice(0, MAX_TASK_IMAGES);
+}
+
 // A standalone Finance task: no card, no receipt — nothing else in the sheet is touched.
 function addFinance_(p) {
   const description = String(p.description || '').trim().slice(0, 300);
@@ -493,13 +586,14 @@ function unmarkShipped_(cardId) {
   if (!found) return { ok: false, error: 'not found' };
   if (found.row[9] !== 'shipped') return { ok: false, error: 'card is not marked shipped' };
   const batchId = found.row[23] || cardId;
-  const finRow = findRow_(fin, batchId);
-  if (finRow && finRow.row[7] === true) {
+  const finRows = findShippingFinance_(fin, [batchId, cardId]);
+  if (finRows.some(f => f.row[7] === true)) {
     return { ok: false, error: 'Its Finance entry is already recorded \u2014 unrecord it first, then revert.' };
   }
   cards.getRange(found.idx, 10, 1, 1).setValue('shipping');
   cards.getRange(found.idx, 19, 1, 1).setValue('');
-  if (finRow) fin.deleteRow(finRow.idx); // batch is no longer complete, drop the not-yet-recorded entry
+  // batch is no longer complete, drop the not-yet-recorded entry (bottom-up so row numbers stay valid)
+  finRows.map(f => f.idx).sort((a, b) => b - a).forEach(i => fin.deleteRow(i));
   return { ok: true };
 }
 
@@ -518,8 +612,8 @@ function revertToOnhand_(cardId) {
     const rows = cards.getDataRange().getValues();
     const stillInBatch = rows.slice(1).some(r => r[23] === batchId && r[0] !== cardId);
     if (!stillInBatch) {
-      const finRow = findRow_(fin, batchId);
-      if (finRow && finRow.row[7] !== true) fin.deleteRow(finRow.idx);
+      findShippingFinance_(fin, [batchId, cardId]).filter(f => f.row[7] !== true)
+        .map(f => f.idx).sort((a, b) => b - a).forEach(i => fin.deleteRow(i));
     }
   }
   return { ok: true, note: 'Reverted to onhand.' };
@@ -543,6 +637,20 @@ function deleteFinance_(financeId) {
   return { ok: true };
 }
 
+// The Finance row(s) of type "shipping" whose CardID column (B) holds one of the given keys: the batch ID
+// for a multi-card shipment, or the card's own ID for a single-card one. (Column A is the row's own ID,
+// so findRow_ can't be used for this.) Returns [{ idx, row }].
+function findShippingFinance_(fin, keys) {
+  const wanted = {};
+  keys.forEach(k => { if (k) wanted[String(k)] = true; });
+  const data = fin.getDataRange().getValues();
+  const out = [];
+  for (let r = 1; r < data.length; r++) {
+    if (String(data[r][2]) === 'shipping' && wanted[String(data[r][1])]) out.push({ idx: r + 1, row: data[r] });
+  }
+  return out;
+}
+
 // Called once a card is marked shipped; creates ONE Finance row per shipment
 // batch (not one per card) as soon as every card sharing that batch ID is
 // shipped — even when the total fee is PHP 0, so it still shows up to record.
@@ -553,7 +661,7 @@ function maybeCreateBatchFinance_(batchId) {
   const group = rows.filter(r => r[23] === batchId);
   if (!group.length) return;
   if (!group.every(r => r[9] === 'shipped')) return;
-  if (findRow_(fin, batchId)) return; // already created for this batch
+  if (findShippingFinance_(fin, [batchId, group[0][0]]).length) return; // already created for this batch
   const totalFee = group.reduce((a, r) => a + (Number(r[15]) || 0), 0);
   const names = group.map(r => r[4]).join(', ');
   const payMethod = group[0][16] || '';
@@ -603,6 +711,8 @@ function getFinance_() {
     const rc = key ? rmap[key] : null;
     const item = { id: r[0], date: fmtDateCell_(r[3]), description: r[4], amount: Number(r[5]) || 0, payMethod: r[6], receipt: r[9] || '', flow: r[10] || 'outflow',
       type: r[2] || '', groupKey: key,
+      notes: r[12] || '',
+      images: taskImages_(r).map(u => ({ raw: u, thumb: toDisplayUrl_(u, 300), full: toDisplayUrl_(u, 1080) })),
       groupType: rc ? rc.type : '', groupLabel: rc ? rc.description : '', groupDate: rc ? rc.date : '' };
     (r[7] === true ? recorded : toRecord).push(item);
   });

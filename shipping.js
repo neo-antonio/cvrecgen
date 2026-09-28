@@ -39,6 +39,16 @@ function fmtDay(v) {
   return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+const SHIP_ICON = {
+  doc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M9 12h7M9 16h7"/>',
+  camera: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.4"/>',
+  proof: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><path d="M9.3 13.4l2 2 3.4-3.6"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.8 2.8L16 9.7"/>',
+  trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>'
+};
+const shipIcon = (name, cls, label, id, extra = '') => `<button type="button" class="icon-btn ${cls}" data-id="${id}" ${extra} title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${SHIP_ICON[name]}</svg></button>`;
+
 function cardHtml(it, isToShip) {
   const img = it.photo ? `<img src="${it.photo}" alt="${escShip(it.name)}" loading="lazy" class="ship-clickphoto" data-full="${it.photo}">` : `<div class="port-noimg">No photo</div>`;
   const careLine = CARE_LABEL[it.shipType] || it.shipType || '';
@@ -49,12 +59,12 @@ function cardHtml(it, isToShip) {
       ? (it.scheduledDate ? `Scheduled ${fmtDay(it.scheduledDate)}` : 'No schedule set')
       : `Shipped ${fmtDay(it.shippedDate)}`
   ];
-  const proof = !isToShip && it.proofPhoto ? `<div class="port-thumb" style="width:36px;height:36px"><img src="${it.proofPhoto}" alt="Proof of shipment" class="ship-clickphoto" data-full="${it.proofPhoto}"></div>` : '';
-  const receiptBtn = it.saleReceipt ? `<button type="button" class="ghost sm ship-receipt" data-url="${escShip(it.saleReceipt)}">Receipt</button>` : '';
-  const itemPhotoBtn = `<button type="button" class="ghost sm ship-itemphoto" data-id="${it.id}">${it.photo ? 'Change item photo' : 'Add item photo'}</button>`;
+  const proof = !isToShip && it.proofPhoto ? `<div class="port-thumb"><img src="${it.proofPhoto}" alt="Proof of shipment" class="ship-clickphoto" data-full="${it.proofPhoto}"></div>` : '';
+  const receiptBtn = it.saleReceipt ? shipIcon('doc', 'ship-receipt', 'Receipt', it.id, `data-url="${escShip(it.saleReceipt)}"`) : '';
+  const itemPhotoBtn = shipIcon('camera', 'ship-itemphoto', it.photo ? 'Change item photo' : 'Add item photo', it.id);
   const actions = isToShip
-    ? `<div class="ship-actions"><button type="button" class="ghost sm ship-mark" data-id="${it.id}">Mark shipped</button>${receiptBtn}${itemPhotoBtn}<button type="button" class="ghost sm ship-delete" data-id="${it.id}">Delete</button></div>`
-    : `<div class="ship-actions">${proof}<button type="button" class="ghost sm ship-addphoto" data-id="${it.id}">${it.proofPhoto ? 'Change proof photo' : 'Add proof photo'}</button><button type="button" class="ghost sm ship-revert" data-id="${it.id}">Revert</button>${receiptBtn}${itemPhotoBtn}</div>`;
+    ? `<div class="ship-actions">${shipIcon('check', 'ship-mark', 'Mark shipped', it.id)}${itemPhotoBtn}${receiptBtn}${shipIcon('trash', 'ship-delete danger', 'Delete card', it.id)}</div>`
+    : `<div class="ship-actions">${proof}${shipIcon('proof', 'ship-addphoto', it.proofPhoto ? 'Change proof photo' : 'Add proof photo', it.id)}${itemPhotoBtn}${receiptBtn}${shipIcon('undo', 'ship-revert', 'Revert', it.id)}</div>`;
   return `<div class="ship-card" data-id="${it.id}">
       <div class="ship-top">
         <div class="port-thumb">${img}</div>
@@ -113,7 +123,7 @@ $shipList.addEventListener('click', async e => {
 
   const markBtn = e.target.closest('.ship-mark');
   if (markBtn) {
-    markBtn.disabled = true; markBtn.textContent = 'Marking\u2026';
+    markBtn.disabled = true;
     try {
       const url = CONFIG.portfolio.endpoint + '?action=markShipped&cardId=' + encodeURIComponent(markBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
       const data = await jsonp(url);
@@ -121,7 +131,7 @@ $shipList.addEventListener('click', async e => {
       await loadShipping();
     } catch (err) {
       console.warn('Mark shipped failed', err);
-      markBtn.disabled = false; markBtn.textContent = 'Mark shipped';
+      markBtn.disabled = false;
       toast('Could not mark as shipped: ' + err.message);
     }
     return;
@@ -129,14 +139,14 @@ $shipList.addEventListener('click', async e => {
 
   const revertBtn = e.target.closest('.ship-revert');
   if (revertBtn) {
-    revertBtn.disabled = true; revertBtn.textContent = 'Reverting\u2026';
+    revertBtn.disabled = true;
     try {
       const url = CONFIG.portfolio.endpoint + '?action=unmarkShipped&cardId=' + encodeURIComponent(revertBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
       const data = await jsonp(url);
       if (!data.ok) throw new Error(data.error || 'Request failed');
       await loadShipping();
     } catch (err) {
-      revertBtn.disabled = false; revertBtn.textContent = 'Revert';
+      revertBtn.disabled = false;
       toast('Could not revert: ' + err.message);
     }
     return;
@@ -145,14 +155,14 @@ $shipList.addEventListener('click', async e => {
   const delBtn = e.target.closest('.ship-delete');
   if (delBtn) {
     if (!confirm('Delete this card permanently? This cannot be undone.')) return;
-    delBtn.disabled = true; delBtn.textContent = 'Deleting\u2026';
+    delBtn.disabled = true;
     try {
       const url = CONFIG.portfolio.endpoint + '?action=deleteCard&cardId=' + encodeURIComponent(delBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
       const data = await jsonp(url);
       if (!data.ok) throw new Error(data.error || 'Request failed');
       await loadShipping();
     } catch (err) {
-      delBtn.disabled = false; delBtn.textContent = 'Delete';
+      delBtn.disabled = false;
       toast('Could not delete: ' + err.message);
     }
     return;
