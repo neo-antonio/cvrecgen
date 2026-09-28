@@ -30,7 +30,7 @@ function fmtDay(v) {
 }
 
 function rowHtml(r) {
-  return `<div class="receipt-tile" data-url="${escRec(r.url)}">
+  return `<div class="receipt-tile" data-id="${escRec(r.id)}" data-url="${escRec(r.url)}">
       <div class="receipt-tile-img"><img src="${r.url}" alt="Receipt" loading="lazy"></div>
       <div class="receipt-tile-info"><b>${TYPE_LABEL[r.type] || r.type}</b><span>${fmtDay(r.date)}</span></div>
     </div>`;
@@ -69,12 +69,57 @@ document.querySelectorAll('.tab[data-rtab]').forEach(t => t.onclick = () => {
   render();
 });
 
+let activeReceiptId = null;
+function toast(m) {
+  const t = document.getElementById('recToast'); t.textContent = m; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 3200);
+}
 $recList.addEventListener('click', e => {
   const card = e.target.closest('.receipt-tile');
   if (!card || !card.dataset.url) return;
+  activeReceiptId = card.dataset.id;
+  const r = receipts.find(x => String(x.id) === String(activeReceiptId));
+  document.getElementById('imgViewDesc').textContent = r ? [r.description, fmtDay(r.date)].filter(Boolean).join(' \u00b7 ') : '';
+  document.getElementById('imgViewDelete').hidden = !r;
   document.getElementById('imgViewImg').src = card.dataset.url;
   document.getElementById('imgView').hidden = false;
 });
+
+/* Delete a receipt together with everything it created: its cards (Portfolio / Shipping) and its
+   Finance entries. We ask the backend what is linked first, so the confirmation lists exactly what goes. */
+const sumList = (arr, max = 5) => arr.slice(0, max).join(', ') + (arr.length > max ? ` and ${arr.length - max} more` : '');
+const backendErr = err => err.message === 'unknown action' ? 'Code.gs needs the latest version deployed' : err.message;
+document.getElementById('imgViewDelete').onclick = async () => {
+  const id = activeReceiptId, btn = document.getElementById('imgViewDelete');
+  if (!id) return;
+  const base = CONFIG.portfolio.endpoint, sec = encodeURIComponent(CONFIG.portfolio.secret);
+  btn.disabled = true; btn.textContent = 'Checking\u2026';
+  try {
+    const imp = await jsonp(`${base}?action=receiptImpact&receiptId=${encodeURIComponent(id)}&secret=${sec}`);
+    if (!imp.ok) throw new Error(imp.error || 'Request failed');
+    const cards = imp.cards || [], fin = imp.finance || [];
+    let msg = 'Delete this receipt?\n\n';
+    if (cards.length || fin.length) {
+      msg += 'This will also permanently delete:\n';
+      if (cards.length) msg += `\u2022 ${cards.length} card${cards.length > 1 ? 's' : ''} (Portfolio / Shipping): ${sumList(cards)}\n`;
+      if (fin.length) msg += `\u2022 ${fin.length} Finance entr${fin.length > 1 ? 'ies' : 'y'}: ${sumList(fin)}\n`;
+    } else {
+      msg += 'No cards or Finance entries are linked to it.\n';
+    }
+    msg += '\nThis cannot be undone.';
+    if (!confirm(msg)) return;
+    btn.textContent = 'Deleting\u2026';
+    const del = await jsonp(`${base}?action=deleteReceipt&receiptId=${encodeURIComponent(id)}&secret=${sec}`);
+    if (!del.ok) throw new Error(del.error || 'Request failed');
+    document.getElementById('imgView').hidden = true;
+    toast(`Receipt deleted (${del.deletedCards || 0} card${del.deletedCards === 1 ? '' : 's'}, ${del.deletedFinance || 0} finance entr${del.deletedFinance === 1 ? 'y' : 'ies'}).`);
+    await loadReceipts();
+  } catch (err) {
+    toast('Could not delete: ' + backendErr(err));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Delete receipt';
+  }
+};
 document.getElementById('imgViewClose').onclick = () => document.getElementById('imgView').hidden = true;
 document.getElementById('imgView').addEventListener('click', e => { if (e.target.id === 'imgView') document.getElementById('imgView').hidden = true; });
 

@@ -59,6 +59,26 @@
  *          tradedItems:[{cardId,name,cost}], receivedItems:[{name,photo}], receivedPortfolio,
  *          cashDirection:'none'|'paid'|'received', cashAmount, cashMethod, receiptPhoto:{src} }
  *   POST { action:'shipPhoto', secret, cardId, photo:{kind,src} }
+ *   POST { action:'cardPhoto', secret, cardId, photo:{kind,src} }   -> replaces the item photo on a Cards row
+ *   GET  ?action=clearPhoto&cardId=..&which=card|proof&secret=..&callback=.. -> { ok }
+ *   GET  ?action=addFinance&description=..&amount=..&flow=inflow|outflow&payMethod=..&date=..&secret=..&callback=.. -> { ok, id }
+ *        (a standalone Finance task: no CardID, no receipt, type "manual" — touches nothing else)
+ *   GET  ?action=receiptImpact&receiptId=..&secret=..&callback=..  -> { ok, cards:[names], finance:[descriptions] }  (read-only preview)
+ *   GET  ?action=deleteReceipt&receiptId=..&secret=..&callback=..  -> { ok, deletedCards, deletedFinance }
+ *        Deletes the Receipts row, the receipt image (moved to Drive trash), every Cards row that
+ *        points at that receipt (PurchaseReceiptURL or SaleReceiptURL) and every Finance row that
+ *        points at it or at one of those cards. Rows are matched by the receipt's Drive file ID, and
+ *        a receipt with no URL never matches anything.
+ *
+ *   GET  ?action=renameCard&cardId=..&name=..&secret=..&callback=..  -> { ok }   (edits ItemName only)
+ *   GET  ?action=linkFinanceReceipt&financeId=..&receiptId=..|url=..&secret=..&callback=.. -> { ok }
+ *   GET  ?action=unlinkFinanceReceipt&financeId=..&secret=..&callback=..  -> { ok }
+ *   POST { action:'financeReceipt', secret, financeId, photo:{kind,src} }  -> uploads an image and attaches it
+ *        Receipt actions only work on standalone (type \"manual\") tasks. addFinance flow may also be \"none\".
+ *
+ *   NOTE: no sheet columns were added for these features. Finance rows are grouped by receipt in
+ *   the app using the ReceiptURL column that already exists, and standalone tasks are simply
+ *   Finance rows with Type "manual" and blank CardID/ReceiptURL.
  *
  *   GET actions that mutate state are deliberately GET, not POST: Apps
  *   Script doesn't reliably send CORS headers on responses, so a POST's
@@ -96,6 +116,8 @@ function doPost(e) {
     if (action === 'sell') return json_(handleSell_(body));
     if (action === 'trade') return json_(handleTrade_(body));
     if (action === 'shipPhoto') return json_(handleShipPhoto_(body));
+    if (action === 'cardPhoto') return json_(handleCardPhoto_(body));
+    if (action === 'financeReceipt') return json_(handleFinanceReceipt_(body));
     return json_({ ok: false, error: 'unknown action' });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -119,6 +141,13 @@ function doGet(e) {
     if (action === 'revertToOnhand') return jsonpOut_(revertToOnhand_(e.parameter.cardId), cb);
     if (action === 'deleteCard') return jsonpOut_(deleteCard_(e.parameter.cardId), cb);
     if (action === 'deleteFinance') return jsonpOut_(deleteFinance_(e.parameter.financeId), cb);
+    if (action === 'renameCard') return jsonpOut_(renameCard_(e.parameter.cardId, e.parameter.name), cb);
+    if (action === 'linkFinanceReceipt') return jsonpOut_(linkFinanceReceipt_(e.parameter), cb);
+    if (action === 'unlinkFinanceReceipt') return jsonpOut_(setTaskReceipt_(e.parameter.financeId, ''), cb);
+    if (action === 'clearPhoto') return jsonpOut_(clearPhoto_(e.parameter.cardId, e.parameter.which), cb);
+    if (action === 'addFinance') return jsonpOut_(addFinance_(e.parameter), cb);
+    if (action === 'receiptImpact') return jsonpOut_(receiptImpact_(e.parameter.receiptId), cb);
+    if (action === 'deleteReceipt') return jsonpOut_(deleteReceipt_(e.parameter.receiptId), cb);
     return jsonpOut_({ ok: false, error: 'unknown action' }, cb);
   } catch (err) {
     return jsonpOut_({ ok: false, error: String(err) }, cb);
@@ -254,9 +283,162 @@ function handleTrade_(body) {
     const flow = body.cashDirection === 'received' ? 'inflow' : 'outflow';
     const desc = (body.cashDirection === 'received' ? 'Cash received \u2014 trade with ' : 'Cash paid \u2014 trade with ') + partyLabel + (names ? ' (' + names + ')' : '');
     fin.appendRow([newId_('f'), '', 'trade', body.date || '', desc, amt, body.cashMethod || '', false, '', receiptUrl, flow]);
+  } else {
+    // No cash changed hands — still surface the trade in Finance as a task to tick off,
+    // so every trade receipt has an entry there (flow "none" = no money moved).
+    const names = tradedItems.map(i => i.name).concat(receivedItems.map(i => i.name)).filter(Boolean).join(', ');
+    fin.appendRow([newId_('f'), '', 'trade', body.date || '', 'Trade with ' + partyLabel + ' (no cash)' + (names ? ' \u2014 ' + names : ''), 0, '', false, '', receiptUrl, 'none']);
   }
 
   return { ok: true };
+}
+
+function renameCard_(cardId, name) {
+  if (!cardId) return { ok: false, error: 'missing cardId' };
+  name = String(name || '').trim().slice(0, 200);
+  if (!name) return { ok: false, error: 'name cannot be empty' };
+  const cards = cardsSheet_();
+  const found = findRow_(cards, cardId);
+  if (!found) return { ok: false, error: 'not found' };
+  cards.getRange(found.idx, 5, 1, 1).setValue(name); // ItemName (col E)
+  return { ok: true };
+}
+
+// Attach / clear the receipt on a standalone task (Finance ReceiptURL, col J). Receipt-derived
+// rows are refused so their grouping and the receipt-delete cascade can't be disturbed.
+function setTaskReceipt_(financeId, url) {
+  if (!financeId) return { ok: false, error: 'missing financeId' };
+  const fin = financeSheet_();
+  const found = findRow_(fin, financeId);
+  if (!found) return { ok: false, error: 'not found' };
+  if (String(found.row[2]) !== 'manual') return { ok: false, error: 'only standalone tasks can change receipts' };
+  fin.getRange(found.idx, 10, 1, 1).setValue(url || '');
+  return { ok: true };
+}
+
+function linkFinanceReceipt_(p) {
+  let url = '';
+  if (p.receiptId) {
+    const r = findRow_(receiptsSheet_(), p.receiptId);
+    if (!r || !r.row[3]) return { ok: false, error: 'receipt not found' };
+    url = String(r.row[3]);
+  } else if (/^https?:\/\//i.test(String(p.url || ''))) {
+    url = String(p.url);
+  } else {
+    return { ok: false, error: 'missing receipt' };
+  }
+  return setTaskReceipt_(p.financeId, url);
+}
+
+function handleFinanceReceipt_(body) {
+  if (!body.photo || !body.photo.src) return { ok: false, error: 'no photo supplied' };
+  const url = body.photo.kind === 'link' ? body.photo.src : saveImage_(body.photo.src, 'task-receipt-' + todayStr_() + '-' + newId_('r'), RECEIPT_FOLDER_ID);
+  if (!url) return { ok: false, error: 'could not save photo' };
+  return setTaskReceipt_(body.financeId, url);
+}
+
+function handleCardPhoto_(body) {
+  const cards = cardsSheet_();
+  const found = findRow_(cards, body.cardId);
+  if (!found) return { ok: false, error: 'card not found' };
+  if (!body.photo || !body.photo.src) return { ok: false, error: 'no photo supplied' };
+  const url = body.photo.kind === 'link' ? body.photo.src : saveImage_(body.photo.src, found.row[4] || 'item', DRIVE_FOLDER_ID);
+  if (!url) return { ok: false, error: 'could not save photo' };
+  cards.getRange(found.idx, 8, 1, 1).setValue(url); // Photo (col H)
+  return { ok: true };
+}
+
+// which = 'card' (item photo, col H) or 'proof' (proof of shipment, col T)
+function clearPhoto_(cardId, which) {
+  if (!cardId) return { ok: false, error: 'missing cardId' };
+  const cards = cardsSheet_();
+  const found = findRow_(cards, cardId);
+  if (!found) return { ok: false, error: 'not found' };
+  const col = which === 'card' ? 8 : which === 'proof' ? 20 : 0;
+  if (!col) return { ok: false, error: 'unknown photo type' };
+  cards.getRange(found.idx, col, 1, 1).setValue('');
+  return { ok: true };
+}
+
+// A standalone Finance task: no card, no receipt — nothing else in the sheet is touched.
+function addFinance_(p) {
+  const description = String(p.description || '').trim().slice(0, 300);
+  if (!description) return { ok: false, error: 'missing description' };
+  const amount = Number(p.amount);
+  if (!isFinite(amount) || amount < 0) return { ok: false, error: 'invalid amount' };
+  const flow = p.flow === 'inflow' ? 'inflow' : p.flow === 'none' ? 'none' : 'outflow';
+  const id = newId_('f');
+  // flow "none" = a reminder with no money moving: amount and pay method are forced blank
+  financeSheet_().appendRow([id, '', 'manual', String(p.date || todayStr_()), description, flow === 'none' ? 0 : amount, flow === 'none' ? '' : String(p.payMethod || ''), false, '', '', flow]);
+  return { ok: true, id };
+}
+
+/* ---------- receipt deletion (cascade) ---------- */
+
+// Everything a receipt is linked to, matched by Drive file ID (never by blank).
+function planReceiptDelete_(receiptId) {
+  if (!receiptId) return { error: 'missing receiptId' };
+  const rSheet = receiptsSheet_();
+  const rFound = findRow_(rSheet, receiptId);
+  if (!rFound) return { error: 'not found' };
+  const rawUrl = String(rFound.row[3] || '');
+  const key = fileKey_(rawUrl);
+  const plan = { rSheet, receiptIdx: rFound.idx, rawUrl, key, cards: [], finance: [] };
+  if (!key) return plan; // no URL on this receipt -> nothing can be linked to it
+
+  const cSheet = cardsSheet_(), fSheet = financeSheet_();
+  const cRows = cSheet.getDataRange().getValues();
+  const cardIds = {}, batches = {};
+  for (let r = 1; r < cRows.length; r++) {
+    const row = cRows[r];
+    if (!row[0]) continue;
+    if (fileKey_(row[21]) === key || fileKey_(row[22]) === key) {
+      cardIds[String(row[0])] = true;
+      if (row[23]) batches[String(row[23])] = true;
+      plan.cards.push({ idx: r + 1, id: String(row[0]), name: row[4] || '(unnamed)' });
+    }
+  }
+  // a shipping batch that has no cards left after this delete has no reason to keep its Finance entry
+  Object.keys(batches).forEach(b => {
+    const remaining = cRows.slice(1).some(row => String(row[23]) === b && !cardIds[String(row[0])]);
+    if (remaining) delete batches[b];
+  });
+
+  const fRows = fSheet.getDataRange().getValues();
+  for (let r = 1; r < fRows.length; r++) {
+    const row = fRows[r];
+    if (!row[0]) continue;
+    const linked = fileKey_(row[9]) === key || cardIds[String(row[1])] || batches[String(row[1])];
+    if (linked) plan.finance.push({ idx: r + 1, id: String(row[0]), description: row[4] || '(no description)' });
+  }
+  return plan;
+}
+
+function receiptImpact_(receiptId) {
+  const plan = planReceiptDelete_(receiptId);
+  if (plan.error) return { ok: false, error: plan.error };
+  return { ok: true, cards: plan.cards.map(c => c.name), finance: plan.finance.map(f => f.description) };
+}
+
+function deleteReceipt_(receiptId) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000); // row numbers are only valid if nothing else writes while we delete
+  try {
+    const plan = planReceiptDelete_(receiptId);
+    if (plan.error) return { ok: false, error: plan.error };
+    // delete bottom-up so earlier row numbers stay valid
+    plan.finance.map(f => f.idx).sort((a, b) => b - a).forEach(i => financeSheet_().deleteRow(i));
+    plan.cards.map(c => c.idx).sort((a, b) => b - a).forEach(i => cardsSheet_().deleteRow(i));
+    plan.rSheet.deleteRow(plan.receiptIdx);
+    // the image itself goes to the Drive trash (recoverable there); never fail the delete over it
+    try {
+      const m = plan.rawUrl.match(/[-\w]{25,}/);
+      if (m) DriveApp.getFileById(m[0]).setTrashed(true);
+    } catch (err) {}
+    return { ok: true, deletedCards: plan.cards.length, deletedFinance: plan.finance.length };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function recordFinance_(financeId) {
@@ -384,6 +566,7 @@ function maybeCreateBatchFinance_(batchId) {
 
 function getPortfolio_() {
   const rows = cardsSheet_().getDataRange().getValues(); rows.shift();
+  const rmap = receiptMap_();
   const owned = [], sold = [];
   rows.forEach(r => {
     if (!r[4]) return;
@@ -396,7 +579,8 @@ function getPortfolio_() {
       id: r[0], name: r[4], photo: toDisplayUrl_(r[7]),
       purchaseDate: fmtDateCell_(r[1]), purchaseCost: Number(r[5]) || 0,
       tag, soldDate: fmtDateCell_(r[10]), soldPrice: Number(r[12]) || 0,
-      purchaseReceipt: r[21] || '', saleReceipt: r[22] || ''
+      purchaseReceipt: r[21] || '', saleReceipt: r[22] || '',
+      receipts: receiptLinks_(r[21], r[22], rmap)
     };
     (status === 'onhand' || status === 'shipping' ? owned : sold).push(item);
   });
@@ -411,10 +595,15 @@ function getOnhandCards_() {
 
 function getFinance_() {
   const rows = financeSheet_().getDataRange().getValues(); rows.shift();
+  const rmap = receiptMap_();
   const toRecord = [], recorded = [];
   rows.forEach(r => {
     if (!r[0]) return;
-    const item = { id: r[0], date: fmtDateCell_(r[3]), description: r[4], amount: Number(r[5]) || 0, payMethod: r[6], receipt: r[9] || '', flow: r[10] || 'outflow' };
+    const key = fileKey_(r[9]);
+    const rc = key ? rmap[key] : null;
+    const item = { id: r[0], date: fmtDateCell_(r[3]), description: r[4], amount: Number(r[5]) || 0, payMethod: r[6], receipt: r[9] || '', flow: r[10] || 'outflow',
+      type: r[2] || '', groupKey: key,
+      groupType: rc ? rc.type : '', groupLabel: rc ? rc.description : '', groupDate: rc ? rc.date : '' };
     (r[7] === true ? recorded : toRecord).push(item);
   });
   return { ok: true, toRecord: toRecord.reverse(), recorded: recorded.reverse() };
@@ -466,14 +655,47 @@ function fmtDateCell_(v) {
   return v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(v);
 }
 
-function toDisplayUrl_(url) {
+function toDisplayUrl_(url, size) {
   if (!url) return '';
   url = String(url);
   if (/drive\.google\.com/.test(url)) {
     const m = url.match(/[-\w]{25,}/);
-    if (m) return 'https://drive.google.com/thumbnail?id=' + m[0] + '&sz=w600';
+    if (m) return 'https://drive.google.com/thumbnail?id=' + m[0] + '&sz=w' + (size || 600);
   }
   return url;
+}
+
+// Stable identity for a stored file URL: its Drive file ID when it has one, else the URL itself.
+function fileKey_(url) {
+  if (!url) return '';
+  url = String(url);
+  const m = url.match(/[-\w]{25,}/);
+  return m ? m[0] : url;
+}
+
+// fileKey -> { id, type, date, description } for every row in Receipts
+function receiptMap_() {
+  const map = {};
+  const sheet = receiptsSheet_();
+  if (!sheet) return map;
+  const rows = sheet.getDataRange().getValues(); rows.shift();
+  rows.forEach(r => {
+    const k = fileKey_(r[3]);
+    if (r[0] && k) map[k] = { id: r[0], type: r[1] || '', date: fmtDateCell_(r[2]), description: r[4] || '' };
+  });
+  return map;
+}
+
+// The receipts attached to a card (purchase/trade-in receipt first, then sale/trade-out receipt).
+function receiptLinks_(purchaseUrl, saleUrl, rmap) {
+  const NAMES = { purchase: 'Purchase receipt', sale: 'Sale receipt', trade: 'Trade receipt' };
+  const out = [];
+  [[purchaseUrl, 'Purchase receipt'], [saleUrl, 'Sale receipt']].forEach(pair => {
+    if (!pair[0]) return;
+    const rc = rmap[fileKey_(pair[0])];
+    out.push({ label: (rc && NAMES[rc.type]) || pair[1], url: toDisplayUrl_(pair[0], 1080), link: String(pair[0]) });
+  });
+  return out;
 }
 
 function saveImage_(dataUrl, name, folderId) {

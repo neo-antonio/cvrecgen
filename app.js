@@ -55,17 +55,7 @@ function addItem() {
   const block = document.createElement('div');
   block.className = 'item-block';
   block.dataset.id = id;
-  if (mode === 'sold') {
-    const opts = onhandCards.map(c => `<option value="${c.id}" data-name="${escHtml(c.name)}">${escHtml(c.name)} \u2014 bought ${php(c.cost)}</option>`).join('');
-    block.innerHTML = `<div class="item">
-        <select class="in-card">
-          <option value="">${onhandCards.length ? 'Select a card\u2026' : 'No onhand cards found'}</option>
-          ${opts}
-        </select>
-        <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Sold price">
-        <button type="button" class="x" aria-label="Remove item">&times;</button>
-      </div>`;
-  } else {
+  {
     block.innerHTML = `<div class="item">
         <button type="button" class="photo-btn" data-id="${id}" aria-label="Add photo">${CAMERA_ICON}</button>
         <input class="in-name" placeholder="Item name" autocomplete="off">
@@ -78,18 +68,16 @@ function addItem() {
 }
 $('#addItem').onclick = () => { addItem(); $$('.in-name').pop().focus(); };
 $('#items').addEventListener('click', e => {
-  if (e.target.classList.contains('x')) { const b = e.target.closest('.item-block'); delete itemPhotos[b.dataset.id]; b.remove(); update(); }
+  if (e.target.classList.contains('x')) { const b = e.target.closest('.item-block'); delete itemPhotos[b.dataset.id]; b.remove(); if (mode === 'sold') refreshPicker('sold'); update(); }
   const pb = e.target.closest('.photo-btn'); if (pb) openPhotoSheet(pb.dataset.id);
 });
 $('#items').addEventListener('input', update);
 const items = () => $$('#items .item-block').map(b => {
   if (mode === 'sold') {
-    const sel = b.querySelector('.in-card');
-    const opt = sel && sel.selectedOptions[0];
     return {
       id: b.dataset.id,
-      cardId: sel ? sel.value : '',
-      name: (opt && opt.dataset.name) || '',
+      cardId: b.dataset.cardId || '',
+      name: b.dataset.name || '',
       cost: parseFloat(b.querySelector('.in-cost').value) || 0,
       photo: null
     };
@@ -105,44 +93,83 @@ const items = () => $$('#items .item-block').map(b => {
 const subtotal = () => items().reduce((a, i) => a + i.cost, 0);
 
 /* ---------- Trade items: two independent lists, plus one cash flow field ---------- */
-// Traded (given away): must come from an existing onhand card, cost defaults to that
-// card's purchase amount but stays editable.
-function addTradedItem() {
-  const id = 'tr' + (++itemSeq);
-  const block = document.createElement('div');
-  block.className = 'item-block';
-  block.dataset.id = id;
-  const opts = onhandCards.map(c => `<option value="${c.id}" data-name="${escHtml(c.name)}" data-cost="${c.cost}">${escHtml(c.name)} \u2014 bought ${php(c.cost)}</option>`).join('');
-  block.innerHTML = `<div class="item">
-      <select class="in-card">
-        <option value="">${onhandCards.length ? 'Select a card\u2026' : 'No onhand cards found'}</option>
-        ${opts}
-      </select>
-      <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Value">
-      <button type="button" class="x" aria-label="Remove item">&times;</button>
-    </div>`;
-  $('#tradedItems').append(block);
-  update();
-}
-$('#addTradedItem').onclick = () => addTradedItem();
-$('#tradedItems').addEventListener('click', e => { if (e.target.classList.contains('x')) { e.target.closest('.item-block').remove(); update(); } });
-$('#tradedItems').addEventListener('change', e => {
-  if (!e.target.classList.contains('in-card')) return;
-  const opt = e.target.selectedOptions[0];
-  const costInput = e.target.closest('.item-block').querySelector('.in-cost');
-  if (opt && opt.value) costInput.value = opt.dataset.cost || 0;
+// Traded (given away): picked from the onhand-card checklist above the list; the value
+// defaults to the card's purchase amount but stays editable.
+$('#tradedItems').addEventListener('click', e => {
+  if (e.target.classList.contains('x')) { e.target.closest('.item-block').remove(); refreshPicker('trade'); update(); }
 });
 $('#tradedItems').addEventListener('input', update);
-const tradedItems = () => $$('#tradedItems .item-block').map(b => {
-  const sel = b.querySelector('.in-card');
-  const opt = sel && sel.selectedOptions[0];
-  return {
-    id: b.dataset.id,
-    cardId: sel ? sel.value : '',
-    name: (opt && opt.dataset.name) || '',
-    cost: parseFloat(b.querySelector('.in-cost').value) || 0
-  };
-}).filter(i => i.cardId);
+const tradedItems = () => $$('#tradedItems .item-block').map(b => ({
+  id: b.dataset.id,
+  cardId: b.dataset.cardId || '',
+  name: b.dataset.name || '',
+  cost: parseFloat(b.querySelector('.in-cost').value) || 0
+})).filter(i => i.cardId);
+
+/* ---------- Card checklists (sale + trade): each onhand card can be ticked once ---------- */
+const PICK = {
+  sold:  { root: '#soldPicker',  list: '#items',       costPh: 'Sold price', useCost: false },
+  trade: { root: '#tradePicker', list: '#tradedItems', costPh: 'Value',      useCost: true }
+};
+const pickedIds = kind => $$(`${PICK[kind].list} .item-block`).map(b => b.dataset.cardId);
+
+function initPicker(kind) {
+  const root = $(PICK[kind].root);
+  root.innerHTML = `<button type="button" class="ms-btn"><span class="ph">Select card(s)</span><i></i></button>
+    <div class="ms-panel scroll" hidden>
+      <input type="search" class="pick-search" placeholder="Search cards" autocomplete="off">
+      <div class="pick-list"></div>
+    </div>`;
+  root.querySelector('.ms-btn').onclick = () => { const p = root.querySelector('.ms-panel'); p.hidden = !p.hidden; };
+  root.querySelector('.pick-search').addEventListener('input', () => refreshPicker(kind));
+  root.querySelector('.pick-list').addEventListener('change', e => {
+    const cb = e.target;
+    if (!cb.matches('input[type=checkbox]')) return;
+    const card = onhandCards.find(c => String(c.id) === cb.value);
+    if (!card) return;
+    if (cb.checked) addCardRow(kind, card); else removeCardRow(kind, card.id);
+    refreshPicker(kind);
+    update();
+  });
+  refreshPicker(kind);
+}
+
+function refreshPicker(kind) {
+  const root = $(PICK[kind].root);
+  if (!root || !root.querySelector('.pick-list')) return;
+  const q = root.querySelector('.pick-search').value.trim().toLowerCase();
+  const ids = new Set(pickedIds(kind));
+  const shown = onhandCards.filter(c => !q || String(c.name || '').toLowerCase().includes(q));
+  root.querySelector('.pick-list').innerHTML = shown.length
+    ? shown.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${ids.has(String(c.id)) ? ' checked' : ''}><span>${escHtml(c.name)} <small>\u2014 bought ${php(c.cost)}</small></span></label>`).join('')
+    : `<p class="stub-note" style="margin:10px 0 4px">${onhandCards.length ? 'No cards match.' : 'No onhand cards found.'}</p>`;
+  const n = ids.size, t = root.querySelector('.ms-btn span');
+  t.textContent = n ? `${n} card${n > 1 ? 's' : ''} selected` : 'Select card(s)';
+  t.className = n ? '' : 'ph';
+}
+
+function addCardRow(kind, card) {
+  const cfg = PICK[kind];
+  if (pickedIds(kind).includes(String(card.id))) return;  // a card can only be on the list once
+  const block = document.createElement('div');
+  block.className = 'item-block';
+  block.dataset.id = 'cr' + (++itemSeq);
+  block.dataset.cardId = String(card.id);
+  block.dataset.name = card.name || '';
+  block.innerHTML = `<div class="item">
+      <div class="card-name"><b>${escHtml(card.name)}</b><small>bought ${php(card.cost)}</small></div>
+      <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="${cfg.costPh}"${cfg.useCost ? ` value="${card.cost || 0}"` : ''}>
+      <button type="button" class="x" aria-label="Remove item">&times;</button>
+    </div>`;
+  $(cfg.list).append(block);
+}
+function removeCardRow(kind, cardId) {
+  const b = $$(`${PICK[kind].list} .item-block`).find(x => x.dataset.cardId === String(cardId));
+  if (b) b.remove();
+}
+document.addEventListener('click', e => {
+  $$('.ms.pick').forEach(p => { if (!p.contains(e.target)) { const pn = p.querySelector('.ms-panel'); if (pn) pn.hidden = true; } });
+});
 
 // Received: free-text, no value field — whether they're recorded to the portfolio is
 // decided once for the whole list by #receivedPortfolio, not per item.
@@ -267,8 +294,9 @@ async function setMode(m) {
     if (m === 'sold') $('#items').innerHTML = loading; else $('#tradedItems').innerHTML = loading;
     await loadOnhandCards();
     $('#items').innerHTML = ''; $('#tradedItems').innerHTML = '';
+    initPicker(m);
   }
-  if (m === 'trade') { addTradedItem(); addReceivedItem(); } else addItem();
+  if (m === 'trade') addReceivedItem(); else if (m === 'purchase') addItem();
   update();
 }
 $$('.tab').forEach(t => t.onclick = () => setMode(t.dataset.mode));
@@ -278,7 +306,7 @@ function update() {
 
   if (mode === 'purchase' || mode === 'sold') {
     const rows = $$('#items .item');
-    rows.forEach(r => r.classList.toggle('solo', rows.length === 1));
+    rows.forEach(r => r.classList.toggle('solo', mode === 'purchase' && rows.length === 1));
     $('#subRow').hidden = rows.length < 2;
     $('#subVal').textContent = php(subtotal());
   }
@@ -296,8 +324,6 @@ function update() {
   $('#payOther').hidden = $('#pay').value !== 'Others';
 
   if (mode === 'trade') {
-    const tRows = $$('#tradedItems .item');
-    tRows.forEach(r => r.classList.toggle('solo', tRows.length === 1));
     const rRows = $$('#receivedItems .item');
     rRows.forEach(r => r.classList.toggle('solo', rRows.length === 1));
     const none = cashDirection() === 'none';
@@ -306,6 +332,7 @@ function update() {
     $('#cashMethodOther').hidden = $('#cashMethod').value !== 'Others';
   }
 
+  $('#buyerWarn').hidden = !(mode === 'sold' && shipType() === 'buyer');
   $('#totalVal').textContent = php(grandTotal());
 }
 ['#ship', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod'].forEach(s => $(s).addEventListener('input', update));
@@ -574,7 +601,7 @@ async function generate() {
     if (!d.tradedItems.length && !d.receivedItems.length) return toast('Add at least one traded or received item.');
     if (d.cashDirection !== 'none' && !d.cashAmount) return toast('Enter a cash amount, or set cash to None.');
   } else {
-    if (!d.items.length) return toast('Add at least one item.');
+    if (!d.items.length) return toast(d.mode === 'sold' ? 'Select at least one card to sell.' : 'Add at least one item.');
     if (d.mode === 'sold' && d.items.some(i => !i.cardId)) return toast('Select a card for every item before generating.');
   }
   $('#gen').disabled = true;
@@ -598,6 +625,7 @@ async function generate() {
     if (d.mode === 'purchase') syncPortfolio(d, receiptPhoto);
     else if (d.mode === 'sold') syncSale(d, receiptPhoto);
     else syncTrade(d, receiptPhoto);
+    resetAfterCardReceipt(d);
     if (skipped) toast('Logo skipped. Open the app from http://localhost or your website to include it.');
   } catch (e) {
     console.error(e);
@@ -606,6 +634,23 @@ async function generate() {
   $('#gen').disabled = false;
 }
 $('#gen').onclick = generate;
+
+// Cards used on a sale/trade receipt are no longer onhand: drop them from the local list and
+// clear the form so the same card can't be picked (and sold) a second time from this screen.
+function resetAfterCardReceipt(d) {
+  if (d.mode === 'sold') {
+    const used = new Set(d.items.map(i => String(i.cardId)));
+    onhandCards = onhandCards.filter(c => !used.has(String(c.id)));
+    $('#items').innerHTML = ''; refreshPicker('sold');
+  } else if (d.mode === 'trade') {
+    const used = new Set(d.tradedItems.map(i => String(i.cardId)));
+    onhandCards = onhandCards.filter(c => !used.has(String(c.id)));
+    Object.keys(itemPhotos).forEach(k => delete itemPhotos[k]);
+    $('#tradedItems').innerHTML = ''; $('#receivedItems').innerHTML = '';
+    refreshPicker('trade'); addReceivedItem();
+  }
+  update();
+}
 
 function showPreview(blob, name) {
   const url = URL.createObjectURL(blob);

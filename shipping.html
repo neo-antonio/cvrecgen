@@ -52,7 +52,7 @@
 
 <div class="modal" id="shipPhotoSheet" hidden>
   <div class="sheet small">
-    <h3>Attach proof of shipment</h3>
+    <h3 id="shipPsTitle">Attach proof of shipment</h3>
     <div class="acts">
       <button type="button" class="ghost" id="shipPsCamera">Take a picture</button>
       <button type="button" class="ghost" id="shipPsUpload">Upload from device</button>
@@ -61,6 +61,7 @@
         <input type="url" id="shipPsLinkInput" placeholder="https://example.com/proof.jpg" inputmode="url">
         <button type="button" class="go sm" id="shipPsLinkUse">Use link</button>
       </div>
+      <button type="button" class="ghost danger" id="shipPsRemove" hidden>Remove photo</button>
       <button type="button" class="ghost" id="shipPsCancel">Cancel</button>
     </div>
   </div>

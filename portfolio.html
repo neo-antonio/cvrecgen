@@ -57,6 +57,32 @@
     <div class="acts"><button type="button" class="ghost" id="imgViewClose">Close</button></div>
   </div>
 </div>
+<div class="modal" id="rcptView" hidden>
+  <div class="sheet">
+    <div id="rcptViewBody"></div>
+    <div class="acts"><button type="button" class="ghost" id="rcptViewClose">Close</button></div>
+  </div>
+</div>
+
+<input type="file" accept="image/*" id="portFileCamera" capture="environment" hidden>
+<input type="file" accept="image/*" id="portFileUpload" hidden>
+
+<div class="modal" id="portPhotoSheet" hidden>
+  <div class="sheet small">
+    <h3>Item photo</h3>
+    <div class="acts">
+      <button type="button" class="ghost" id="portPsCamera">Take a picture</button>
+      <button type="button" class="ghost" id="portPsUpload">Upload from device</button>
+      <button type="button" class="ghost" id="portPsLink">Paste image link</button>
+      <div class="field" id="portPsLinkField" hidden>
+        <input type="url" id="portPsLinkInput" placeholder="https://example.com/photo.jpg" inputmode="url">
+        <button type="button" class="go sm" id="portPsLinkUse">Use link</button>
+      </div>
+      <button type="button" class="ghost danger" id="portPsRemove" hidden>Remove photo</button>
+      <button type="button" class="ghost" id="portPsCancel">Cancel</button>
+    </div>
+  </div>
+</div>
 <div class="toast" id="portToast" hidden></div>
 
 <footer class="site-footer">

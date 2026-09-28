@@ -11,6 +11,7 @@ const CARE_LABEL = { buyer: 'c/o buyer', us: 'c/o us', none: 'No shipping' };
 let shipTab = 'toship';
 let shipData = { toShip: [], shipped: [] };
 let activeShipCardId = null;
+let activeShipPhotoType = 'proof';   // 'proof' = proof of shipment, 'card' = the item's own photo
 
 function jsonp(url) {
   return new Promise((resolve, reject) => {
@@ -50,9 +51,10 @@ function cardHtml(it, isToShip) {
   ];
   const proof = !isToShip && it.proofPhoto ? `<div class="port-thumb" style="width:36px;height:36px"><img src="${it.proofPhoto}" alt="Proof of shipment" class="ship-clickphoto" data-full="${it.proofPhoto}"></div>` : '';
   const receiptBtn = it.saleReceipt ? `<button type="button" class="ghost sm ship-receipt" data-url="${escShip(it.saleReceipt)}">Receipt</button>` : '';
+  const itemPhotoBtn = `<button type="button" class="ghost sm ship-itemphoto" data-id="${it.id}">${it.photo ? 'Change item photo' : 'Add item photo'}</button>`;
   const actions = isToShip
-    ? `<div class="ship-actions"><button type="button" class="ghost sm ship-mark" data-id="${it.id}">Mark shipped</button>${receiptBtn}<button type="button" class="ghost sm ship-delete" data-id="${it.id}">Delete</button></div>`
-    : `<div class="ship-actions">${proof}<button type="button" class="ghost sm ship-addphoto" data-id="${it.id}">${it.proofPhoto ? 'Replace photo' : 'Add photo'}</button><button type="button" class="ghost sm ship-revert" data-id="${it.id}">Revert</button>${receiptBtn}</div>`;
+    ? `<div class="ship-actions"><button type="button" class="ghost sm ship-mark" data-id="${it.id}">Mark shipped</button>${receiptBtn}${itemPhotoBtn}<button type="button" class="ghost sm ship-delete" data-id="${it.id}">Delete</button></div>`
+    : `<div class="ship-actions">${proof}<button type="button" class="ghost sm ship-addphoto" data-id="${it.id}">${it.proofPhoto ? 'Change proof photo' : 'Add proof photo'}</button><button type="button" class="ghost sm ship-revert" data-id="${it.id}">Revert</button>${receiptBtn}${itemPhotoBtn}</div>`;
   return `<div class="ship-card" data-id="${it.id}">
       <div class="ship-top">
         <div class="port-thumb">${img}</div>
@@ -157,15 +159,24 @@ $shipList.addEventListener('click', async e => {
   }
 
   const photoBtn = e.target.closest('.ship-addphoto');
-  if (photoBtn) openShipPhotoSheet(photoBtn.dataset.id);
+  if (photoBtn) { openShipPhotoSheet(photoBtn.dataset.id, 'proof'); return; }
+
+  const itemPhotoBtn = e.target.closest('.ship-itemphoto');
+  if (itemPhotoBtn) openShipPhotoSheet(itemPhotoBtn.dataset.id, 'card');
 });
 
 document.getElementById('imgViewClose').onclick = () => document.getElementById('imgView').hidden = true;
 document.getElementById('imgView').addEventListener('click', e => { if (e.target.id === 'imgView') document.getElementById('imgView').hidden = true; });
 
 /* ---------- Proof-of-shipment photo modal ---------- */
-function openShipPhotoSheet(cardId) {
+const findShipItem = id => shipData.toShip.concat(shipData.shipped).find(c => String(c.id) === String(id));
+function openShipPhotoSheet(cardId, type) {
   activeShipCardId = cardId;
+  activeShipPhotoType = type || 'proof';
+  const it = findShipItem(cardId);
+  const has = !!(it && (activeShipPhotoType === 'card' ? it.photo : it.proofPhoto));
+  document.getElementById('shipPsTitle').textContent = activeShipPhotoType === 'card' ? 'Item photo' : 'Attach proof of shipment';
+  document.getElementById('shipPsRemove').hidden = !has;
   document.getElementById('shipPsLinkField').hidden = true;
   document.getElementById('shipPsLinkInput').value = '';
   document.getElementById('shipPhotoSheet').hidden = false;
@@ -179,16 +190,28 @@ document.getElementById('shipPsLink').onclick = () => { document.getElementById(
 document.getElementById('shipPsLinkUse').onclick = () => {
   const url = document.getElementById('shipPsLinkInput').value.trim();
   if (!url || !activeShipCardId) return;
-  sendShipPhoto(activeShipCardId, { kind: 'link', src: url });
+  sendShipPhoto(activeShipCardId, { kind: 'link', src: url }, activeShipPhotoType);
   closeShipPhotoSheet();
+};
+document.getElementById('shipPsRemove').onclick = async () => {
+  const id = activeShipCardId, which = activeShipPhotoType;
+  if (!id) return;
+  closeShipPhotoSheet();
+  try {
+    const url = CONFIG.portfolio.endpoint + '?action=clearPhoto&which=' + which + '&cardId=' + encodeURIComponent(id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+    const data = await jsonp(url);
+    if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
+    toast('Photo removed.');
+    await loadShipping();
+  } catch (err) { toast('Could not remove photo: ' + err.message); }
 };
 function handleShipFile(input, kind) {
   input.addEventListener('change', () => {
     const f = input.files[0]; input.value = '';
     if (!f || !activeShipCardId) return;
-    const cardId = activeShipCardId;
+    const cardId = activeShipCardId, which = activeShipPhotoType;
     const reader = new FileReader();
-    reader.onload = () => sendShipPhoto(cardId, { kind, src: reader.result });
+    reader.onload = () => sendShipPhoto(cardId, { kind, src: reader.result }, which);
     reader.readAsDataURL(f);
     closeShipPhotoSheet();
   });
@@ -196,12 +219,12 @@ function handleShipFile(input, kind) {
 handleShipFile(document.getElementById('shipFileCamera'), 'camera');
 handleShipFile(document.getElementById('shipFileUpload'), 'upload');
 
-async function sendShipPhoto(cardId, photo) {
+async function sendShipPhoto(cardId, photo, which) {
   toast('Uploading photo\u2026');
   const payload = {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'shipPhoto', secret: CONFIG.portfolio.secret, cardId, photo })
+    body: JSON.stringify({ action: which === 'card' ? 'cardPhoto' : 'shipPhoto', secret: CONFIG.portfolio.secret, cardId, photo })
   };
   try {
     const res = await fetch(CONFIG.portfolio.endpoint, payload);

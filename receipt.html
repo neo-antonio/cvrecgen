@@ -58,8 +58,9 @@
 
   <div class="field" data-only="purchase sold" hidden>
     <label>Items</label>
+    <div class="ms pick" id="soldPicker" data-only="sold" hidden></div>
     <div id="items"></div>
-    <button type="button" class="ghost" id="addItem">+ Add item</button>
+    <button type="button" class="ghost" id="addItem" data-only="purchase" hidden>+ Add item</button>
     <label class="port-chk" id="globalPortfolioWrap" data-only="purchase" hidden><input type="checkbox" id="globalPortfolio" checked><span>Record to portfolio</span></label>
   </div>
 
@@ -80,6 +81,7 @@
       <label class="rad"><input type="radio" name="st" value="us"><span>Care of us</span></label>
       <label class="rad"><input type="radio" name="st" value="none"><span>No shipping</span></label>
     </div>
+    <p class="warn" id="buyerWarn" hidden><b>Warning:</b> For c/o buyer, please do not add a shipping fee if we do not receive the shipping money in our account. This can happen for Lalamove, Grab, Meet-ups.</p>
     <div class="money"><em>PHP</em><input type="number" id="ship" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
   </div>
 
@@ -99,8 +101,8 @@
 
   <div class="field" data-only="trade" hidden>
     <label>Items traded <small>(from portfolio)</small></label>
+    <div class="ms pick" id="tradePicker" data-only="trade" hidden></div>
     <div id="tradedItems"></div>
-    <button type="button" class="ghost" id="addTradedItem">+ Add traded item</button>
   </div>
 
   <div class="field" data-only="trade" hidden>

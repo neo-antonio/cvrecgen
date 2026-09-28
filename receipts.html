@@ -40,9 +40,14 @@
 <div class="modal" id="imgView" hidden>
   <div class="sheet small">
     <img id="imgViewImg" alt="">
-    <div class="acts"><button type="button" class="ghost" id="imgViewClose">Close</button></div>
+    <p class="stub-note" id="imgViewDesc" style="text-align:center;margin:0 0 12px"></p>
+    <div class="acts">
+      <button type="button" class="ghost danger" id="imgViewDelete">Delete receipt</button>
+      <button type="button" class="ghost" id="imgViewClose">Close</button>
+    </div>
   </div>
 </div>
+<div class="toast" id="recToast" hidden></div>
 
 <footer class="site-footer">
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
