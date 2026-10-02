@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>trackello &ndash; Calendar</title>
+<meta name="theme-color" content="#f7f7f7">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="trackello">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="hbar">
+    <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
+    <h2>Calendar</h2>
+    <span class="hbar-spacer" aria-hidden="true"></span>
+  </div>
+  <nav class="tabs tabs-4" role="tablist">
+    <button type="button" class="tab active" data-cfilter="all" role="tab">All</button>
+    <button type="button" class="tab" data-cfilter="shipping" role="tab">Shipping</button>
+    <button type="button" class="tab" data-cfilter="receipts" role="tab">Receipts</button>
+    <button type="button" class="tab" data-cfilter="events" role="tab">Events</button>
+  </nav>
+</header>
+
+<main class="port-wrap">
+  <div class="cal-nav">
+    <button type="button" class="back" id="calPrev" aria-label="Previous month">&lsaquo;</button>
+    <b id="calTitle"></b>
+    <button type="button" class="back" id="calNext" aria-label="Next month">&rsaquo;</button>
+  </div>
+  <div class="cal-tools">
+    <button type="button" class="ghost sm" id="calToday">Today</button>
+    <button type="button" class="ghost sm" id="calRefresh">Refresh</button>
+  </div>
+  <p class="stub-note" id="calState" hidden></p>
+  <div class="cal-dow"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+  <div class="cal-grid" id="calGrid"></div>
+
+  <div class="cal-legend" id="calLegend"></div>
+
+  <section class="cal-day">
+    <div class="cal-day-head">
+      <h3 id="dayTitle"></h3>
+      <button type="button" class="ghost sm" id="evAdd">+ Add event</button>
+    </div>
+    <div id="dayList"></div>
+  </section>
+  <p class="stub-note" id="calUnsched" hidden></p>
+</main>
+
+<div class="modal" id="evSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="evHeading">Add event</h3>
+    <div class="field">
+      <label for="evTitle">Title</label>
+      <input type="text" id="evTitle" autocomplete="off" placeholder="e.g. Card show, Meet-up with buyer">
+    </div>
+    <div class="field">
+      <label for="evDate">Date &amp; time <small>(time optional)</small></label>
+      <div class="row">
+        <input type="date" id="evDate">
+        <input type="time" id="evTime" aria-label="Time">
+      </div>
+    </div>
+    <div class="field">
+      <label for="evNotes">Notes <small>(optional)</small></label>
+      <textarea id="evNotes" rows="3" placeholder="Location, who&rsquo;s going, reminders&hellip;"></textarea>
+    </div>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">Events are shared &mdash; everyone using trackello sees them.</p>
+    <div class="acts">
+      <button type="button" class="go sm" id="evSave">Add event</button>
+      <button type="button" class="ghost danger" id="evDelete" hidden>Delete event</button>
+      <button type="button" class="ghost" id="evCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="calToast" hidden></div>
+
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+  <p>trackello <span class="ver">v1.2</span></p>
+</footer>
+<script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="calendar.js"></script>
+</body>
+</html>

@@ -9,13 +9,13 @@ let recTab = 'all';
 let receipts = [];
 const $recFrom = document.getElementById('recFrom'), $recTo = document.getElementById('recTo'), $recSort = document.getElementById('recSort'), $recCount = document.getElementById('recCount');
 
-function jsonp(url) {
+function jsonp(url, ms = 15000) {
   return new Promise((resolve, reject) => {
     const cbName = 'recCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
     const script = document.createElement('script');
     let settled = false;
     const cleanup = () => { delete window[cbName]; script.remove(); clearTimeout(timer); };
-    const timer = setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('Timed out')); } }, 15000);
+    const timer = setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('Timed out')); } }, ms);
     window[cbName] = data => { if (!settled) { settled = true; cleanup(); resolve(data); } };
     script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
     script.onerror = () => { if (!settled) { settled = true; cleanup(); reject(new Error('Script load failed')); } };
@@ -131,7 +131,18 @@ document.getElementById('imgViewDelete').onclick = async () => {
     msg += '\nThis cannot be undone.';
     if (!confirm(msg)) return;
     btn.textContent = 'Deleting\u2026';
-    const del = await jsonp(`${base}?action=deleteReceipt&receiptId=${encodeURIComponent(id)}&secret=${sec}`);
+    let del;
+    try { del = await jsonp(`${base}?action=deleteReceipt&receiptId=${encodeURIComponent(id)}&secret=${sec}`, 90000); }
+    catch (err) {
+      // no answer is not the same as failure: the server may still have finished, so check before reporting an error
+      if (err.message !== 'Timed out') throw err;
+      btn.textContent = 'Checking\u2026';
+      await new Promise(r => setTimeout(r, 4000));
+      await loadReceipts();
+      document.getElementById('imgView').hidden = true;
+      toast(receipts.some(r => String(r.id) === String(id)) ? 'Still deleting \u2014 tap Refresh in a moment to confirm.' : 'Receipt deleted.');
+      return;
+    }
     if (!del.ok) throw new Error(del.error || 'Request failed');
     document.getElementById('imgView').hidden = true;
     toast(`Receipt deleted (${del.deletedCards || 0} card${del.deletedCards === 1 ? '' : 's'}, ${del.deletedFinance || 0} finance entr${del.deletedFinance === 1 ? 'y' : 'ies'}).`);

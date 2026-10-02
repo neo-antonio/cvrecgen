@@ -75,6 +75,12 @@
  *   GET  ?action=clearPhoto&cardId=..&which=card|proof&secret=..&callback=.. -> { ok }
  *   GET  ?action=addFinance&description=..&amount=..&flow=inflow|outflow&payMethod=..&date=..&secret=..&callback=.. -> { ok, id }
  *        (a standalone Finance task: no CardID, no receipt, type "manual" — touches nothing else)
+ *   GET  ?action=updateShipping&cardId=..[,..]&sched=YYYY-MM-DD|''&address=..&secret=..&callback=.. -> { ok }   (to-ship cards only)
+ *   GET  ?action=events&secret=..&callback=..   -> { ok, events:[{id,date,title,time,notes}] }
+ *   GET  ?action=saveEvent&eventId=..&date=YYYY-MM-DD&title=..&time=HH:mm&notes=..&secret=..&callback=.. -> { ok, id }
+ *   GET  ?action=deleteEvent&eventId=..&secret=..&callback=.. -> { ok }
+ *        Events are stored in a tab named "Events" (ID | Date | Title | Time | Notes) that the script creates by
+ *        itself on the first saved event, so every user of the app sees the same calendar.
  *   GET  ?action=receiptImpact&receiptId=..&secret=..&callback=..  -> { ok, cards:[names], finance:[descriptions] }  (read-only preview)
  *   GET  ?action=deleteReceipt&receiptId=..&secret=..&callback=..  -> { ok, deletedCards, deletedFinance }
  *        Deletes the Receipts row, the receipt image (moved to Drive trash), every Cards row that
@@ -169,6 +175,10 @@ function doGet(e) {
     if (action === 'addFinance') return jsonpOut_(addFinance_(e.parameter), cb);
     if (action === 'receiptImpact') return jsonpOut_(receiptImpact_(e.parameter.receiptId), cb);
     if (action === 'deleteReceipt') return jsonpOut_(deleteReceipt_(e.parameter.receiptId), cb);
+    if (action === 'updateShipping') return jsonpOut_(updateShipping_(e.parameter), cb);
+    if (action === 'events') return jsonpOut_(getEvents_(), cb);
+    if (action === 'saveEvent') return jsonpOut_(saveEvent_(e.parameter), cb);
+    if (action === 'deleteEvent') return jsonpOut_(deleteEvent_(e.parameter.eventId), cb);
     return jsonpOut_({ ok: false, error: 'unknown action' }, cb);
   } catch (err) {
     return jsonpOut_({ ok: false, error: String(err) }, cb);
@@ -245,6 +255,13 @@ function handleSell_(body) {
   // (no CardID; it is still removed with the receipt because it carries the same ReceiptURL)
   if (packaging > 0) {
     fin.appendRow([newId_('f'), '', 'sale', body.date || '', 'Packaging: sale to ' + (body.buyer || '\u2014'), packaging, body.pay || '', false, '', receiptUrl, 'inflow']);
+  }
+  // shipping the buyer paid us ("care of buyer") is money received too, so it is part of the total to
+  // record: one inflow row per receipt. The matching outflow row (what we pay the courier) is still
+  // created later, when the batch is marked shipped. Care of us / no shipping receive nothing.
+  const buyerShipping = body.shipType === 'buyer' ? (Number(body.shipFee) || 0) : 0;
+  if (buyerShipping > 0) {
+    fin.appendRow([newId_('f'), '', 'sale', body.date || '', 'Shipping paid by buyer: sale to ' + (body.buyer || '\u2014'), buyerShipping, body.pay || '', false, '', receiptUrl, 'inflow']);
   }
   return { ok: true };
 }
@@ -703,6 +720,96 @@ function maybeCreateBatchFinance_(batchId) {
   const receiptUrl = group[0][22] || '';
   const idField = group.length > 1 ? batchId : group[0][0];
   fin.appendRow([newId_('f'), idField, 'shipping', todayStr_(), 'Shipping for ' + names, totalFee, payMethod, false, '', receiptUrl, 'outflow']);
+}
+
+/* ---------- shipping edits + shared calendar events ---------- */
+
+// Edit the scheduled date (col R) and/or address (col Y) of every card in a shipping task.
+// Only the params that are present are changed; sched='' clears the date. Cards must still be to-ship.
+function updateShipping_(p) {
+  const ids = splitIds_(p.cardId);
+  if (!ids.length) return { ok: false, error: 'missing cardId' };
+  const hasSched = Object.prototype.hasOwnProperty.call(p, 'sched');
+  const hasAddr = Object.prototype.hasOwnProperty.call(p, 'address');
+  if (!hasSched && !hasAddr) return { ok: false, error: 'nothing to change' };
+  const sched = String(p.sched || '').trim();
+  if (hasSched && sched && !/^\d{4}-\d{2}-\d{2}$/.test(sched)) return { ok: false, error: 'invalid date' };
+  const cards = cardsSheet_();
+  ensureCardsColumns_(cards);
+  const founds = ids.map(id => findRow_(cards, id));
+  if (founds.some(f => !f)) return { ok: false, error: 'not found' };
+  if (founds.some(f => f.row[9] !== 'shipping')) return { ok: false, error: 'only cards still to ship can be edited' };
+  const address = String(p.address || '').trim().slice(0, 500);
+  founds.forEach(f => {
+    if (hasSched) cards.getRange(f.idx, 18, 1, 1).setValue(sched);   // ShippingScheduledDate (col R)
+    if (hasAddr) cards.getRange(f.idx, 25, 1, 1).setValue(address);  // ShippingAddress (col Y)
+  });
+  return { ok: true };
+}
+
+// Calendar events live in their own "Events" tab (created on first save), so they are shared by everyone
+// who uses the app. Columns: ID | Date | Title | Time | Notes. Everything is stored as text.
+const EVENTS_SHEET = 'Events';
+function eventsSheet_(create) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sh = ss.getSheetByName(EVENTS_SHEET);
+  if (!sh && create) {
+    sh = ss.insertSheet(EVENTS_SHEET);
+    sh.getRange(1, 1, 1, 5).setValues([['ID', 'Date', 'Title', 'Time', 'Notes']]);
+    sh.getRange('A:E').setNumberFormat('@');
+  }
+  return sh;
+}
+
+function fmtTimeCell_(v) {
+  if (!v) return '';
+  return v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'HH:mm') : String(v);
+}
+
+function getEvents_() {
+  const sh = eventsSheet_(false);
+  if (!sh) return { ok: true, events: [] };
+  const rows = sh.getDataRange().getValues(); rows.shift();
+  const events = rows.filter(r => r[0] && r[1] && r[2]).map(r => ({
+    id: String(r[0]), date: fmtDateCell_(r[1]), title: String(r[2]), time: fmtTimeCell_(r[3]), notes: String(r[4] || '')
+  }));
+  return { ok: true, events };
+}
+
+// Upsert by eventId: edits the row if it exists, otherwise appends a new one. Safe to retry.
+function saveEvent_(p) {
+  const title = String(p.title || '').trim().slice(0, 200);
+  const date = String(p.date || '').trim();
+  const time = String(p.time || '').trim();
+  const notes = String(p.notes || '').trim().slice(0, 1000);
+  if (!title) return { ok: false, error: 'missing title' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, error: 'invalid date' };
+  if (time && !/^\d{2}:\d{2}$/.test(time)) return { ok: false, error: 'invalid time' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = eventsSheet_(true);
+    const found = findRow_(sh, p.eventId);
+    if (found) {
+      sh.getRange(found.idx, 2, 1, 4).setNumberFormat('@').setValues([[date, title, time, notes]]);
+      return { ok: true, id: String(found.row[0]) };
+    }
+    const id = /^e_[0-9a-f]{4,16}$/.test(String(p.eventId || '')) ? String(p.eventId) : newId_('e');
+    const next = sh.getLastRow() + 1;
+    sh.getRange(next, 1, 1, 5).setNumberFormat('@').setValues([[id, date, title, time, notes]]);
+    return { ok: true, id };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function deleteEvent_(eventId) {
+  if (!eventId) return { ok: false, error: 'missing eventId' };
+  const sh = eventsSheet_(false);
+  const found = sh && findRow_(sh, eventId);
+  if (!found) return { ok: false, error: 'not found' };
+  sh.deleteRow(found.idx);
+  return { ok: true };
 }
 
 /* ---------- reads ---------- */

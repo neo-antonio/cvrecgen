@@ -81,11 +81,16 @@ function groupHtml(g, recordable) {
   const n = g.items.length;
   const count = `${n} task${n > 1 ? 's' : ''}`;
   const sub = standalone ? count : [kind, fmtDay(f.groupDate || f.date), count].filter(Boolean).join(' \u00b7 ');
+  // money in / out of this receipt's tasks, so shipping and packaging paid by the buyer show in the total
+  const inSum = g.items.filter(i => i.flow === 'inflow').reduce((a, i) => a + (Number(i.amount) || 0), 0);
+  const outSum = g.items.filter(i => i.flow === 'outflow').reduce((a, i) => a + (Number(i.amount) || 0), 0);
+  const totals = !standalone && n > 1 && (inSum || outSum)
+    ? `<div class="fin-group-total">${inSum ? `<span class="amt-in">In +${finPhp(inSum)}</span>` : ''}${outSum ? `<span class="amt-out">Out \u2212${finPhp(outSum)}</span>` : ''}</div>` : '';
   const receiptBtn = !standalone && f.receipt ? `<button type="button" class="icon-btn fin-receipt" data-url="${escFin(f.receipt)}" title="View receipt" aria-label="View receipt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${FIN_ICON.doc}</svg></button>` : '';
   return `<section class="fin-group">
       <div class="fin-group-head">
         <div class="fin-group-title"><b>${escFin(title)}</b><span>${escFin(sub)}</span></div>
-        ${receiptBtn}
+        ${totals}${receiptBtn}
       </div>
       ${g.items.map(it => rowHtml(it, recordable)).join('')}
     </section>`;

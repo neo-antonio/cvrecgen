@@ -36,6 +36,7 @@
     <b id="shipTotal">PHP 0.00</b>
     <button type="button" class="ghost sm" id="shipRefresh">Refresh</button>
   </div>
+  <div class="ship-alert" id="shipAlert" role="alert" hidden></div>
   <p class="stub-note" id="shipState">Loading&hellip;</p>
   <div id="shipList" class="port-list" hidden></div>
 </main>
@@ -63,6 +64,26 @@
       </div>
       <button type="button" class="ghost danger" id="shipPsRemove" hidden>Remove photo</button>
       <button type="button" class="ghost" id="shipPsCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="shipEditSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Edit shipping details</h3>
+    <div class="field">
+      <label for="shipEditSched">Scheduled shipping date <small>(optional)</small></label>
+      <div class="row">
+        <input type="date" id="shipEditSched">
+        <button type="button" class="ghost sm" id="shipEditClear">Clear</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="shipEditAddr">Shipping address <small>(optional)</small></label>
+      <textarea id="shipEditAddr" rows="4" placeholder="Name, street, barangay, city, province, ZIP, contact number"></textarea>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="shipEditSave">Save changes</button>
+      <button type="button" class="ghost" id="shipEditCancel">Cancel</button>
     </div>
   </div>
 </div>
