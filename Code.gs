@@ -198,6 +198,7 @@ function handlePurchase_(body) {
     if (receiptUrl) receiptsSheet_().appendRow([newId_('rc'), 'purchase', body.date || todayStr_(), receiptUrl, 'Purchase from ' + (body.seller || '\u2014')]);
   }
 
+  const cardRows = [], finRows = [];
   items.forEach(it => {
     let photoUrl = '';
     if (it.photo && it.photo.src) photoUrl = it.photo.kind === 'link' ? it.photo.src : saveImage_(it.photo.src, it.name, DRIVE_FOLDER_ID);
@@ -207,13 +208,15 @@ function handlePurchase_(body) {
       // ID, PurchaseDate, Seller, BoughtBy, ItemName, PurchaseCost, PurchasePayMethod, Photo, PurchaseNotes, Status,
       // SoldDate, SoldTo, SoldPrice, ShipType, ShippingMethod, ShippingFee, ShippingDeductedFrom, ShippingScheduledDate,
       // ShippedDate, ShippingProofPhoto, ShippingRecorded, PurchaseReceiptURL, SaleReceiptURL, ShipBatchID
-      cards.appendRow([cardId, body.date || '', body.seller || '', body.people || '', it.name || '', it.cost || 0,
+      cardRows.push([cardId, body.date || '', body.seller || '', body.people || '', it.name || '', it.cost || 0,
         body.pay || '', photoUrl, body.notes || '', 'onhand', '', '', '', '', '', '', '', '', '', '', false,
         receiptUrl, '', '']);
     }
     // every purchased item bills to Finance, portfolio or not
-    fin.appendRow([newId_('f'), cardId, 'purchase', body.date || '', it.name || '(unnamed item)', it.cost || 0, body.pay || '', false, '', receiptUrl, 'outflow']);
+    finRows.push([newId_('f'), cardId, 'purchase', body.date || '', it.name || '(unnamed item)', it.cost || 0, body.pay || '', false, '', receiptUrl, 'outflow']);
   });
+  appendRows_(cards, cardRows);
+  appendRows_(fin, finRows);
   return { ok: true };
 }
 
@@ -234,8 +237,9 @@ function handleSell_(body) {
     if (receiptUrl) receiptsSheet_().appendRow([newId_('rc'), 'sale', body.date || todayStr_(), receiptUrl, 'Sale to ' + (body.buyer || '\u2014')]);
   }
 
+  const rowOf = rowIndex_(cards), finRows = [];
   list.forEach(it => {
-    const found = findRow_(cards, it.cardId);
+    const found = rowOf[String(it.cardId)] ? { idx: rowOf[String(it.cardId)] } : null;
     if (!found) return;
     // Every sale — shipped or not — goes into the "shipping" queue so it shows up
     // under To ship; a zero-fee item still needs a Finance entry once marked shipped.
@@ -249,20 +253,21 @@ function handleSell_(body) {
     cards.getRange(found.idx, 24, 1, 2).setValues([[batchId, address]]); // ShipBatchID, ShippingAddress (cols X-Y)
     // the sale amount itself bills to Finance right away (as an inflow), separate from the
     // shipping-fee entry, which is only created later once the whole batch is marked shipped
-    fin.appendRow([newId_('f'), it.cardId, 'sale', body.date || '', 'Sale: ' + (it.name || '(unnamed item)'), Number(it.cost) || 0, body.pay || '', false, '', receiptUrl, 'inflow']);
+    finRows.push([newId_('f'), it.cardId, 'sale', body.date || '', 'Sale: ' + (it.name || '(unnamed item)'), Number(it.cost) || 0, body.pay || '', false, '', receiptUrl, 'inflow']);
   });
   // packaging the buyer paid for is part of "total received": one inflow row for the whole receipt
   // (no CardID; it is still removed with the receipt because it carries the same ReceiptURL)
   if (packaging > 0) {
-    fin.appendRow([newId_('f'), '', 'sale', body.date || '', 'Packaging: sale to ' + (body.buyer || '\u2014'), packaging, body.pay || '', false, '', receiptUrl, 'inflow']);
+    finRows.push([newId_('f'), '', 'sale', body.date || '', 'Packaging: sale to ' + (body.buyer || '\u2014'), packaging, body.pay || '', false, '', receiptUrl, 'inflow']);
   }
   // shipping the buyer paid us ("care of buyer") is money received too, so it is part of the total to
   // record: one inflow row per receipt. The matching outflow row (what we pay the courier) is still
   // created later, when the batch is marked shipped. Care of us / no shipping receive nothing.
   const buyerShipping = body.shipType === 'buyer' ? (Number(body.shipFee) || 0) : 0;
   if (buyerShipping > 0) {
-    fin.appendRow([newId_('f'), '', 'sale', body.date || '', 'Shipping paid by buyer: sale to ' + (body.buyer || '\u2014'), buyerShipping, body.pay || '', false, '', receiptUrl, 'inflow']);
+    finRows.push([newId_('f'), '', 'sale', body.date || '', 'Shipping paid by buyer: sale to ' + (body.buyer || '\u2014'), buyerShipping, body.pay || '', false, '', receiptUrl, 'inflow']);
   }
+  appendRows_(fin, finRows);
   return { ok: true };
 }
 
@@ -546,6 +551,18 @@ function planReceiptDelete_(receiptId) {
   return plan;
 }
 
+// Delete the given 1-based row numbers: bottom-up so numbers stay valid, contiguous runs in one call.
+function deleteRowsBatch_(sheet, idxs) {
+  const rows = idxs.slice().sort((a, b) => b - a);
+  let i = 0;
+  while (i < rows.length) {
+    let j = i;
+    while (j + 1 < rows.length && rows[j + 1] === rows[j] - 1) j++;
+    sheet.deleteRows(rows[j], j - i + 1);
+    i = j + 1;
+  }
+}
+
 function receiptImpact_(receiptId) {
   const plan = planReceiptDelete_(receiptId);
   if (plan.error) return { ok: false, error: plan.error };
@@ -558,9 +575,10 @@ function deleteReceipt_(receiptId) {
   try {
     const plan = planReceiptDelete_(receiptId);
     if (plan.error) return { ok: false, error: plan.error };
-    // delete bottom-up so earlier row numbers stay valid
-    plan.finance.map(f => f.idx).sort((a, b) => b - a).forEach(i => financeSheet_().deleteRow(i));
-    plan.cards.map(c => c.idx).sort((a, b) => b - a).forEach(i => cardsSheet_().deleteRow(i));
+    // sheets are opened once (opening the spreadsheet per row was the slow part), and neighbouring
+    // rows go in a single deleteRows call
+    deleteRowsBatch_(financeSheet_(), plan.finance.map(f => f.idx));
+    deleteRowsBatch_(cardsSheet_(), plan.cards.map(c => c.idx));
     plan.rSheet.deleteRow(plan.receiptIdx);
     // the image itself goes to the Drive trash (recoverable there); never fail the delete over it
     try {
@@ -751,7 +769,7 @@ function updateShipping_(p) {
 // who uses the app. Columns: ID | Date | Title | Time | Notes. Everything is stored as text.
 const EVENTS_SHEET = 'Events';
 function eventsSheet_(create) {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = ss_();
   let sh = ss.getSheetByName(EVENTS_SHEET);
   if (!sh && create) {
     sh = ss.insertSheet(EVENTS_SHEET);
@@ -902,9 +920,29 @@ function ensureCardsColumns_(cards) {
   if (!cards.getRange(1, need).getValue()) cards.getRange(1, need).setValue('ShippingAddress');
 }
 
-function cardsSheet_() { return SpreadsheetApp.openById(SHEET_ID).getSheetByName(CARDS_SHEET); }
-function financeSheet_() { return SpreadsheetApp.openById(SHEET_ID).getSheetByName(FINANCE_SHEET); }
-function receiptsSheet_() { return SpreadsheetApp.openById(SHEET_ID).getSheetByName(RECEIPTS_SHEET); }
+// Opening the spreadsheet is the slowest single call here; do it once per request, not once per helper call.
+let SS_ = null;
+function ss_() { return SS_ || (SS_ = SpreadsheetApp.openById(SHEET_ID)); }
+
+// Append many rows with ONE write (appendRow per row is a round trip each).
+function appendRows_(sheet, rows) {
+  if (!rows.length) return;
+  const start = sheet.getLastRow() + 1, width = rows[0].length;
+  const needRows = start + rows.length - 1 - sheet.getMaxRows();
+  if (needRows > 0) sheet.insertRowsAfter(sheet.getMaxRows(), needRows);
+  sheet.getRange(start, 1, rows.length, width).setValues(rows);
+}
+
+// id -> 1-based row number, from a single read of the sheet.
+function rowIndex_(sheet) {
+  const data = sheet.getDataRange().getValues(), map = {};
+  for (let r = 1; r < data.length; r++) if (data[r][0] !== '') map[String(data[r][0])] = r + 1;
+  return map;
+}
+
+function cardsSheet_() { return ss_().getSheetByName(CARDS_SHEET); }
+function financeSheet_() { return ss_().getSheetByName(FINANCE_SHEET); }
+function receiptsSheet_() { return ss_().getSheetByName(RECEIPTS_SHEET); }
 function todayStr_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'); }
 function newId_(prefix) { return prefix + '_' + Utilities.getUuid().split('-')[0]; }
 

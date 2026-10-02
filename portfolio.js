@@ -16,20 +16,6 @@ let portData = { owned: [], sold: [] };
 
 const TAG_LABEL = { onhand: 'Onhand', shipping: 'Shipping', shipped: 'Shipped', sold: 'Sold', traded: 'Traded' };
 
-function jsonp(url) {
-  return new Promise((resolve, reject) => {
-    const cbName = 'portfolioCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
-    const script = document.createElement('script');
-    let settled = false;
-    const cleanup = () => { delete window[cbName]; script.remove(); clearTimeout(timer); };
-    const timer = setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('Timed out')); } }, 15000);
-    window[cbName] = data => { if (!settled) { settled = true; cleanup(); resolve(data); } };
-    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
-    script.onerror = () => { if (!settled) { settled = true; cleanup(); reject(new Error('Script load failed')); } };
-    document.body.appendChild(script);
-  });
-}
-
 function toast(m) {
   const t = document.getElementById('portToast'); t.textContent = m; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600);
@@ -104,19 +90,22 @@ function renderTab() {
   $portState.hidden = true; $portList.hidden = false;
 }
 
+let portFirst = true;
 async function loadPortfolio() {
   if (!CONFIG.portfolio.endpoint) { $portState.textContent = "Portfolio sync isn't set up yet."; $portState.hidden = false; $portList.hidden = true; return; }
-  $portState.textContent = 'Loading\u2026';
-  $portState.hidden = false;
-  $portList.hidden = true;
+  const cached = portFirst ? cacheGet('portfolio') : null; portFirst = false;
+  if (cached) { portData = cached; renderTab(); }
+  else { $portState.textContent = 'Loading\u2026'; $portState.hidden = false; $portList.hidden = true; }
   try {
     const url = CONFIG.portfolio.endpoint + '?action=portfolio&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error || 'Unknown error');
     portData = { owned: data.owned || [], sold: data.sold || [] };
+    cacheSet('portfolio', portData);
     renderTab();
   } catch (err) {
     console.warn('Portfolio load failed', err);
+    if (cached) return toast('Could not refresh \u2014 showing your last saved data.');
     $portState.textContent = "Couldn't load your portfolio (offline, wrong secret, or Code.gs needs a new deployment).";
     $portState.hidden = false;
     $portList.hidden = true;

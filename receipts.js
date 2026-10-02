@@ -9,20 +9,6 @@ let recTab = 'all';
 let receipts = [];
 const $recFrom = document.getElementById('recFrom'), $recTo = document.getElementById('recTo'), $recSort = document.getElementById('recSort'), $recCount = document.getElementById('recCount');
 
-function jsonp(url, ms = 15000) {
-  return new Promise((resolve, reject) => {
-    const cbName = 'recCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
-    const script = document.createElement('script');
-    let settled = false;
-    const cleanup = () => { delete window[cbName]; script.remove(); clearTimeout(timer); };
-    const timer = setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('Timed out')); } }, ms);
-    window[cbName] = data => { if (!settled) { settled = true; cleanup(); resolve(data); } };
-    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
-    script.onerror = () => { if (!settled) { settled = true; cleanup(); reject(new Error('Script load failed')); } };
-    document.body.appendChild(script);
-  });
-}
-
 function fmtDay(v) {
   if (!v) return '';
   const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -65,17 +51,22 @@ function render() {
   $recState.hidden = true; $recList.hidden = false;
 }
 
+let recFirst = true;
 async function loadReceipts() {
   if (!CONFIG.portfolio.endpoint) { $recState.textContent = "Sync isn't set up yet."; $recState.hidden = false; return; }
-  $recState.textContent = 'Loading\u2026'; $recState.hidden = false; $recList.hidden = true;
+  const cached = recFirst ? cacheGet('receipts') : null; recFirst = false;
+  if (cached) { receipts = cached; render(); }
+  else { $recState.textContent = 'Loading\u2026'; $recState.hidden = false; $recList.hidden = true; }
   try {
     const url = CONFIG.portfolio.endpoint + '?action=receipts&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error || 'Unknown error');
     receipts = data.receipts || [];
+    cacheSet('receipts', receipts);
     render();
   } catch (err) {
     console.warn('Receipts load failed', err);
+    if (cached) return toast('Could not refresh \u2014 showing your last saved data.');
     $recState.textContent = "Couldn't load receipts (offline, wrong secret, or Code.gs needs a new deployment).";
     $recState.hidden = false; $recList.hidden = true;
   }

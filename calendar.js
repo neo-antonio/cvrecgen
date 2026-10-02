@@ -12,19 +12,6 @@ let filter = 'all';
 let data = { shipping: [], receipts: [], events: [] };   // all normalised to {date, kind, ...}
 let unscheduled = 0;
 
-function jsonp(url) {
-  return new Promise((resolve, reject) => {
-    const cbName = 'calCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
-    const script = document.createElement('script');
-    let settled = false;
-    const cleanup = () => { delete window[cbName]; script.remove(); clearTimeout(timer); };
-    const timer = setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('Timed out')); } }, 15000);
-    window[cbName] = d => { if (!settled) { settled = true; cleanup(); resolve(d); } };
-    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
-    script.onerror = () => { if (!settled) { settled = true; cleanup(); reject(new Error('Script load failed')); } };
-    document.body.appendChild(script);
-  });
-}
 function toast(m) {
   const t = $('calToast'); t.textContent = m; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2800);
@@ -73,17 +60,31 @@ function buildShipping(ship) {
   return out;
 }
 
+function applyCalendar(sh, rc, ev) {
+  const ok = r => r && r.ok;
+  const failed = [];
+  data.shipping = ok(sh) ? buildShipping(sh) : (failed.push('shipping'), []);
+  data.receipts = ok(rc) ? (rc.receipts || []).filter(r => r.date).map(r => ({ kind: 'receipt', status: r.type, date: String(r.date).slice(0, 10), id: r.id, url: r.url, description: r.description })) : (failed.push('receipts'), []);
+  data.events = ok(ev) ? (ev.events || []).map(e => ({ kind: 'event', status: 'event', date: String(e.date).slice(0, 10), id: e.id, title: e.title, time: e.time, notes: e.notes })) : (failed.push('events'), []);
+  return failed;
+}
+let calFirst = true;
 async function load() {
   if (!CONFIG.portfolio.endpoint) { setState("Sync isn't set up yet."); return; }
-  setState('Loading\u2026');
+  const cached = calFirst ? cacheGet('calendar') : null; calFirst = false;
+  if (cached) { applyCalendar(cached.sh, cached.rc, cached.ev); setState(''); render(); }
+  else setState('Loading\u2026');
   const [sh, rc, ev] = await Promise.allSettled([jsonp(api('shipping')), jsonp(api('receipts')), jsonp(api('events'))]);
-  const ok = r => r.status === 'fulfilled' && r.value && r.value.ok;
-  const failed = [];
-  data.shipping = ok(sh) ? buildShipping(sh.value) : (failed.push('shipping'), []);
-  data.receipts = ok(rc) ? (rc.value.receipts || []).filter(r => r.date).map(r => ({ kind: 'receipt', status: r.type, date: String(r.date).slice(0, 10), id: r.id, url: r.url, description: r.description })) : (failed.push('receipts'), []);
-  data.events = ok(ev) ? (ev.value.events || []).map(e => ({ kind: 'event', status: 'event', date: String(e.date).slice(0, 10), id: e.id, title: e.title, time: e.time, notes: e.notes })) : (failed.push('events'), []);
+  const val = r => r.status === 'fulfilled' ? r.value : null;
+  const fresh = { sh: val(sh), rc: val(rc), ev: val(ev) };
+  // a part that failed keeps its last saved copy rather than disappearing
+  const old = cacheGet('calendar') || {};
+  const merged = { sh: fresh.sh && fresh.sh.ok ? fresh.sh : old.sh, rc: fresh.rc && fresh.rc.ok ? fresh.rc : old.rc, ev: fresh.ev && fresh.ev.ok ? fresh.ev : old.ev };
+  const failed = applyCalendar(merged.sh, merged.rc, merged.ev);
+  cacheSet('calendar', merged);
+  const stale = ['sh', 'rc', 'ev'].filter(k => !(fresh[k] && fresh[k].ok));
   setState(failed.length === 3 ? "Couldn't load the calendar (offline, wrong secret, or Code.gs needs a new deployment)."
-    : failed.length ? `Couldn't load ${failed.join(' and ')} \u2014 if that persists, Code.gs needs the latest version deployed.` : '');
+    : stale.length ? "Some data couldn't be refreshed \u2014 showing what was last saved. Tap Refresh to retry." : '');
   render();
 }
 function setState(msg) { const s = $('calState'); s.textContent = msg; s.hidden = !msg; }

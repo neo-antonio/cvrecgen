@@ -13,20 +13,6 @@ let shipData = { toShip: [], shipped: [] };
 let activeShipCardIds = [];       // one card (item photo) or every card of a group (proof photo)
 let activeShipPhotoType = 'proof';   // 'proof' = proof of shipment, 'card' = the item's own photo
 
-function jsonp(url) {
-  return new Promise((resolve, reject) => {
-    const cbName = 'shipCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
-    const script = document.createElement('script');
-    let settled = false;
-    const cleanup = () => { delete window[cbName]; script.remove(); clearTimeout(timer); };
-    const timer = setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('Timed out')); } }, 15000);
-    window[cbName] = data => { if (!settled) { settled = true; cleanup(); resolve(data); } };
-    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
-    script.onerror = () => { if (!settled) { settled = true; cleanup(); reject(new Error('Script load failed')); } };
-    document.body.appendChild(script);
-  });
-}
-
 function toast(m) {
   const t = document.getElementById('shipToast'); t.textContent = m; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600);
@@ -157,17 +143,22 @@ function renderTab() {
   $shipState.hidden = true; $shipList.hidden = false;
 }
 
+let shipFirst = true;
 async function loadShipping() {
   if (!CONFIG.portfolio.endpoint) { $shipState.textContent = "Sync isn't set up yet."; $shipState.hidden = false; $shipList.hidden = true; return; }
-  $shipState.textContent = 'Loading\u2026'; $shipState.hidden = false; $shipList.hidden = true;
+  const cached = shipFirst ? cacheGet('shipping') : null; shipFirst = false;
+  if (cached) { shipData = cached; renderTab(); }
+  else { $shipState.textContent = 'Loading\u2026'; $shipState.hidden = false; $shipList.hidden = true; }
   try {
     const url = CONFIG.portfolio.endpoint + '?action=shipping&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error || 'Unknown error');
     shipData = { toShip: data.toShip || [], shipped: data.shipped || [] };
+    cacheSet('shipping', shipData);
     renderTab();
   } catch (err) {
     console.warn('Shipping load failed', err);
+    if (cached) return toast('Could not refresh \u2014 showing your last saved data.');
     $shipState.textContent = "Couldn't load shipping data (offline, wrong secret, or Code.gs needs a new deployment).";
     $shipState.hidden = false; $shipList.hidden = true;
   }

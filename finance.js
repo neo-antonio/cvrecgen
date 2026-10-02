@@ -10,20 +10,6 @@ const $finRefresh = document.getElementById('finRefresh');
 let finTab = 'torecord';
 let finData = { toRecord: [], recorded: [] };
 
-function jsonp(url) {
-  return new Promise((resolve, reject) => {
-    const cbName = 'financeCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
-    const script = document.createElement('script');
-    let settled = false;
-    const cleanup = () => { delete window[cbName]; script.remove(); clearTimeout(timer); };
-    const timer = setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('Timed out')); } }, 15000);
-    window[cbName] = data => { if (!settled) { settled = true; cleanup(); resolve(data); } };
-    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
-    script.onerror = () => { if (!settled) { settled = true; cleanup(); reject(new Error('Script load failed')); } };
-    document.body.appendChild(script);
-  });
-}
-
 function toast(m) {
   const t = document.getElementById('finToast'); t.textContent = m; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600);
@@ -109,17 +95,22 @@ function renderTab() {
   $finState.hidden = true; $finList.hidden = false;
 }
 
+let finFirst = true;
 async function loadFinance() {
   if (!CONFIG.portfolio.endpoint) { $finState.textContent = "Sync isn't set up yet."; $finState.hidden = false; $finList.hidden = true; return; }
-  $finState.textContent = 'Loading\u2026'; $finState.hidden = false; $finList.hidden = true;
+  const cached = finFirst ? cacheGet('finance') : null; finFirst = false;
+  if (cached) { finData = cached; renderTab(); }
+  else { $finState.textContent = 'Loading\u2026'; $finState.hidden = false; $finList.hidden = true; }
   try {
     const url = CONFIG.portfolio.endpoint + '?action=finance&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error || 'Unknown error');
     finData = { toRecord: data.toRecord || [], recorded: data.recorded || [] };
+    cacheSet('finance', finData);
     renderTab();
   } catch (err) {
     console.warn('Finance load failed', err);
+    if (cached) return toast('Could not refresh \u2014 showing your last saved data.');
     $finState.textContent = "Couldn't load finance data (offline, wrong secret, or Code.gs needs a new deployment).";
     $finState.hidden = false; $finList.hidden = true;
   }
