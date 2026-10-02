@@ -6,6 +6,8 @@ const $$ = s => [...document.querySelectorAll(s)];
 const php = n => 'PHP ' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pad = n => String(n).padStart(2, '0');
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const nowTimeStr = () => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const fmtTime = v => { const [h, m] = String(v).split(':').map(Number); return `${h % 12 || 12}:${pad(m)} ${h >= 12 ? 'PM' : 'AM'}`; };
 const fmtDate = v => { const [y, m, d] = v.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' }); };
 const shipType = () => $('input[name=st]:checked').value;
 const SHIP_LABEL = { buyer: 'c/o buyer', us: 'c/o us', none: 'No shipping' };
@@ -243,12 +245,13 @@ function handleFile(input, kind) {
 handleFile($('#fileCamera'), 'camera');
 handleFile($('#fileUpload'), 'upload');
 const shipping = () => (mode === 'sold' && shipType() === 'none') ? 0 : (parseFloat($('#ship').value) || 0);
+const packaging = () => mode === 'sold' ? (parseFloat($('#pack').value) || 0) : 0;   // optional, sale only
 // Purchase: shipping always counted in the total. Sold: shipping counts only when the buyer shoulders it (c/o buyer);
 // it's excluded when it's on us (c/o us) or when there's no shipping at all. Trade: there's no
 // item-for-item price, so the "total" is just whatever cash changed hands (if any).
 const grandTotal = () => {
   if (mode === 'trade') return cashAmount();
-  return mode === 'purchase' ? subtotal() + shipping() : (shipType() === 'buyer' ? subtotal() + shipping() : subtotal());
+  return mode === 'purchase' ? subtotal() + shipping() : subtotal() + packaging() + (shipType() === 'buyer' ? shipping() : 0);
 };
 
 /* ---------- People multi-select ---------- */
@@ -335,7 +338,7 @@ function update() {
   $('#buyerWarn').hidden = !(mode === 'sold' && shipType() === 'buyer');
   $('#totalVal').textContent = php(grandTotal());
 }
-['#ship', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod'].forEach(s => $(s).addEventListener('input', update));
+['#ship', '#pack', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod'].forEach(s => $(s).addEventListener('input', update));
 $$('input[name=st]').forEach(r => r.addEventListener('change', update));
 $$('input[name=cashDir]').forEach(r => r.addEventListener('change', update));
 
@@ -347,14 +350,14 @@ function collect() {
   const trade = mode === 'trade';
   const t = shipType();
   return {
-    mode, date: $('#date').value || todayStr(),
+    mode, date: $('#date').value || todayStr(), time: $('#time').value,
     party: $('#party').value.trim(), people: people().join(', '),
     pay: $('#pay').value === 'Others' ? ($('#payOther').value.trim() || 'Others') : $('#pay').value,
     items: trade ? [] : items(), multi: trade ? false : $$('#items .item').length > 1,
-    sub: trade ? 0 : subtotal(), ship: trade ? 0 : shipping(),
+    sub: trade ? 0 : subtotal(), ship: trade ? 0 : shipping(), pack: packaging(),
     total: grandTotal(),
     method: $('#method').value === 'Others' ? ($('#methodOther').value.trim() || 'Others') : $('#method').value,
-    shipType: t, sched: $('#sched').value,
+    shipType: t, sched: $('#sched').value, shipAddr: mode === 'sold' ? $('#shipAddr').value.trim() : '',
     deduct: $('#deduct').value === 'Others' ? ($('#deductOther').value.trim() || 'Others') : $('#deduct').value,
     notes: $('#notes').value.trim(),
     // whole-receipt "record to portfolio" flag (purchase mode) — applies to every item
@@ -412,6 +415,7 @@ function draw(x, d, s, dry, logo) {
   const sec = t => { set(600, 20); txt(t.toUpperCase(), P, y, G); y += 34 * s; };
 
   row('Date', fmtDate(d.date));
+  if (d.time) row('Time', fmtTime(d.time));
   if (trade) {
     row('Traded to', d.party);
     row('Traded by', d.people);
@@ -466,9 +470,9 @@ function draw(x, d, s, dry, logo) {
     y += 4 * s; rule(y); y += 22 * s;
 
     if (sold) {
+      if (d.pack > 0) row('Packaging', php(d.pack));
       row('Shipping method', d.method);
       row('Shipping', d.shipType === 'none' ? 'No shipping (PHP 0.00)' : `${php(d.ship)} (${SHIP_LABEL[d.shipType]})`);
-      if (d.sched) row('Scheduled shipping', fmtDate(d.sched));
       if (d.shipType === 'us') row('Shipping deducted from', d.deduct);
     } else row('Shipping', php(d.ship));
 
@@ -551,6 +555,7 @@ async function syncSale(d, receiptPhoto) {
       action: 'sell', secret: CONFIG.portfolio.secret,
       date: d.date, buyer: d.party, notes: d.notes, pay: d.pay,
       shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
+      shipAddress: d.shipAddr, packaging: d.pack,
       items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
       receiptPhoto
     })
@@ -642,6 +647,7 @@ function resetAfterCardReceipt(d) {
     const used = new Set(d.items.map(i => String(i.cardId)));
     onhandCards = onhandCards.filter(c => !used.has(String(c.id)));
     $('#items').innerHTML = ''; refreshPicker('sold');
+    $('#pack').value = ''; $('#shipAddr').value = '';   // per-sale fields: never carry one buyer's over to the next sale
   } else if (d.mode === 'trade') {
     const used = new Set(d.tradedItems.map(i => String(i.cardId)));
     onhandCards = onhandCards.filter(c => !used.has(String(c.id)));
@@ -671,4 +677,5 @@ function toast(m) {
 
 /* ---------- Init ---------- */
 $('#date').value = todayStr();
+$('#time').value = nowTimeStr();   // time the page was loaded; editable
 setMode('purchase');

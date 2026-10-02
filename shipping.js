@@ -10,7 +10,7 @@ const CARE_LABEL = { buyer: 'c/o buyer', us: 'c/o us', none: 'No shipping' };
 
 let shipTab = 'toship';
 let shipData = { toShip: [], shipped: [] };
-let activeShipCardId = null;
+let activeShipCardIds = [];       // one card (item photo) or every card of a group (proof photo)
 let activeShipPhotoType = 'proof';   // 'proof' = proof of shipment, 'card' = the item's own photo
 
 function jsonp(url) {
@@ -49,28 +49,58 @@ const SHIP_ICON = {
 };
 const shipIcon = (name, cls, label, id, extra = '') => `<button type="button" class="icon-btn ${cls}" data-id="${id}" ${extra} title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${SHIP_ICON[name]}</svg></button>`;
 
-function cardHtml(it, isToShip) {
+/* Cards that came from the same sale receipt are one task: Code.gs gives them a shared groupKey.
+   Order inside a group follows the sheet (the order they were picked on the receipt). */
+function groupCards(list) {
+  const map = new Map();
+  list.forEach(it => {
+    const k = it.groupKey || ('c:' + it.id);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(it);
+  });
+  return [...map.values()].map(g => g.slice().reverse());
+}
+
+function itemRowHtml(it) {
   const img = it.photo ? `<img src="${it.photo}" alt="${escShip(it.name)}" loading="lazy" class="ship-clickphoto" data-full="${it.photo}">` : `<div class="port-noimg">No photo</div>`;
-  const careLine = CARE_LABEL[it.shipType] || it.shipType || '';
-  const metaLines = [
-    `Sold to ${escShip(it.soldTo || '\u2014')} for ${shipPhp(it.soldPrice)}`,
-    `${escShip(it.shipMethod || '\u2014')} \u00b7 ${careLine}${it.deductedFrom ? ' \u00b7 deducted from ' + escShip(it.deductedFrom) : ''}`,
-    isToShip
-      ? (it.scheduledDate ? `Scheduled ${fmtDay(it.scheduledDate)}` : 'No schedule set')
-      : `Shipped ${fmtDay(it.shippedDate)}`
-  ];
-  const proof = !isToShip && it.proofPhoto ? `<div class="port-thumb"><img src="${it.proofPhoto}" alt="Proof of shipment" class="ship-clickphoto" data-full="${it.proofPhoto}"></div>` : '';
-  const receiptBtn = it.saleReceipt ? shipIcon('doc', 'ship-receipt', 'Receipt', it.id, `data-url="${escShip(it.saleReceipt)}"`) : '';
-  const itemPhotoBtn = shipIcon('camera', 'ship-itemphoto', it.photo ? 'Change item photo' : 'Add item photo', it.id);
-  const actions = isToShip
-    ? `<div class="ship-actions">${shipIcon('check', 'ship-mark', 'Mark shipped', it.id)}${itemPhotoBtn}${receiptBtn}${shipIcon('trash', 'ship-delete danger', 'Delete card', it.id)}</div>`
-    : `<div class="ship-actions">${proof}${shipIcon('proof', 'ship-addphoto', it.proofPhoto ? 'Change proof photo' : 'Add proof photo', it.id)}${itemPhotoBtn}${receiptBtn}${shipIcon('undo', 'ship-revert', 'Revert', it.id)}</div>`;
-  return `<div class="ship-card" data-id="${it.id}">
-      <div class="ship-top">
-        <div class="port-thumb">${img}</div>
-        <div class="port-info"><b>${escShip(it.name)}</b><span>${shipPhp(it.shipFee)} shipping fee</span></div>
+  return `<div class="ship-item">
+      <div class="port-thumb">${img}</div>
+      <div class="port-info"><b>${escShip(it.name)}</b><span>${shipPhp(it.soldPrice)}</span></div>
+      <div class="ship-item-acts">
+        ${shipIcon('camera', 'flat ship-itemphoto', it.photo ? 'Change item photo' : 'Add item photo', it.id)}
+        ${shipIcon('trash', 'flat danger ship-delete', 'Delete card', it.id)}
       </div>
+    </div>`;
+}
+
+function cardHtml(group, isToShip) {
+  const f = group[0];
+  const ids = group.map(i => i.id).join(',');
+  const n = group.length;
+  const soldTotal = group.reduce((a, i) => a + (Number(i.soldPrice) || 0), 0);
+  const fee = group.reduce((a, i) => a + (Number(i.shipFee) || 0), 0);
+  const careLine = CARE_LABEL[f.shipType] || f.shipType || '';
+  const proofUrl = (group.find(i => i.proofPhoto) || {}).proofPhoto || '';
+  const receiptUrl = (group.find(i => i.saleReceipt) || {}).saleReceipt || '';
+  const hasProof = !!proofUrl;
+  const metaLines = [
+    `Sold to ${escShip(f.soldTo || '\u2014')}${n > 1 ? ` \u00b7 ${n} cards` : ''} for ${shipPhp(soldTotal)}`,
+    `${escShip(f.shipMethod || '\u2014')} \u00b7 ${careLine}${f.deductedFrom ? ' \u00b7 deducted from ' + escShip(f.deductedFrom) : ''}`,
+    `${shipPhp(fee)} shipping fee`,
+    isToShip
+      ? (f.scheduledDate ? `Scheduled ${fmtDay(f.scheduledDate)}` : 'No schedule set')
+      : `Shipped ${fmtDay(f.shippedDate)}`
+  ];
+  const address = f.address ? `<div class="ship-addr"><small>Ship to</small>${escShip(f.address)}</div>` : '';
+  const proof = !isToShip && hasProof ? `<div class="port-thumb"><img src="${proofUrl}" alt="Proof of shipment" class="ship-clickphoto" data-full="${proofUrl}"></div>` : '';
+  const receiptBtn = receiptUrl ? shipIcon('doc', 'ship-receipt', 'Receipt', ids, `data-url="${escShip(receiptUrl)}"`) : '';
+  const actions = isToShip
+    ? `<div class="ship-actions">${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}</div>`
+    : `<div class="ship-actions">${proof}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${receiptBtn}${shipIcon('undo', 'ship-revert', n > 1 ? 'Revert all' : 'Revert', ids)}</div>`;
+  return `<div class="ship-card" data-ids="${escShip(ids)}">
+      <div class="ship-items">${group.map(itemRowHtml).join('')}</div>
       <div class="ship-meta">${metaLines.join('<br>')}</div>
+      ${address}
       ${actions}
     </div>`;
 }
@@ -83,7 +113,7 @@ function renderTab() {
     $shipTotal.textContent = shipPhp(0);
     return;
   }
-  $shipList.innerHTML = list.map(it => cardHtml(it, shipTab === 'toship')).join('');
+  $shipList.innerHTML = groupCards(list).map(g => cardHtml(g, shipTab === 'toship')).join('');
   $shipTotal.textContent = shipPhp(list.reduce((a, i) => a + (Number(i.shipFee) || 0), 0));
   $shipState.hidden = true; $shipList.hidden = false;
 }
@@ -169,10 +199,10 @@ $shipList.addEventListener('click', async e => {
   }
 
   const photoBtn = e.target.closest('.ship-addphoto');
-  if (photoBtn) { openShipPhotoSheet(photoBtn.dataset.id, 'proof'); return; }
+  if (photoBtn) { openShipPhotoSheet(photoBtn.dataset.id.split(','), 'proof'); return; }
 
   const itemPhotoBtn = e.target.closest('.ship-itemphoto');
-  if (itemPhotoBtn) openShipPhotoSheet(itemPhotoBtn.dataset.id, 'card');
+  if (itemPhotoBtn) openShipPhotoSheet([itemPhotoBtn.dataset.id], 'card');
 });
 
 document.getElementById('imgViewClose').onclick = () => document.getElementById('imgView').hidden = true;
@@ -180,18 +210,17 @@ document.getElementById('imgView').addEventListener('click', e => { if (e.target
 
 /* ---------- Proof-of-shipment photo modal ---------- */
 const findShipItem = id => shipData.toShip.concat(shipData.shipped).find(c => String(c.id) === String(id));
-function openShipPhotoSheet(cardId, type) {
-  activeShipCardId = cardId;
+function openShipPhotoSheet(cardIds, type) {
+  activeShipCardIds = cardIds;
   activeShipPhotoType = type || 'proof';
-  const it = findShipItem(cardId);
-  const has = !!(it && (activeShipPhotoType === 'card' ? it.photo : it.proofPhoto));
-  document.getElementById('shipPsTitle').textContent = activeShipPhotoType === 'card' ? 'Item photo' : 'Attach proof of shipment';
+  const has = cardIds.some(id => { const it = findShipItem(id); return !!(it && (activeShipPhotoType === 'card' ? it.photo : it.proofPhoto)); });
+  document.getElementById('shipPsTitle').textContent = activeShipPhotoType === 'card' ? 'Item photo' : (cardIds.length > 1 ? 'Attach proof of shipment (all cards)' : 'Attach proof of shipment');
   document.getElementById('shipPsRemove').hidden = !has;
   document.getElementById('shipPsLinkField').hidden = true;
   document.getElementById('shipPsLinkInput').value = '';
   document.getElementById('shipPhotoSheet').hidden = false;
 }
-function closeShipPhotoSheet() { document.getElementById('shipPhotoSheet').hidden = true; activeShipCardId = null; }
+function closeShipPhotoSheet() { document.getElementById('shipPhotoSheet').hidden = true; activeShipCardIds = []; }
 document.getElementById('shipPsCancel').onclick = closeShipPhotoSheet;
 document.getElementById('shipPhotoSheet').addEventListener('click', e => { if (e.target.id === 'shipPhotoSheet') closeShipPhotoSheet(); });
 document.getElementById('shipPsCamera').onclick = () => document.getElementById('shipFileCamera').click();
@@ -199,16 +228,16 @@ document.getElementById('shipPsUpload').onclick = () => document.getElementById(
 document.getElementById('shipPsLink').onclick = () => { document.getElementById('shipPsLinkField').hidden = false; document.getElementById('shipPsLinkInput').focus(); };
 document.getElementById('shipPsLinkUse').onclick = () => {
   const url = document.getElementById('shipPsLinkInput').value.trim();
-  if (!url || !activeShipCardId) return;
-  sendShipPhoto(activeShipCardId, { kind: 'link', src: url }, activeShipPhotoType);
+  if (!url || !activeShipCardIds.length) return;
+  sendShipPhoto(activeShipCardIds, { kind: 'link', src: url }, activeShipPhotoType);
   closeShipPhotoSheet();
 };
 document.getElementById('shipPsRemove').onclick = async () => {
-  const id = activeShipCardId, which = activeShipPhotoType;
-  if (!id) return;
+  const ids = activeShipCardIds.slice(), which = activeShipPhotoType;
+  if (!ids.length) return;
   closeShipPhotoSheet();
   try {
-    const url = CONFIG.portfolio.endpoint + '?action=clearPhoto&which=' + which + '&cardId=' + encodeURIComponent(id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+    const url = CONFIG.portfolio.endpoint + '?action=clearPhoto&which=' + which + '&cardId=' + encodeURIComponent(ids.join(',')) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
     toast('Photo removed.');
@@ -218,10 +247,10 @@ document.getElementById('shipPsRemove').onclick = async () => {
 function handleShipFile(input, kind) {
   input.addEventListener('change', () => {
     const f = input.files[0]; input.value = '';
-    if (!f || !activeShipCardId) return;
-    const cardId = activeShipCardId, which = activeShipPhotoType;
+    if (!f || !activeShipCardIds.length) return;
+    const cardIds = activeShipCardIds.slice(), which = activeShipPhotoType;
     const reader = new FileReader();
-    reader.onload = () => sendShipPhoto(cardId, { kind, src: reader.result }, which);
+    reader.onload = () => sendShipPhoto(cardIds, { kind, src: reader.result }, which);
     reader.readAsDataURL(f);
     closeShipPhotoSheet();
   });
@@ -229,12 +258,14 @@ function handleShipFile(input, kind) {
 handleShipFile(document.getElementById('shipFileCamera'), 'camera');
 handleShipFile(document.getElementById('shipFileUpload'), 'upload');
 
-async function sendShipPhoto(cardId, photo, which) {
+async function sendShipPhoto(cardIds, photo, which) {
   toast('Uploading photo\u2026');
   const payload = {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: which === 'card' ? 'cardPhoto' : 'shipPhoto', secret: CONFIG.portfolio.secret, cardId, photo })
+    body: JSON.stringify(which === 'card'
+      ? { action: 'cardPhoto', secret: CONFIG.portfolio.secret, cardId: cardIds[0], photo }
+      : { action: 'shipPhoto', secret: CONFIG.portfolio.secret, cardIds, photo })
   };
   try {
     const res = await fetch(CONFIG.portfolio.endpoint, payload);

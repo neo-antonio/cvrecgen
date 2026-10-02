@@ -12,8 +12,10 @@
  * SETUP
  * 1. In your existing Sheet you need THREE tabs:
  *
- *    Tab "Cards" — header row (columns A-X):
- *      ID | PurchaseDate | Seller | BoughtBy | ItemName | PurchaseCost | PurchasePayMethod | Photo | PurchaseNotes | Status | SoldDate | SoldTo | SoldPrice | ShipType | ShippingMethod | ShippingFee | ShippingDeductedFrom | ShippingScheduledDate | ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID
+ *    Tab "Cards" — header row (columns A-Y):
+ *      ID | PurchaseDate | Seller | BoughtBy | ItemName | PurchaseCost | PurchasePayMethod | Photo | PurchaseNotes | Status | SoldDate | SoldTo | SoldPrice | ShipType | ShippingMethod | ShippingFee | ShippingDeductedFrom | ShippingScheduledDate | ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress
+ *      ShippingAddress (col Y) is new and optional: the script adds the column and header by itself the
+ *      first time a sale is saved. Older rows simply read as blank.
  *      Status is one of: onhand, shipping, shipped, traded.
  *      A "traded" card (given away in a Trade receipt) reuses the SoldDate/
  *      SoldTo/SoldPrice/SaleReceiptURL columns to hold TradedDate/TradedWith/
@@ -53,15 +55,22 @@
  *   GET  ?action=unrecord&financeId=..&secret=..&callback=..       -> { ok }
  *   GET  ?action=markShipped&cardId=..&secret=..&callback=..       -> { ok }
  *   GET  ?action=unmarkShipped&cardId=..&secret=..&callback=..     -> { ok, error? }
+ *        (cardId may be several IDs separated by commas: the Shipping tab groups every card of one
+ *        sale receipt into a single task, and marks / reverts them together in one call. clearPhoto
+ *        accepts the same comma-separated form.)
  *   GET  ?action=revertToOnhand&cardId=..&secret=..&callback=..    -> { ok, error? }
  *   GET  ?action=deleteCard&cardId=..&secret=..&callback=..        -> { ok }
  *   GET  ?action=deleteFinance&financeId=..&secret=..&callback=.. -> { ok }
  *   POST { action:'purchase', secret, date, seller, people, pay, notes, items:[{name,cost,photo,portfolio}], receiptPhoto:{src} }
- *   POST { action:'sell', secret, date, buyer, notes, pay, shipType, shipMethod, shipFee, shipDeductFrom, shipSched, items:[{cardId,name,cost}], receiptPhoto:{src} }
+ *   POST { action:'sell', secret, date, buyer, notes, pay, shipType, shipMethod, shipFee, shipDeductFrom, shipSched,
+ *          shipAddress, packaging, items:[{cardId,name,cost}], receiptPhoto:{src} }
+ *        packaging (optional) = what the buyer paid for packaging; it bills to Finance as one extra
+ *        inflow row tied to the sale receipt. shipAddress / shipSched are stored on the cards for the
+ *        Shipping tab only and never appear on the receipt image.
  *   POST { action:'trade', secret, date, tradedTo, tradedBy, notes,
  *          tradedItems:[{cardId,name,cost}], receivedItems:[{name,photo}], receivedPortfolio,
  *          cashDirection:'none'|'paid'|'received', cashAmount, cashMethod, receiptPhoto:{src} }
- *   POST { action:'shipPhoto', secret, cardId, photo:{kind,src} }
+ *   POST { action:'shipPhoto', secret, cardId | cardIds:[..], photo:{kind,src} }   (cardIds: one upload, applied to every card of a group)
  *   POST { action:'cardPhoto', secret, cardId, photo:{kind,src} }   -> replaces the item photo on a Cards row
  *   GET  ?action=clearPhoto&cardId=..&which=card|proof&secret=..&callback=.. -> { ok }
  *   GET  ?action=addFinance&description=..&amount=..&flow=inflow|outflow&payMethod=..&date=..&secret=..&callback=.. -> { ok, id }
@@ -202,7 +211,10 @@ function handleSell_(body) {
   const cards = cardsSheet_(), fin = financeSheet_();
   const list = body.items || [];
   if (!list.length) return { ok: true };
+  ensureCardsColumns_(cards);
   const noShip = body.shipType === 'none';
+  const address = String(body.shipAddress || '').trim().slice(0, 500);
+  const packaging = Number(body.packaging) || 0;
   const perFee = list.length ? (Number(body.shipFee) || 0) / list.length : 0;
   const batchId = newId_('b');
 
@@ -224,23 +236,32 @@ function handleSell_(body) {
       body.shipDeductFrom || '', body.shipSched || ''
     ]]);
     cards.getRange(found.idx, 23, 1, 1).setValue(receiptUrl); // SaleReceiptURL (col W)
-    cards.getRange(found.idx, 24, 1, 1).setValue(batchId);    // ShipBatchID (col X)
+    cards.getRange(found.idx, 24, 1, 2).setValues([[batchId, address]]); // ShipBatchID, ShippingAddress (cols X-Y)
     // the sale amount itself bills to Finance right away (as an inflow), separate from the
     // shipping-fee entry, which is only created later once the whole batch is marked shipped
     fin.appendRow([newId_('f'), it.cardId, 'sale', body.date || '', 'Sale: ' + (it.name || '(unnamed item)'), Number(it.cost) || 0, body.pay || '', false, '', receiptUrl, 'inflow']);
   });
+  // packaging the buyer paid for is part of "total received": one inflow row for the whole receipt
+  // (no CardID; it is still removed with the receipt because it carries the same ReceiptURL)
+  if (packaging > 0) {
+    fin.appendRow([newId_('f'), '', 'sale', body.date || '', 'Packaging: sale to ' + (body.buyer || '\u2014'), packaging, body.pay || '', false, '', receiptUrl, 'inflow']);
+  }
   return { ok: true };
 }
 
+// Proof of shipment for one card, or (cardIds) for every card of a grouped shipping task:
+// the image is uploaded once and the same URL is written to each card.
 function handleShipPhoto_(body) {
   const cards = cardsSheet_();
-  const found = findRow_(cards, body.cardId);
-  if (!found) return { ok: false, error: 'card not found' };
+  const ids = splitIds_(Array.isArray(body.cardIds) ? body.cardIds.join(',') : (body.cardIds || body.cardId));
+  if (!ids.length) return { ok: false, error: 'missing cardId' };
+  const founds = ids.map(id => findRow_(cards, id));
+  if (founds.some(f => !f)) return { ok: false, error: 'card not found' };
   let url = '';
   if (body.photo && body.photo.src) {
     url = body.photo.kind === 'link' ? body.photo.src : saveImage_(body.photo.src, 'shipped-' + todayStr_() + '-' + newId_('s'), SHIP_PHOTO_FOLDER_ID);
   }
-  cards.getRange(found.idx, 20, 1, 1).setValue(url); // ShippingProofPhoto (col T)
+  founds.forEach(f => cards.getRange(f.idx, 20, 1, 1).setValue(url)); // ShippingProofPhoto (col T)
   return { ok: true };
 }
 
@@ -362,13 +383,14 @@ function handleCardPhoto_(body) {
 
 // which = 'card' (item photo, col H) or 'proof' (proof of shipment, col T)
 function clearPhoto_(cardId, which) {
-  if (!cardId) return { ok: false, error: 'missing cardId' };
+  const ids = splitIds_(cardId);
+  if (!ids.length) return { ok: false, error: 'missing cardId' };
   const cards = cardsSheet_();
-  const found = findRow_(cards, cardId);
-  if (!found) return { ok: false, error: 'not found' };
+  const founds = ids.map(id => findRow_(cards, id));
+  if (founds.some(f => !f)) return { ok: false, error: 'not found' };
   const col = which === 'card' ? 8 : which === 'proof' ? 20 : 0;
   if (!col) return { ok: false, error: 'unknown photo type' };
-  cards.getRange(found.idx, col, 1, 1).setValue('');
+  founds.forEach(f => cards.getRange(f.idx, col, 1, 1).setValue(''));
   return { ok: true };
 }
 
@@ -568,30 +590,42 @@ function setShippingRecordedFlag_(cardOrBatchId, type, value) {
   }
 }
 
+// cardId may hold several comma-separated IDs (a grouped shipping task). Every card is validated
+// first, then all are marked, and each batch's Finance entry is created once at the end.
 function markShipped_(cardId) {
-  if (!cardId) return { ok: false, error: 'missing cardId' };
+  const ids = splitIds_(cardId);
+  if (!ids.length) return { ok: false, error: 'missing cardId' };
   const cards = cardsSheet_();
-  const found = findRow_(cards, cardId);
-  if (!found) return { ok: false, error: 'not found' };
-  cards.getRange(found.idx, 10, 1, 1).setValue('shipped');
-  cards.getRange(found.idx, 19, 1, 1).setValue(todayStr_());
-  maybeCreateBatchFinance_(found.row[23]);
+  const founds = ids.map(id => findRow_(cards, id));
+  if (founds.some(f => !f)) return { ok: false, error: 'not found' };
+  const today = todayStr_(), batches = {};
+  founds.forEach(f => {
+    cards.getRange(f.idx, 10, 1, 1).setValue('shipped');
+    cards.getRange(f.idx, 19, 1, 1).setValue(today);
+    if (f.row[23]) batches[String(f.row[23])] = true;
+  });
+  Object.keys(batches).forEach(b => maybeCreateBatchFinance_(b));
   return { ok: true };
 }
 
+// cardId may hold several comma-separated IDs (a grouped shipping task); all-or-nothing.
 function unmarkShipped_(cardId) {
-  if (!cardId) return { ok: false, error: 'missing cardId' };
+  const ids = splitIds_(cardId);
+  if (!ids.length) return { ok: false, error: 'missing cardId' };
   const cards = cardsSheet_(), fin = financeSheet_();
-  const found = findRow_(cards, cardId);
-  if (!found) return { ok: false, error: 'not found' };
-  if (found.row[9] !== 'shipped') return { ok: false, error: 'card is not marked shipped' };
-  const batchId = found.row[23] || cardId;
-  const finRows = findShippingFinance_(fin, [batchId, cardId]);
+  const founds = ids.map(id => findRow_(cards, id));
+  if (founds.some(f => !f)) return { ok: false, error: 'not found' };
+  if (founds.some(f => f.row[9] !== 'shipped')) return { ok: false, error: 'card is not marked shipped' };
+  const keys = [];
+  founds.forEach(f => { keys.push(f.row[23] || f.row[0]); keys.push(f.row[0]); });
+  const finRows = findShippingFinance_(fin, keys);
   if (finRows.some(f => f.row[7] === true)) {
     return { ok: false, error: 'Its Finance entry is already recorded \u2014 unrecord it first, then revert.' };
   }
-  cards.getRange(found.idx, 10, 1, 1).setValue('shipping');
-  cards.getRange(found.idx, 19, 1, 1).setValue('');
+  founds.forEach(f => {
+    cards.getRange(f.idx, 10, 1, 1).setValue('shipping');
+    cards.getRange(f.idx, 19, 1, 1).setValue('');
+  });
   // batch is no longer complete, drop the not-yet-recorded entry (bottom-up so row numbers stay valid)
   finRows.map(f => f.idx).sort((a, b) => b - a).forEach(i => fin.deleteRow(i));
   return { ok: true };
@@ -607,7 +641,8 @@ function revertToOnhand_(cardId) {
   const batchId = found.row[23];
   cards.getRange(found.idx, 10, 1, 1).setValue('onhand');           // Status
   cards.getRange(found.idx, 11, 1, 10).setValues([['', '', '', '', '', '', '', '', '', false]]); // SoldDate..ShippingRecorded (K-U)
-  cards.getRange(found.idx, 23, 1, 2).setValues([['', '']]);        // SaleReceiptURL, ShipBatchID
+  ensureCardsColumns_(cards);
+  cards.getRange(found.idx, 23, 1, 3).setValues([['', '', '']]);    // SaleReceiptURL, ShipBatchID, ShippingAddress
   if (batchId) {
     const rows = cards.getDataRange().getValues();
     const stillInBatch = rows.slice(1).some(r => r[23] === batchId && r[0] !== cardId);
@@ -732,7 +767,10 @@ function getShipping_() {
       shipType: r[13], shipMethod: r[14], shipFee: Number(r[15]) || 0,
       deductedFrom: r[16], scheduledDate: fmtDateCell_(r[17]),
       shippedDate: fmtDateCell_(r[18]), proofPhoto: toDisplayUrl_(r[19]),
-      saleReceipt: r[22] || ''
+      saleReceipt: r[22] || '',
+      address: r[24] || '',
+      // cards that came from one sale receipt share a key, so the app can show them as one task
+      groupKey: fileKey_(r[22]) || (r[23] ? 'b:' + r[23] : 'c:' + r[0])
     };
     (status === 'shipping' ? toShip : shipped).push(item);
   });
@@ -746,6 +784,16 @@ function getReceipts_() {
 }
 
 /* ---------- helpers ---------- */
+
+// "a,b,c" -> ['a','b','c'] (blank entries dropped)
+function splitIds_(v) { return String(v || '').split(',').map(s => s.trim()).filter(Boolean); }
+
+// Cards needs column Y (ShippingAddress). Older sheets stop at X; add it on first use.
+function ensureCardsColumns_(cards) {
+  const need = 25;
+  if (cards.getMaxColumns() < need) cards.insertColumnsAfter(cards.getMaxColumns(), need - cards.getMaxColumns());
+  if (!cards.getRange(1, need).getValue()) cards.getRange(1, need).setValue('ShippingAddress');
+}
 
 function cardsSheet_() { return SpreadsheetApp.openById(SHEET_ID).getSheetByName(CARDS_SHEET); }
 function financeSheet_() { return SpreadsheetApp.openById(SHEET_ID).getSheetByName(FINANCE_SHEET); }

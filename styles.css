@@ -147,7 +147,13 @@ body.home-body{padding-top:0}
 .fin-done{color:#1c6b2e;font-weight:700;font-size:16px}
 .ship-card{display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
 .ship-top{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center}
-.ship-meta{font-size:11px;color:var(--mut);line-height:1.6;padding-left:64px}
+.ship-meta{font-size:11px;color:var(--mut);line-height:1.6}
+.ship-items{display:flex;flex-direction:column;gap:8px}
+.ship-item{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;min-width:0}
+.ship-item+.ship-item{border-top:1px solid var(--line);padding-top:8px}
+.ship-item-acts{display:flex;gap:2px}
+.ship-addr{font-size:12px;line-height:1.5;white-space:pre-line;word-break:break-word;padding:8px 10px;border-radius:8px;background:#f2f2f2}
+.ship-addr small{display:block;font-size:10px;font-weight:600;letter-spacing:.3px;text-transform:uppercase;color:var(--mut);margin-bottom:2px}
 .ship-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:8px}
 .ship-actions .port-thumb{width:36px;height:36px;margin-right:auto}
 .fin-row-error{outline:2px solid #c0392b;outline-offset:-2px}

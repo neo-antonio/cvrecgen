@@ -33,8 +33,11 @@
 
 <main>
   <div class="field">
-    <label for="date">Date</label>
-    <input type="date" id="date">
+    <label for="date">Date &amp; time</label>
+    <div class="row">
+      <input type="date" id="date">
+      <input type="time" id="time" aria-label="Time">
+    </div>
   </div>
 
   <div class="field">
@@ -74,6 +77,11 @@
     <input type="text" id="methodOther" placeholder="Specify shipping method" hidden>
   </div>
 
+  <div class="field" data-only="sold" hidden>
+    <label for="pack">Packaging paid <small>(optional)</small></label>
+    <div class="money"><em>PHP</em><input type="number" id="pack" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+  </div>
+
   <div class="field" data-only="purchase sold" hidden>
     <label for="ship">Shipping</label>
     <div class="radios" data-only="sold" hidden>
@@ -91,6 +99,11 @@
       <input type="date" id="sched">
       <button type="button" class="ghost sm" id="schedClear">Clear</button>
     </div>
+  </div>
+
+  <div class="field" data-only="sold" hidden>
+    <label for="shipAddr">Shipping address <small>(optional, shown in Shipping tab only)</small></label>
+    <textarea id="shipAddr" rows="3" placeholder="Name, street, barangay, city, province, ZIP, contact number"></textarea>
   </div>
 
   <div class="field" id="deductRow" hidden>
