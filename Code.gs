@@ -61,7 +61,8 @@
  *   GET  ?action=balance&secret=..&callback=..        -> { ok, balance:{cash,maribank,reserves,others,note,updatedAt}|null }
  *   GET  ?action=saveBalance&cash=..&maribank=..&reserves=..&others=..&note=..&at=YYYY-MM-DD HH:mm&secret=..&callback=.. -> { ok }
  *   GET  ?action=unrecord&financeId=..&secret=..&callback=..       -> { ok }
- *   GET  ?action=markShipped&cardId=..&secret=..&callback=..       -> { ok }
+ *   GET  ?action=markShipped&cardId=..[&date=YYYY-MM-DD&time=HH:mm]&secret=..&callback=..       -> { ok }   (date/time default to now)
+ *   GET  ?action=updateShipped&cardId=..&date=YYYY-MM-DD[&time=HH:mm][&method=..]&secret=..&callback=..     -> { ok }   (change when / how already-shipped cards went out)
  *   GET  ?action=unmarkShipped&cardId=..&secret=..&callback=..     -> { ok, error? }
  *        (cardId may be several IDs separated by commas: the Shipping tab groups every card of one
  *        sale receipt into a single task, and marks / reverts them together in one call. clearPhoto
@@ -173,7 +174,8 @@ function doGet(e) {
     if (action === 'balance') return jsonpOut_(getBalance_(), cb);
     if (action === 'saveBalance') return jsonpOut_(saveBalance_(e.parameter), cb);
     if (action === 'unrecord') return jsonpOut_(unrecordFinance_(e.parameter.financeId), cb);
-    if (action === 'markShipped') return jsonpOut_(markShipped_(e.parameter.cardId), cb);
+    if (action === 'markShipped') return jsonpOut_(markShipped_(e.parameter.cardId, e.parameter.date, e.parameter.time), cb);
+    if (action === 'updateShipped') return jsonpOut_(updateShipped_(e.parameter), cb);
     if (action === 'unmarkShipped') return jsonpOut_(unmarkShipped_(e.parameter.cardId), cb);
     if (action === 'revertToOnhand') return jsonpOut_(revertToOnhand_(e.parameter.cardId), cb);
     if (action === 'deleteCard') return jsonpOut_(deleteCard_(e.parameter.cardId), cb);
@@ -650,21 +652,25 @@ function setShippingRecordedFlag_(cardOrBatchId, type, value) {
 
 // cardId may hold several comma-separated IDs (a grouped shipping task). Every card is validated
 // first, then all are marked, and each batch's Finance entry is created once at the end.
-function markShipped_(cardId) {
+function markShipped_(cardId, dateIn, timeIn) {
   const ids = splitIds_(cardId);
   if (!ids.length) return { ok: false, error: 'missing cardId' };
   const cards = cardsSheet_();
   ensureCardsColumns_(cards);
   const founds = ids.map(id => findRow_(cards, id));
   if (founds.some(f => !f)) return { ok: false, error: 'not found' };
-  const today = todayStr_(), now = nowTimeStr_(), batches = {};
+  const d = String(dateIn || '').trim(), t = String(timeIn || '').trim();
+  if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: 'invalid date' };
+  if (t && !/^\d{1,2}:\d{2}$/.test(t)) return { ok: false, error: 'invalid time' };
+  // no date given = shipped right now; a date given (backdated) keeps only the time that was typed
+  const today = d || todayStr_(), now = d ? t : (t || nowTimeStr_()), batches = {};
   founds.forEach(f => {
     cards.getRange(f.idx, 10, 1, 1).setValue('shipped');
     cards.getRange(f.idx, 19, 1, 1).setValue(today);
     cards.getRange(f.idx, 26, 1, 1).setNumberFormat('@').setValue(now); // ShippedTime (col Z)
     if (f.row[23]) batches[String(f.row[23])] = true;
   });
-  Object.keys(batches).forEach(b => maybeCreateBatchFinance_(b));
+  Object.keys(batches).forEach(b => maybeCreateBatchFinance_(b, today, now));
   return { ok: true };
 }
 
@@ -747,10 +753,41 @@ function findShippingFinance_(fin, keys) {
   return out;
 }
 
+// Change when already-shipped cards actually went out (date required, time optional). The shipping-fee
+// Finance entry follows along unless it has already been recorded (a recorded entry is left as it is).
+function updateShipped_(p) {
+  const ids = splitIds_(p.cardId);
+  if (!ids.length) return { ok: false, error: 'missing cardId' };
+  const date = String(p.date || '').trim(), time = String(p.time || '').trim();
+  const hasMethod = Object.prototype.hasOwnProperty.call(p, 'method'), method = String(p.method || '').trim().slice(0, 60) || 'Others';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, error: 'invalid date' };
+  if (time && !/^\d{1,2}:\d{2}$/.test(time)) return { ok: false, error: 'invalid time' };
+  const cards = cardsSheet_();
+  ensureCardsColumns_(cards);
+  const founds = ids.map(id => findRow_(cards, id));
+  if (founds.some(f => !f)) return { ok: false, error: 'not found' };
+  if (founds.some(f => f.row[9] !== 'shipped')) return { ok: false, error: 'only shipped cards can be edited' };
+  const keys = [];
+  founds.forEach(f => {
+    cards.getRange(f.idx, 19, 1, 1).setValue(date);                          // ShippedDate (col S)
+    if (hasMethod) cards.getRange(f.idx, 15, 1, 1).setValue(method);         // ShippingMethod (col O)
+    cards.getRange(f.idx, 26, 1, 1).setNumberFormat('@').setValue(time);     // ShippedTime (col Z)
+    keys.push(f.row[23] || f.row[0]); keys.push(f.row[0]);
+  });
+  const fin = financeSheet_();
+  ensureFinanceColumns_(fin);
+  findShippingFinance_(fin, keys).forEach(f => {
+    if (f.row[7] === true) return;                                           // already recorded: leave it
+    fin.getRange(f.idx, 4, 1, 1).setValue(date);                             // Date (col D)
+    fin.getRange(f.idx, 14, 1, 1).setNumberFormat('@').setValue(time);       // Time (col N)
+  });
+  return { ok: true };
+}
+
 // Called once a card is marked shipped; creates ONE Finance row per shipment
 // batch (not one per card) as soon as every card sharing that batch ID is
 // shipped — even when the total fee is PHP 0, so it still shows up to record.
-function maybeCreateBatchFinance_(batchId) {
+function maybeCreateBatchFinance_(batchId, dateStr, timeStr) {
   if (!batchId) return;
   const cards = cardsSheet_(), fin = financeSheet_();
   const rows = cards.getDataRange().getValues(); rows.shift();
@@ -764,20 +801,21 @@ function maybeCreateBatchFinance_(batchId) {
   const receiptUrl = group[0][22] || '';
   const idField = group.length > 1 ? batchId : group[0][0];
   ensureFinanceColumns_(fin);
-  fin.appendRow([newId_('f'), idField, 'shipping', todayStr_(), 'Shipping for ' + names, totalFee, payMethod, false, '', receiptUrl, 'outflow', '', '', '']);
-  fin.getRange(fin.getLastRow(), 14, 1, 1).setNumberFormat('@').setValue(nowTimeStr_()); // Time (col N)
+  fin.appendRow([newId_('f'), idField, 'shipping', dateStr || todayStr_(), 'Shipping for ' + names, totalFee, payMethod, false, '', receiptUrl, 'outflow', '', '', '']);
+  fin.getRange(fin.getLastRow(), 14, 1, 1).setNumberFormat('@').setValue(timeStr != null ? timeStr : nowTimeStr_()); // Time (col N)
 }
 
 /* ---------- shipping edits + shared calendar events ---------- */
 
-// Edit the scheduled date (col R) and/or address (col Y) of every card in a shipping task.
+// Edit the shipping method (col O), scheduled date (col R) and/or address (col Y) of every card in a shipping task.
 // Only the params that are present are changed; sched='' clears the date. Cards must still be to-ship.
 function updateShipping_(p) {
   const ids = splitIds_(p.cardId);
   if (!ids.length) return { ok: false, error: 'missing cardId' };
   const hasSched = Object.prototype.hasOwnProperty.call(p, 'sched');
   const hasAddr = Object.prototype.hasOwnProperty.call(p, 'address');
-  if (!hasSched && !hasAddr) return { ok: false, error: 'nothing to change' };
+  const hasMethod = Object.prototype.hasOwnProperty.call(p, 'method');
+  if (!hasSched && !hasAddr && !hasMethod) return { ok: false, error: 'nothing to change' };
   const sched = String(p.sched || '').trim();
   if (hasSched && sched && !/^\d{4}-\d{2}-\d{2}$/.test(sched)) return { ok: false, error: 'invalid date' };
   const cards = cardsSheet_();
@@ -786,7 +824,9 @@ function updateShipping_(p) {
   if (founds.some(f => !f)) return { ok: false, error: 'not found' };
   if (founds.some(f => f.row[9] !== 'shipping')) return { ok: false, error: 'only cards still to ship can be edited' };
   const address = String(p.address || '').trim().slice(0, 500);
+  const method = String(p.method || '').trim().slice(0, 60) || 'Others';
   founds.forEach(f => {
+    if (hasMethod) cards.getRange(f.idx, 15, 1, 1).setValue(method);  // ShippingMethod (col O)
     if (hasSched) cards.getRange(f.idx, 18, 1, 1).setValue(sched);   // ShippingScheduledDate (col R)
     if (hasAddr) cards.getRange(f.idx, 25, 1, 1).setValue(address);  // ShippingAddress (col Y)
   });

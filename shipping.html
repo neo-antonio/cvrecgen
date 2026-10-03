@@ -67,9 +67,35 @@
     </div>
   </div>
 </div>
+<div class="modal" id="shipDateSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="shipDateHeading">Mark as shipped</h3>
+    <div class="field">
+      <label for="shipDateIn">Shipped on <small>(time optional)</small></label>
+      <div class="row">
+        <input type="date" id="shipDateIn">
+        <input type="time" id="shipTimeIn" aria-label="Time">
+      </div>
+    </div>
+    <div class="field" id="shipDateMethodWrap" hidden>
+      <label for="shipDateMethod">Shipping method</label>
+      <select id="shipDateMethod"><option>LBC</option><option>Lalamove</option><option>Grab</option><option>Meet-up</option><option>Others</option></select>
+      <input type="text" id="shipDateMethodOther" placeholder="Specify shipping method" hidden>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="shipDateSave">Mark shipped</button>
+      <button type="button" class="ghost" id="shipDateCancel">Cancel</button>
+    </div>
+  </div>
+</div>
 <div class="modal" id="shipEditSheet" hidden>
   <div class="sheet small wide">
     <h3>Edit shipping details</h3>
+    <div class="field">
+      <label for="shipEditMethod">Shipping method</label>
+      <select id="shipEditMethod"><option>LBC</option><option>Lalamove</option><option>Grab</option><option>Meet-up</option><option>Others</option></select>
+      <input type="text" id="shipEditMethodOther" placeholder="Specify shipping method" hidden>
+    </div>
     <div class="field">
       <label for="shipEditSched">Scheduled shipping date <small>(optional)</small></label>
       <div class="row">

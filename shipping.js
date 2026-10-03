@@ -13,20 +13,6 @@ let shipData = { toShip: [], shipped: [] };
 let activeShipCardIds = [];       // one card (item photo) or every card of a group (proof photo)
 let activeShipPhotoType = 'proof';   // 'proof' = proof of shipment, 'card' = the item's own photo
 
-function jsonp(url) {
-  return new Promise((resolve, reject) => {
-    const cbName = 'shipCb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
-    const script = document.createElement('script');
-    let settled = false;
-    const cleanup = () => { delete window[cbName]; script.remove(); clearTimeout(timer); };
-    const timer = setTimeout(() => { if (!settled) { settled = true; cleanup(); reject(new Error('Timed out')); } }, 15000);
-    window[cbName] = data => { if (!settled) { settled = true; cleanup(); resolve(data); } };
-    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName;
-    script.onerror = () => { if (!settled) { settled = true; cleanup(); reject(new Error('Script load failed')); } };
-    document.body.appendChild(script);
-  });
-}
-
 function toast(m) {
   const t = document.getElementById('shipToast'); t.textContent = m; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600);
@@ -39,11 +25,19 @@ function fmtDay(v) {
   return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+const fmtClock12 = v => { const m = String(v || '').match(/^(\d{1,2}):(\d{2})/); if (!m) return ''; const h = +m[1]; return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`; };
+const isoToday = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+const dayNum = iso => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5 : NaN; };
+// days past the scheduled date for a to-ship group: >0 delayed, 0 due today, <0 upcoming, null = no schedule
+const daysLate = f => (f && f.scheduledDate) ? dayNum(isoToday()) - dayNum(f.scheduledDate) : null;
+const fmtWeekday = v => { const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
+
 const SHIP_ICON = {
   doc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M9 12h7M9 16h7"/>',
   camera: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.4"/>',
   proof: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><path d="M9.3 13.4l2 2 3.4-3.6"/>',
   check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.8 2.8L16 9.7"/>',
+  pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>',
   trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>',
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>'
 };
@@ -83,21 +77,32 @@ function cardHtml(group, isToShip) {
   const proofUrl = (group.find(i => i.proofPhoto) || {}).proofPhoto || '';
   const receiptUrl = (group.find(i => i.saleReceipt) || {}).saleReceipt || '';
   const hasProof = !!proofUrl;
+  const late = isToShip ? daysLate(f) : null;
+  const state = late === null ? '' : late > 0 ? 'late' : late === 0 ? 'today' : '';
   const metaLines = [
     `Sold to ${escShip(f.soldTo || '\u2014')}${n > 1 ? ` \u00b7 ${n} cards` : ''} for ${shipPhp(soldTotal)}`,
-    `${escShip(f.shipMethod || '\u2014')} \u00b7 ${careLine}${f.deductedFrom ? ' \u00b7 deducted from ' + escShip(f.deductedFrom) : ''}`,
-    `${shipPhp(fee)} shipping fee`,
-    isToShip
-      ? (f.scheduledDate ? `Scheduled ${fmtDay(f.scheduledDate)}` : 'No schedule set')
-      : `Shipped ${fmtDay(f.shippedDate)}`
+    `${careLine}${f.deductedFrom ? ' \u00b7 deducted from ' + escShip(f.deductedFrom) : ''}`,
+    `${shipPhp(fee)} shipping fee`
   ];
-  const address = f.address ? `<div class="ship-addr"><small>Ship to</small>${escShip(f.address)}</div>` : '';
+  // the two things you act on, shown large: how it ships and when
+  const dateText = isToShip
+    ? (f.scheduledDate ? fmtWeekday(f.scheduledDate) : 'No schedule set')
+    : fmtWeekday(f.shippedDate) + (f.shippedTime ? ' \u00b7 ' + fmtClock12(f.shippedTime) : '');
+  const dateLabel = isToShip ? 'Ship on' : 'Shipped on';
+  const badge = state === 'late' ? `<span class="ship-badge late">Delayed ${late} day${late === 1 ? '' : 's'}</span>`
+    : state === 'today' ? `<span class="ship-badge today">Ship today</span>` : '';
+  const key = `<div class="ship-key">
+      <div><small>Method</small><b>${escShip(f.shipMethod || '\u2014')}</b></div>
+      <div class="${state}"><small>${dateLabel}</small><b>${escShip(dateText)}</b>${badge}</div>
+    </div>`;
+  const address = (f.address || isToShip) ? `<div class="ship-addr"><small>Ship to</small>${f.address ? escShip(f.address) : '<em>No address yet</em>'}</div>` : '';
   const proof = !isToShip && hasProof ? `<div class="port-thumb"><img src="${proofUrl}" alt="Proof of shipment" class="ship-clickphoto" data-full="${proofUrl}"></div>` : '';
   const receiptBtn = receiptUrl ? shipIcon('doc', 'ship-receipt', 'Receipt', ids, `data-url="${escShip(receiptUrl)}"`) : '';
   const actions = isToShip
-    ? `<div class="ship-actions">${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}</div>`
-    : `<div class="ship-actions">${proof}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${receiptBtn}${shipIcon('undo', 'ship-revert', n > 1 ? 'Revert all' : 'Revert', ids)}</div>`;
-  return `<div class="ship-card" data-ids="${escShip(ids)}">
+    ? `<div class="ship-actions">${shipIcon('pencil', 'ship-edit', 'Edit method, address & schedule', ids)}${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}</div>`
+    : `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-editdate', 'Edit shipped details', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${receiptBtn}${shipIcon('undo', 'ship-revert', n > 1 ? 'Revert all' : 'Revert', ids)}</div>`;
+  return `<div class="ship-card ${state}" data-ids="${escShip(ids)}">
+      ${key}
       <div class="ship-items">${group.map(itemRowHtml).join('')}</div>
       <div class="ship-meta">${metaLines.join('<br>')}</div>
       ${address}
@@ -105,7 +110,23 @@ function cardHtml(group, isToShip) {
     </div>`;
 }
 
+function renderAlert() {
+  const groups = groupCards(shipData.toShip);
+  const late = groups.filter(g => daysLate(g[0]) > 0), today = groups.filter(g => daysLate(g[0]) === 0);
+  const $a = document.getElementById('shipAlert');
+  const parts = [];
+  if (late.length) {
+    const worst = Math.max(...late.map(g => daysLate(g[0])));
+    parts.push(`<b>\u26a0 ${late.length} shipment${late.length > 1 ? 's are' : ' is'} delayed</b> \u2014 the oldest is ${worst} day${worst === 1 ? '' : 's'} past its scheduled date.`);
+  }
+  if (today.length) parts.push(`${today.length} shipment${today.length > 1 ? 's are' : ' is'} scheduled to go out today.`);
+  $a.className = 'ship-alert' + (late.length ? '' : ' mild');
+  $a.innerHTML = parts.join('<br>');
+  $a.hidden = !parts.length;
+}
+
 function renderTab() {
+  renderAlert();
   const list = shipTab === 'toship' ? shipData.toShip : shipData.shipped;
   if (!list.length) {
     $shipState.textContent = shipTab === 'toship' ? 'Nothing waiting to ship.' : 'Nothing shipped yet.';
@@ -113,22 +134,32 @@ function renderTab() {
     $shipTotal.textContent = shipPhp(0);
     return;
   }
-  $shipList.innerHTML = groupCards(list).map(g => cardHtml(g, shipTab === 'toship')).join('');
+  let groups = groupCards(list);
+  if (shipTab === 'toship') {   // most overdue first, then by scheduled date; unscheduled last
+    const rank = g => { const d = g[0].scheduledDate; return d ? dayNum(d) : Infinity; };
+    groups = groups.map((g, i) => ({ g, i })).sort((a, b) => (rank(a.g) - rank(b.g)) || (a.i - b.i)).map(x => x.g);
+  }
+  $shipList.innerHTML = groups.map(g => cardHtml(g, shipTab === 'toship')).join('');
   $shipTotal.textContent = shipPhp(list.reduce((a, i) => a + (Number(i.shipFee) || 0), 0));
   $shipState.hidden = true; $shipList.hidden = false;
 }
 
+let shipFirst = true;
 async function loadShipping() {
   if (!CONFIG.portfolio.endpoint) { $shipState.textContent = "Sync isn't set up yet."; $shipState.hidden = false; $shipList.hidden = true; return; }
-  $shipState.textContent = 'Loading\u2026'; $shipState.hidden = false; $shipList.hidden = true;
+  const cached = shipFirst ? cacheGet('shipping') : null; shipFirst = false;
+  if (cached) { shipData = cached; renderTab(); }
+  else { $shipState.textContent = 'Loading\u2026'; $shipState.hidden = false; $shipList.hidden = true; }
   try {
     const url = CONFIG.portfolio.endpoint + '?action=shipping&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error || 'Unknown error');
     shipData = { toShip: data.toShip || [], shipped: data.shipped || [] };
+    cacheSet('shipping', shipData);
     renderTab();
   } catch (err) {
     console.warn('Shipping load failed', err);
+    if (cached) return toast('Could not refresh \u2014 showing your last saved data.');
     $shipState.textContent = "Couldn't load shipping data (offline, wrong secret, or Code.gs needs a new deployment).";
     $shipState.hidden = false; $shipList.hidden = true;
   }
@@ -151,21 +182,14 @@ $shipList.addEventListener('click', async e => {
   const receiptBtn = e.target.closest('.ship-receipt');
   if (receiptBtn) { window.open(receiptBtn.dataset.url, '_blank'); return; }
 
+  const editBtn = e.target.closest('.ship-edit');
+  if (editBtn) { openShipEdit(editBtn.dataset.id.split(',')); return; }
+
   const markBtn = e.target.closest('.ship-mark');
-  if (markBtn) {
-    markBtn.disabled = true;
-    try {
-      const url = CONFIG.portfolio.endpoint + '?action=markShipped&cardId=' + encodeURIComponent(markBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
-      const data = await jsonp(url);
-      if (!data.ok) throw new Error(data.error || 'Request failed');
-      await loadShipping();
-    } catch (err) {
-      console.warn('Mark shipped failed', err);
-      markBtn.disabled = false;
-      toast('Could not mark as shipped: ' + err.message);
-    }
-    return;
-  }
+  if (markBtn) { openShipDate(markBtn.dataset.id.split(','), 'mark'); return; }
+
+  const dateBtn = e.target.closest('.ship-editdate');
+  if (dateBtn) { openShipDate(dateBtn.dataset.id.split(','), 'edit'); return; }
 
   const revertBtn = e.target.closest('.ship-revert');
   if (revertBtn) {
@@ -207,6 +231,90 @@ $shipList.addEventListener('click', async e => {
 
 document.getElementById('imgViewClose').onclick = () => document.getElementById('imgView').hidden = true;
 document.getElementById('imgView').addEventListener('click', e => { if (e.target.id === 'imgView') document.getElementById('imgView').hidden = true; });
+
+/* ---------- Shipping-method picker shared by both sheets (preset list + free-text \"Others\") ---------- */
+const SHIP_METHODS = ['LBC', 'Lalamove', 'Grab', 'Meet-up'];
+function setMethodFields(selId, otherId, value) {
+  const sel = document.getElementById(selId), oth = document.getElementById(otherId), v = String(value || '').trim();
+  const known = SHIP_METHODS.includes(v);
+  sel.value = known ? v : 'Others';
+  oth.value = known || v === 'Others' ? '' : v;
+  oth.hidden = sel.value !== 'Others';
+}
+const getMethodFields = (selId, otherId) => { const sel = document.getElementById(selId).value; return sel === 'Others' ? (document.getElementById(otherId).value.trim() || 'Others') : sel; };
+[['shipEditMethod', 'shipEditMethodOther'], ['shipDateMethod', 'shipDateMethodOther']].forEach(([s, o]) =>
+  document.getElementById(s).addEventListener('change', () => { const x = document.getElementById(o); x.hidden = document.getElementById(s).value !== 'Others'; if (!x.hidden) x.focus(); }));
+
+/* ---------- Edit scheduled date + address of a to-ship task (applies to every card in the group) ---------- */
+let editShipIds = [];
+function openShipEdit(ids) {
+  const f = findShipItem(ids[0]);
+  if (!f) return;
+  editShipIds = ids;
+  setMethodFields('shipEditMethod', 'shipEditMethodOther', f.shipMethod);
+  document.getElementById('shipEditSched').value = f.scheduledDate ? String(f.scheduledDate).slice(0, 10) : '';
+  document.getElementById('shipEditAddr').value = f.address || '';
+  document.getElementById('shipEditSheet').hidden = false;
+}
+const closeShipEdit = () => { document.getElementById('shipEditSheet').hidden = true; editShipIds = []; };
+document.getElementById('shipEditCancel').onclick = closeShipEdit;
+document.getElementById('shipEditSheet').addEventListener('click', e => { if (e.target.id === 'shipEditSheet') closeShipEdit(); });
+document.getElementById('shipEditClear').onclick = () => document.getElementById('shipEditSched').value = '';
+document.getElementById('shipEditSave').onclick = async () => {
+  if (!editShipIds.length) return;
+  const btn = document.getElementById('shipEditSave');
+  btn.disabled = true; btn.textContent = 'Saving\u2026';
+  try {
+    const url = CONFIG.portfolio.endpoint + '?action=updateShipping&cardId=' + encodeURIComponent(editShipIds.join(','))
+      + '&method=' + encodeURIComponent(getMethodFields('shipEditMethod', 'shipEditMethodOther'))
+      + '&sched=' + encodeURIComponent(document.getElementById('shipEditSched').value)
+      + '&address=' + encodeURIComponent(document.getElementById('shipEditAddr').value.trim())
+      + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+    const data = await jsonp(url);
+    if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
+    closeShipEdit();
+    toast('Shipping details updated.');
+    await loadShipping();
+  } catch (err) { toast('Could not save: ' + err.message); }
+  btn.disabled = false; btn.textContent = 'Save changes';
+};
+
+/* ---------- Mark shipped / edit shipped date: defaults to now, but can be backdated ---------- */
+let shipDateIds = [], shipDateMode = 'mark';
+const nowHHMM = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return p(d.getHours()) + ':' + p(d.getMinutes()); };
+function openShipDate(ids, mode) {
+  shipDateIds = ids; shipDateMode = mode;
+  const f = findShipItem(ids[0]);
+  const edit = mode === 'edit';
+  document.getElementById('shipDateHeading').textContent = edit ? 'Edit shipped details' : (ids.length > 1 ? 'Mark all as shipped' : 'Mark as shipped');
+  document.getElementById('shipDateSave').textContent = edit ? 'Save changes' : 'Mark shipped';
+  document.getElementById('shipDateIn').value = edit && f && f.shippedDate ? String(f.shippedDate).slice(0, 10) : isoToday();
+  document.getElementById('shipTimeIn').value = edit ? String((f && f.shippedTime) || '').slice(0, 5) : nowHHMM();
+  document.getElementById('shipDateMethodWrap').hidden = !edit;
+  if (edit) setMethodFields('shipDateMethod', 'shipDateMethodOther', f && f.shipMethod);
+  document.getElementById('shipDateSheet').hidden = false;
+}
+const closeShipDate = () => { document.getElementById('shipDateSheet').hidden = true; shipDateIds = []; };
+document.getElementById('shipDateCancel').onclick = closeShipDate;
+document.getElementById('shipDateSheet').addEventListener('click', e => { if (e.target.id === 'shipDateSheet') closeShipDate(); });
+document.getElementById('shipDateSave').onclick = async () => {
+  if (!shipDateIds.length) return;
+  const date = document.getElementById('shipDateIn').value, time = document.getElementById('shipTimeIn').value;
+  if (!date) return toast('Pick a date.');
+  const edit = shipDateMode === 'edit', btn = document.getElementById('shipDateSave'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Saving\u2026';
+  try {
+    const url = CONFIG.portfolio.endpoint + '?action=' + (edit ? 'updateShipped' : 'markShipped') + '&cardId=' + encodeURIComponent(shipDateIds.join(','))
+      + '&date=' + encodeURIComponent(date) + '&time=' + encodeURIComponent(time)
+      + (edit ? '&method=' + encodeURIComponent(getMethodFields('shipDateMethod', 'shipDateMethodOther')) : '') + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+    const data = await jsonp(url);
+    if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
+    closeShipDate();
+    toast(edit ? 'Shipped details updated.' : 'Marked as shipped.');
+    await loadShipping();
+  } catch (err) { toast((edit ? 'Could not update: ' : 'Could not mark as shipped: ') + err.message); }
+  btn.disabled = false; btn.textContent = label;
+};
 
 /* ---------- Proof-of-shipment photo modal ---------- */
 const findShipItem = id => shipData.toShip.concat(shipData.shipped).find(c => String(c.id) === String(id));
