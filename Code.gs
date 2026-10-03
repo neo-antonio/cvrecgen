@@ -38,7 +38,7 @@
  *    NEW (all optional, created by the script on first use, older rows just read blank):
  *      Cards   col Z  "ShippedTime"  = HH:mm the card was marked shipped
  *      Finance col N  "Time"         = HH:mm a shipping entry was created (receipt entries use the receipt's time)
- *      Tab "Balance": UpdatedAt | Cash | Maribank | Others | Note  (one row appended per save; the last row is current)
+ *      Tab "Balance": UpdatedAt | Cash | Maribank | Others | Note | Reserves  (one row appended per save; the last row is current)
  *
  *    If you're upgrading from an older version of this sheet that only had
  *    columns A-U on Cards and A-J on Finance, just add the new headers at
@@ -58,8 +58,8 @@
  *   GET  ?action=shipping&secret=..&callback=..       -> { ok, toShip:[...], shipped:[...] }
  *   GET  ?action=receipts&secret=..&callback=..       -> { ok, receipts:[...] }
  *   GET  ?action=record&financeId=..[,..]&secret=..&callback=..    -> { ok, recorded }   (several comma-separated IDs = one call, all-or-nothing)
- *   GET  ?action=balance&secret=..&callback=..        -> { ok, balance:{cash,maribank,others,note,updatedAt}|null }
- *   GET  ?action=saveBalance&cash=..&maribank=..&others=..&note=..&at=YYYY-MM-DD HH:mm&secret=..&callback=.. -> { ok }
+ *   GET  ?action=balance&secret=..&callback=..        -> { ok, balance:{cash,maribank,reserves,others,note,updatedAt}|null }
+ *   GET  ?action=saveBalance&cash=..&maribank=..&reserves=..&others=..&note=..&at=YYYY-MM-DD HH:mm&secret=..&callback=.. -> { ok }
  *   GET  ?action=unrecord&financeId=..&secret=..&callback=..       -> { ok }
  *   GET  ?action=markShipped&cardId=..&secret=..&callback=..       -> { ok }
  *   GET  ?action=unmarkShipped&cardId=..&secret=..&callback=..     -> { ok, error? }
@@ -861,7 +861,7 @@ function deleteEvent_(eventId) {
 /* ---------- current balance (manual, for reconciliation) ---------- */
 
 // Every save appends a row, so the tab doubles as a history; the last row is the current balance.
-// Columns: UpdatedAt | Cash | Maribank | Others | Note. UpdatedAt is the app's own clock at the moment
+// Columns: UpdatedAt | Cash | Maribank | Others | Note | Reserves (Reserves was added last so older rows stay valid). UpdatedAt is the app's own clock at the moment
 // the person saved it ("yyyy-MM-dd HH:mm", stored as text).
 const BALANCE_SHEET = 'Balance';
 function balanceSheet_(create) {
@@ -869,23 +869,24 @@ function balanceSheet_(create) {
   let sh = ss.getSheetByName(BALANCE_SHEET);
   if (!sh && create) {
     sh = ss.insertSheet(BALANCE_SHEET);
-    sh.getRange(1, 1, 1, 5).setValues([['UpdatedAt', 'Cash', 'Maribank', 'Others', 'Note']]);
+    sh.getRange(1, 1, 1, 6).setValues([['UpdatedAt', 'Cash', 'Maribank', 'Others', 'Note', 'Reserves']]);
   }
+  if (sh && String(sh.getRange(1, 6).getValue() || '') !== 'Reserves') sh.getRange(1, 6).setValue('Reserves');   // sheet made before Reserves existed
   return sh;
 }
 
 function getBalance_() {
   const sh = balanceSheet_(false);
   if (!sh || sh.getLastRow() < 2) return { ok: true, balance: null };
-  const r = sh.getRange(sh.getLastRow(), 1, 1, 5).getValues()[0];
+  const r = sh.getRange(sh.getLastRow(), 1, 1, 6).getValues()[0];
   const at = r[0] instanceof Date ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(r[0] || '');
-  return { ok: true, balance: { updatedAt: at, cash: Number(r[1]) || 0, maribank: Number(r[2]) || 0, others: Number(r[3]) || 0, note: String(r[4] || '') } };
+  return { ok: true, balance: { updatedAt: at, cash: Number(r[1]) || 0, maribank: Number(r[2]) || 0, reserves: Number(r[5]) || 0, others: Number(r[3]) || 0, note: String(r[4] || '') } };
 }
 
 function saveBalance_(p) {
   const num = v => (v === '' || v == null) ? 0 : Number(v);
-  const cash = num(p.cash), maribank = num(p.maribank), others = num(p.others);
-  if (![cash, maribank, others].every(isFinite)) return { ok: false, error: 'invalid amount' };
+  const cash = num(p.cash), maribank = num(p.maribank), reserves = num(p.reserves), others = num(p.others);
+  if (![cash, maribank, reserves, others].every(isFinite)) return { ok: false, error: 'invalid amount' };
   const note = String(p.note || '').trim().slice(0, 500);
   let at = String(p.at || '').trim();
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(at)) at = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
@@ -897,7 +898,7 @@ function saveBalance_(p) {
     if (next > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 1);
     sh.getRange(next, 1, 1, 1).setNumberFormat('@');
     sh.getRange(next, 5, 1, 1).setNumberFormat('@');
-    sh.getRange(next, 1, 1, 5).setValues([[at, cash, maribank, others, note]]);
+    sh.getRange(next, 1, 1, 6).setValues([[at, cash, maribank, others, note, reserves]]);
     return { ok: true };
   } finally {
     lock.releaseLock();

@@ -533,7 +533,7 @@ async function syncPortfolio(d, receiptPhoto) {
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // avoids a CORS preflight to Apps Script
     body: JSON.stringify({
       action: 'purchase', secret: CONFIG.portfolio.secret,
-      date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, notes: d.notes,
+      date: d.date, seller: d.party, people: d.people, pay: d.pay, notes: d.notes,
       items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: d.portfolio })),
       receiptPhoto
     })
@@ -553,7 +553,7 @@ async function syncSale(d, receiptPhoto) {
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       action: 'sell', secret: CONFIG.portfolio.secret,
-      date: d.date, time: d.time, buyer: d.party, notes: d.notes, pay: d.pay,
+      date: d.date, buyer: d.party, notes: d.notes, pay: d.pay,
       shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
       shipAddress: d.shipAddr, packaging: d.pack,
       items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
@@ -573,7 +573,7 @@ async function syncTrade(d, receiptPhoto) {
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       action: 'trade', secret: CONFIG.portfolio.secret,
-      date: d.date, time: d.time, tradedTo: d.party, tradedBy: d.people, notes: d.notes,
+      date: d.date, tradedTo: d.party, tradedBy: d.people, notes: d.notes,
       tradedItems: d.tradedItems.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
       receivedItems: d.receivedItems.map(i => ({ name: i.name, photo: i.photo })),
       receivedPortfolio: d.receivedPortfolio,

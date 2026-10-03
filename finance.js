@@ -417,16 +417,44 @@ $ts('taskSave').onclick = async () => {
 let balance = null;
 const nowStamp = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 
+// Portfolio value is not typed in: it is the same "Onhand value" the Portfolio tab shows
+// (cards still in our hands, i.e. onhand + shipping, valued at purchase cost).
+let portValue = null;
+const portValueOf = d => {
+  const cards = Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || []);
+  return cards.filter(c => c.tag === 'onhand' || c.tag === 'shipping').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
+};
+
 function renderBalance() {
   const b = balance;
   document.getElementById('balCash').textContent = b ? finNum(b.cash) : '\u2014';
   document.getElementById('balMari').textContent = b ? finNum(b.maribank) : '\u2014';
+  document.getElementById('balPort').textContent = portValue != null ? finNum(portValue) : '\u2014';
+  document.getElementById('balRes').textContent = b ? finNum(b.reserves) : '\u2014';
   document.getElementById('balOth').textContent = b ? finNum(b.others) : '\u2014';
+  document.getElementById('balSub').hidden = !b;
   document.getElementById('balTotal').hidden = !b;
-  if (b) document.getElementById('balTotal').textContent = 'Total ' + finPhp((+b.cash || 0) + (+b.maribank || 0) + (+b.others || 0));
+  if (b) {
+    const liquid = (+b.cash || 0) + (+b.maribank || 0);
+    document.getElementById('balSubVal').textContent = finPhp(liquid);
+    document.getElementById('balTotalVal').textContent = finPhp(liquid + (+b.reserves || 0) + (+portValue || 0) + (+b.others || 0));
+  }
   document.getElementById('balNote').hidden = !(b && b.note);
   if (b && b.note) document.getElementById('balNote').textContent = b.note;
-  document.getElementById('balMeta').textContent = b ? 'Last updated ' + fmtStamp(b.updatedAt) : 'Not set yet \u2014 tap Update to enter what each account holds.';
+  document.getElementById('balMeta').textContent = b ? 'Last updated ' + fmtStamp(b.updatedAt) + ' \u00b7 Portfolio is pulled live' : 'Not set yet \u2014 tap Update to enter what each account holds.';
+}
+let portFirstFin = true;
+async function loadPortValue() {
+  if (!CONFIG.portfolio.endpoint) return;
+  const cached = portFirstFin ? cacheGet('portfolio') : null; portFirstFin = false;
+  if (cached) { portValue = portValueOf(cached); renderBalance(); }
+  try {
+    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=portfolio&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    if (!data.ok) throw new Error(data.error || 'Unknown error');
+    portValue = portValueOf(data);
+    cacheSet('portfolio', { cards: Array.isArray(data.cards) ? data.cards : (data.owned || []).concat(data.sold || []) });   // same shape portfolio.js saves
+    renderBalance();
+  } catch (err) { console.warn('Portfolio value load failed', err); }   // keeps whatever is already showing
 }
 let balFirst = true;
 async function loadBalance() {
@@ -446,6 +474,7 @@ document.getElementById('balEdit').onclick = () => {
   const b = balance || {};
   document.getElementById('balCashIn').value = b.cash != null ? b.cash : '';
   document.getElementById('balMariIn').value = b.maribank != null ? b.maribank : '';
+  document.getElementById('balResIn').value = b.reserves != null ? b.reserves : '';
   document.getElementById('balOthIn').value = b.others != null ? b.others : '';
   document.getElementById('balNoteIn').value = b.note || '';
   document.getElementById('balSheet').hidden = false;
@@ -455,12 +484,12 @@ document.getElementById('balCancel').onclick = closeBalSheet;
 document.getElementById('balSheet').addEventListener('click', e => { if (e.target.id === 'balSheet') closeBalSheet(); });
 document.getElementById('balSave').onclick = async () => {
   const val = id => { const v = document.getElementById(id).value.trim(); return v === '' ? 0 : Number(v); };
-  const next = { cash: val('balCashIn'), maribank: val('balMariIn'), others: val('balOthIn'), note: document.getElementById('balNoteIn').value.trim(), updatedAt: nowStamp() };
-  if (![next.cash, next.maribank, next.others].every(isFinite)) return toast('Enter valid amounts.');
+  const next = { cash: val('balCashIn'), maribank: val('balMariIn'), reserves: val('balResIn'), others: val('balOthIn'), note: document.getElementById('balNoteIn').value.trim(), updatedAt: nowStamp() };
+  if (![next.cash, next.maribank, next.reserves, next.others].every(isFinite)) return toast('Enter valid amounts.');
   if (!CONFIG.portfolio.endpoint) return toast("Sync isn't set up yet.");
   const btn = document.getElementById('balSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
   try {
-    const url = CONFIG.portfolio.endpoint + '?action=saveBalance&cash=' + next.cash + '&maribank=' + next.maribank + '&others=' + next.others
+    const url = CONFIG.portfolio.endpoint + '?action=saveBalance&cash=' + next.cash + '&maribank=' + next.maribank + '&reserves=' + next.reserves + '&others=' + next.others
       + '&note=' + encodeURIComponent(next.note) + '&at=' + encodeURIComponent(next.updatedAt) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
@@ -471,7 +500,8 @@ document.getElementById('balSave').onclick = async () => {
 };
 
 // Refresh reloads both the task list and the balance (your ticks are kept)
-$finRefresh.onclick = () => { loadFinance(); loadBalance(); };
+$finRefresh.onclick = () => { loadFinance(); loadBalance(); loadPortValue(); };
 
 loadBalance();
+loadPortValue();
 loadFinance();
