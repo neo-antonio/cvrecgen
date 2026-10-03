@@ -77,7 +77,7 @@
  *        inflow row tied to the sale receipt. shipAddress / shipSched are stored on the cards for the
  *        Shipping tab only and never appear on the receipt image.
  *   POST { action:'trade', secret, date, time, tradedTo, tradedBy, notes,
- *          tradedItems:[{cardId,name,cost}], receivedItems:[{name,photo}], receivedPortfolio,
+ *          tradedItems:[{cardId,name,cost}], receivedItems:[{name,cost,photo}], receivedPortfolio,
  *          cashDirection:'none'|'paid'|'received', cashAmount, cashMethod, receiptPhoto:{src} }
  *   POST { action:'shipPhoto', secret, cardId | cardIds:[..], photo:{kind,src} }   (cardIds: one upload, applied to every card of a group)
  *   POST { action:'cardPhoto', secret, cardId, photo:{kind,src} }   -> replaces the item photo on a Cards row
@@ -331,12 +331,12 @@ function handleTrade_(body) {
   });
 
   // Items received: one checkbox (receivedPortfolio) decides whether ALL of them
-  // become new onhand Cards, at zero purchase cost (a trade has no per-item price).
+  // become new onhand Cards. Purchase cost is whatever was typed per card on the receipt (blank = 0).
   if (body.receivedPortfolio) {
     receivedItems.forEach(it => {
       let photoUrl = '';
       if (it.photo && it.photo.src) photoUrl = it.photo.kind === 'link' ? it.photo.src : saveImage_(it.photo.src, it.name, DRIVE_FOLDER_ID);
-      cards.appendRow([newId_('c'), body.date || '', body.tradedTo || '', body.tradedBy || '', it.name || '', 0,
+      cards.appendRow([newId_('c'), body.date || '', body.tradedTo || '', body.tradedBy || '', it.name || '', Math.max(0, Number(it.cost) || 0),
         '', photoUrl, body.notes || '', 'onhand', '', '', '', '', '', '', '', '', '', '', false,
         receiptUrl, '', '']);
     });

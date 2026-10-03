@@ -173,8 +173,8 @@ document.addEventListener('click', e => {
   $$('.ms.pick').forEach(p => { if (!p.contains(e.target)) { const pn = p.querySelector('.ms-panel'); if (pn) pn.hidden = true; } });
 });
 
-// Received: free-text, no value field — whether they're recorded to the portfolio is
-// decided once for the whole list by #receivedPortfolio, not per item.
+// Received: free-text name plus an optional cost per card (what it's worth to us; blank = 0) —
+// whether they're recorded to the portfolio is decided once for the whole list by #receivedPortfolio.
 function addReceivedItem() {
   const id = 'rc' + (++itemSeq);
   const block = document.createElement('div');
@@ -183,6 +183,7 @@ function addReceivedItem() {
   block.innerHTML = `<div class="item">
       <button type="button" class="photo-btn" data-id="${id}" aria-label="Add photo">${CAMERA_ICON}</button>
       <input class="in-name" placeholder="Item name" autocomplete="off">
+      <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Cost">
       <button type="button" class="x" aria-label="Remove item">&times;</button>
     </div>`;
   $('#receivedItems').append(block);
@@ -197,6 +198,7 @@ $('#receivedItems').addEventListener('input', update);
 const receivedItems = () => $$('#receivedItems .item-block').map(b => ({
   id: b.dataset.id,
   name: b.querySelector('.in-name').value.trim(),
+  cost: parseFloat(b.querySelector('.in-cost').value) || 0,
   photo: itemPhotos[b.dataset.id] || null
 })).filter(i => i.name);
 
@@ -442,8 +444,9 @@ function draw(x, d, s, dry, logo) {
     if (d.receivedItems.length) {
       d.receivedItems.forEach(i => {
         set(600, 28);
-        const lines = wrap(i.name || '(unnamed)', R - P);
+        const lines = wrap(i.name || '(unnamed)', i.cost ? 600 : R - P);
         lines.forEach((t, k) => txt(t, P, y + k * lh, '#fff'));
+        if (i.cost) txt(php(i.cost), R, y, '#fff', 'right');
         y += lines.length * lh + 8 * s;
       });
     } else { set(400, 24); txt('None', P, y, '#888'); y += lh; }
@@ -533,7 +536,7 @@ async function syncPortfolio(d, receiptPhoto) {
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // avoids a CORS preflight to Apps Script
     body: JSON.stringify({
       action: 'purchase', secret: CONFIG.portfolio.secret,
-      date: d.date, seller: d.party, people: d.people, pay: d.pay, notes: d.notes,
+      date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, notes: d.notes,
       items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: d.portfolio })),
       receiptPhoto
     })
@@ -553,7 +556,7 @@ async function syncSale(d, receiptPhoto) {
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       action: 'sell', secret: CONFIG.portfolio.secret,
-      date: d.date, buyer: d.party, notes: d.notes, pay: d.pay,
+      date: d.date, time: d.time, buyer: d.party, notes: d.notes, pay: d.pay,
       shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
       shipAddress: d.shipAddr, packaging: d.pack,
       items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
@@ -573,9 +576,9 @@ async function syncTrade(d, receiptPhoto) {
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({
       action: 'trade', secret: CONFIG.portfolio.secret,
-      date: d.date, tradedTo: d.party, tradedBy: d.people, notes: d.notes,
+      date: d.date, time: d.time, tradedTo: d.party, tradedBy: d.people, notes: d.notes,
       tradedItems: d.tradedItems.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
-      receivedItems: d.receivedItems.map(i => ({ name: i.name, photo: i.photo })),
+      receivedItems: d.receivedItems.map(i => ({ name: i.name, cost: i.cost, photo: i.photo })),
       receivedPortfolio: d.receivedPortfolio,
       cashDirection: d.cashDirection, cashAmount: d.cashAmount, cashMethod: d.cashMethod,
       receiptPhoto
