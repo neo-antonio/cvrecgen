@@ -30,9 +30,15 @@
  *      Type is one of: purchase, sale, shipping, trade.
  *      Flow is one of: inflow (money received into PayMethod), outflow (money spent from PayMethod).
  *
- *    Tab "Receipts" — header row (columns A-E):
- *      ID | Type | Date | URL | Description
- *      Type is one of: purchase, sale, trade.
+ *    Tab "Receipts" — header row (columns A-F):
+ *      ID | Type | Date | URL | Description | Time
+ *      Type is one of: purchase, sale, trade. Time (col F) is the HH:mm typed on the receipt; optional,
+ *      the script adds the column and header by itself the first time a receipt is saved.
+ *
+ *    NEW (all optional, created by the script on first use, older rows just read blank):
+ *      Cards   col Z  "ShippedTime"  = HH:mm the card was marked shipped
+ *      Finance col N  "Time"         = HH:mm a shipping entry was created (receipt entries use the receipt's time)
+ *      Tab "Balance": UpdatedAt | Cash | Maribank | Others | Note  (one row appended per save; the last row is current)
  *
  *    If you're upgrading from an older version of this sheet that only had
  *    columns A-U on Cards and A-J on Finance, just add the new headers at
@@ -46,12 +52,14 @@
  *    the live /exec URL — this step does.)
  *
  * API
- *   GET  ?action=portfolio&secret=..&callback=..     -> { ok, owned:[...], sold:[...] }
+ *   GET  ?action=portfolio&secret=..&callback=..     -> { ok, cards:[...all, newest first], owned:[...], sold:[...] }
  *   GET  ?action=onhandCards&secret=..&callback=..    -> { ok, cards:[{id,name,cost}] }
  *   GET  ?action=finance&secret=..&callback=..        -> { ok, toRecord:[...], recorded:[...] }
  *   GET  ?action=shipping&secret=..&callback=..       -> { ok, toShip:[...], shipped:[...] }
  *   GET  ?action=receipts&secret=..&callback=..       -> { ok, receipts:[...] }
- *   GET  ?action=record&financeId=..&secret=..&callback=..         -> { ok }
+ *   GET  ?action=record&financeId=..[,..]&secret=..&callback=..    -> { ok, recorded }   (several comma-separated IDs = one call, all-or-nothing)
+ *   GET  ?action=balance&secret=..&callback=..        -> { ok, balance:{cash,maribank,others,note,updatedAt}|null }
+ *   GET  ?action=saveBalance&cash=..&maribank=..&others=..&note=..&at=YYYY-MM-DD HH:mm&secret=..&callback=.. -> { ok }
  *   GET  ?action=unrecord&financeId=..&secret=..&callback=..       -> { ok }
  *   GET  ?action=markShipped&cardId=..&secret=..&callback=..       -> { ok }
  *   GET  ?action=unmarkShipped&cardId=..&secret=..&callback=..     -> { ok, error? }
@@ -61,13 +69,13 @@
  *   GET  ?action=revertToOnhand&cardId=..&secret=..&callback=..    -> { ok, error? }
  *   GET  ?action=deleteCard&cardId=..&secret=..&callback=..        -> { ok }
  *   GET  ?action=deleteFinance&financeId=..&secret=..&callback=.. -> { ok }
- *   POST { action:'purchase', secret, date, seller, people, pay, notes, items:[{name,cost,photo,portfolio}], receiptPhoto:{src} }
- *   POST { action:'sell', secret, date, buyer, notes, pay, shipType, shipMethod, shipFee, shipDeductFrom, shipSched,
+ *   POST { action:'purchase', secret, date, time, seller, people, pay, notes, items:[{name,cost,photo,portfolio}], receiptPhoto:{src} }
+ *   POST { action:'sell', secret, date, time, buyer, notes, pay, shipType, shipMethod, shipFee, shipDeductFrom, shipSched,
  *          shipAddress, packaging, items:[{cardId,name,cost}], receiptPhoto:{src} }
  *        packaging (optional) = what the buyer paid for packaging; it bills to Finance as one extra
  *        inflow row tied to the sale receipt. shipAddress / shipSched are stored on the cards for the
  *        Shipping tab only and never appear on the receipt image.
- *   POST { action:'trade', secret, date, tradedTo, tradedBy, notes,
+ *   POST { action:'trade', secret, date, time, tradedTo, tradedBy, notes,
  *          tradedItems:[{cardId,name,cost}], receivedItems:[{name,photo}], receivedPortfolio,
  *          cashDirection:'none'|'paid'|'received', cashAmount, cashMethod, receiptPhoto:{src} }
  *   POST { action:'shipPhoto', secret, cardId | cardIds:[..], photo:{kind,src} }   (cardIds: one upload, applied to every card of a group)
@@ -162,6 +170,8 @@ function doGet(e) {
     if (action === 'shipping') return jsonpOut_(getShipping_(), cb);
     if (action === 'receipts') return jsonpOut_(getReceipts_(), cb);
     if (action === 'record') return jsonpOut_(recordFinance_(e.parameter.financeId), cb);
+    if (action === 'balance') return jsonpOut_(getBalance_(), cb);
+    if (action === 'saveBalance') return jsonpOut_(saveBalance_(e.parameter), cb);
     if (action === 'unrecord') return jsonpOut_(unrecordFinance_(e.parameter.financeId), cb);
     if (action === 'markShipped') return jsonpOut_(markShipped_(e.parameter.cardId), cb);
     if (action === 'unmarkShipped') return jsonpOut_(unmarkShipped_(e.parameter.cardId), cb);
@@ -195,7 +205,7 @@ function handlePurchase_(body) {
   let receiptUrl = '';
   if (body.receiptPhoto && body.receiptPhoto.src) {
     receiptUrl = saveImage_(body.receiptPhoto.src, 'purchase-receipt-' + (body.date || todayStr_()) + '-' + newId_('r'), RECEIPT_FOLDER_ID);
-    if (receiptUrl) receiptsSheet_().appendRow([newId_('rc'), 'purchase', body.date || todayStr_(), receiptUrl, 'Purchase from ' + (body.seller || '\u2014')]);
+    if (receiptUrl) appendReceipt_('purchase', body.date || todayStr_(), receiptUrl, 'Purchase from ' + (body.seller || '\u2014'), body.time);
   }
 
   const cardRows = [], finRows = [];
@@ -234,7 +244,7 @@ function handleSell_(body) {
   let receiptUrl = '';
   if (body.receiptPhoto && body.receiptPhoto.src) {
     receiptUrl = saveImage_(body.receiptPhoto.src, 'sold-receipt-' + (body.date || todayStr_()) + '-' + newId_('r'), RECEIPT_FOLDER_ID);
-    if (receiptUrl) receiptsSheet_().appendRow([newId_('rc'), 'sale', body.date || todayStr_(), receiptUrl, 'Sale to ' + (body.buyer || '\u2014')]);
+    if (receiptUrl) appendReceipt_('sale', body.date || todayStr_(), receiptUrl, 'Sale to ' + (body.buyer || '\u2014'), body.time);
   }
 
   const rowOf = rowIndex_(cards), finRows = [];
@@ -304,7 +314,7 @@ function handleTrade_(body) {
   let receiptUrl = '';
   if (body.receiptPhoto && body.receiptPhoto.src) {
     receiptUrl = saveImage_(body.receiptPhoto.src, 'trade-receipt-' + (body.date || todayStr_()) + '-' + newId_('r'), RECEIPT_FOLDER_ID);
-    if (receiptUrl) receiptsSheet_().appendRow([newId_('rc'), 'trade', body.date || todayStr_(), receiptUrl, 'Trade with ' + partyLabel]);
+    if (receiptUrl) appendReceipt_('trade', body.date || todayStr_(), receiptUrl, 'Trade with ' + partyLabel, body.time);
   }
 
   // Items given away: mark the existing Cards row "traded". SoldDate/SoldTo/SoldPrice
@@ -473,11 +483,12 @@ function resolveTaskImage_(im) {
 
 // Finance needs columns L (Images) and M (Notes). Older sheets don't have them; add on first use.
 function ensureFinanceColumns_(fin) {
-  const need = 13;
+  const need = 14;
   if (fin.getMaxColumns() < need) fin.insertColumnsAfter(fin.getMaxColumns(), need - fin.getMaxColumns());
-  const h = fin.getRange(1, 12, 1, 2).getValues()[0];
+  const h = fin.getRange(1, 12, 1, 3).getValues()[0];
   if (!h[0]) fin.getRange(1, 12, 1, 1).setValue('Images');
   if (!h[1]) fin.getRange(1, 13, 1, 1).setValue('Notes');
+  if (!h[2]) fin.getRange(1, 14, 1, 1).setValue('Time');
 }
 
 function parseImages_(cell) {
@@ -591,14 +602,26 @@ function deleteReceipt_(receiptId) {
   }
 }
 
+// financeId may hold several comma-separated IDs (the app's "Record selected" button): every ID is
+// validated first, then all are marked in one pass, so a bad ID changes nothing.
 function recordFinance_(financeId) {
-  if (!financeId) return { ok: false, error: 'missing financeId' };
-  const fin = financeSheet_();
-  const found = findRow_(fin, financeId);
-  if (!found) return { ok: false, error: 'not found' };
-  fin.getRange(found.idx, 8, 1, 2).setValues([[true, todayStr_()]]); // Recorded, RecordedDate
-  setShippingRecordedFlag_(found.row[1], found.row[2], true);
-  return { ok: true };
+  const ids = splitIds_(financeId);
+  if (!ids.length) return { ok: false, error: 'missing financeId' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const fin = financeSheet_();
+    const founds = ids.map(id => findRow_(fin, id));
+    if (founds.some(f => !f)) return { ok: false, error: 'not found' };
+    const today = todayStr_();
+    founds.forEach(found => {
+      fin.getRange(found.idx, 8, 1, 2).setValues([[true, today]]); // Recorded, RecordedDate
+      setShippingRecordedFlag_(found.row[1], found.row[2], true);
+    });
+    return { ok: true, recorded: founds.length };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function unrecordFinance_(financeId) {
@@ -631,12 +654,14 @@ function markShipped_(cardId) {
   const ids = splitIds_(cardId);
   if (!ids.length) return { ok: false, error: 'missing cardId' };
   const cards = cardsSheet_();
+  ensureCardsColumns_(cards);
   const founds = ids.map(id => findRow_(cards, id));
   if (founds.some(f => !f)) return { ok: false, error: 'not found' };
-  const today = todayStr_(), batches = {};
+  const today = todayStr_(), now = nowTimeStr_(), batches = {};
   founds.forEach(f => {
     cards.getRange(f.idx, 10, 1, 1).setValue('shipped');
     cards.getRange(f.idx, 19, 1, 1).setValue(today);
+    cards.getRange(f.idx, 26, 1, 1).setNumberFormat('@').setValue(now); // ShippedTime (col Z)
     if (f.row[23]) batches[String(f.row[23])] = true;
   });
   Object.keys(batches).forEach(b => maybeCreateBatchFinance_(b));
@@ -660,6 +685,7 @@ function unmarkShipped_(cardId) {
   founds.forEach(f => {
     cards.getRange(f.idx, 10, 1, 1).setValue('shipping');
     cards.getRange(f.idx, 19, 1, 1).setValue('');
+    if (cards.getMaxColumns() >= 26) cards.getRange(f.idx, 26, 1, 1).setValue(''); // ShippedTime
   });
   // batch is no longer complete, drop the not-yet-recorded entry (bottom-up so row numbers stay valid)
   finRows.map(f => f.idx).sort((a, b) => b - a).forEach(i => fin.deleteRow(i));
@@ -677,7 +703,7 @@ function revertToOnhand_(cardId) {
   cards.getRange(found.idx, 10, 1, 1).setValue('onhand');           // Status
   cards.getRange(found.idx, 11, 1, 10).setValues([['', '', '', '', '', '', '', '', '', false]]); // SoldDate..ShippingRecorded (K-U)
   ensureCardsColumns_(cards);
-  cards.getRange(found.idx, 23, 1, 3).setValues([['', '', '']]);    // SaleReceiptURL, ShipBatchID, ShippingAddress
+  cards.getRange(found.idx, 23, 1, 4).setValues([['', '', '', '']]); // SaleReceiptURL, ShipBatchID, ShippingAddress, ShippedTime
   if (batchId) {
     const rows = cards.getDataRange().getValues();
     const stillInBatch = rows.slice(1).some(r => r[23] === batchId && r[0] !== cardId);
@@ -737,7 +763,9 @@ function maybeCreateBatchFinance_(batchId) {
   const payMethod = group[0][16] || '';
   const receiptUrl = group[0][22] || '';
   const idField = group.length > 1 ? batchId : group[0][0];
-  fin.appendRow([newId_('f'), idField, 'shipping', todayStr_(), 'Shipping for ' + names, totalFee, payMethod, false, '', receiptUrl, 'outflow']);
+  ensureFinanceColumns_(fin);
+  fin.appendRow([newId_('f'), idField, 'shipping', todayStr_(), 'Shipping for ' + names, totalFee, payMethod, false, '', receiptUrl, 'outflow', '', '', '']);
+  fin.getRange(fin.getLastRow(), 14, 1, 1).setNumberFormat('@').setValue(nowTimeStr_()); // Time (col N)
 }
 
 /* ---------- shipping edits + shared calendar events ---------- */
@@ -830,12 +858,58 @@ function deleteEvent_(eventId) {
   return { ok: true };
 }
 
+/* ---------- current balance (manual, for reconciliation) ---------- */
+
+// Every save appends a row, so the tab doubles as a history; the last row is the current balance.
+// Columns: UpdatedAt | Cash | Maribank | Others | Note. UpdatedAt is the app's own clock at the moment
+// the person saved it ("yyyy-MM-dd HH:mm", stored as text).
+const BALANCE_SHEET = 'Balance';
+function balanceSheet_(create) {
+  const ss = ss_();
+  let sh = ss.getSheetByName(BALANCE_SHEET);
+  if (!sh && create) {
+    sh = ss.insertSheet(BALANCE_SHEET);
+    sh.getRange(1, 1, 1, 5).setValues([['UpdatedAt', 'Cash', 'Maribank', 'Others', 'Note']]);
+  }
+  return sh;
+}
+
+function getBalance_() {
+  const sh = balanceSheet_(false);
+  if (!sh || sh.getLastRow() < 2) return { ok: true, balance: null };
+  const r = sh.getRange(sh.getLastRow(), 1, 1, 5).getValues()[0];
+  const at = r[0] instanceof Date ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(r[0] || '');
+  return { ok: true, balance: { updatedAt: at, cash: Number(r[1]) || 0, maribank: Number(r[2]) || 0, others: Number(r[3]) || 0, note: String(r[4] || '') } };
+}
+
+function saveBalance_(p) {
+  const num = v => (v === '' || v == null) ? 0 : Number(v);
+  const cash = num(p.cash), maribank = num(p.maribank), others = num(p.others);
+  if (![cash, maribank, others].every(isFinite)) return { ok: false, error: 'invalid amount' };
+  const note = String(p.note || '').trim().slice(0, 500);
+  let at = String(p.at || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(at)) at = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = balanceSheet_(true);
+    const next = sh.getLastRow() + 1;
+    if (next > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 1);
+    sh.getRange(next, 1, 1, 1).setNumberFormat('@');
+    sh.getRange(next, 5, 1, 1).setNumberFormat('@');
+    sh.getRange(next, 1, 1, 5).setValues([[at, cash, maribank, others, note]]);
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /* ---------- reads ---------- */
 
 function getPortfolio_() {
   const rows = cardsSheet_().getDataRange().getValues(); rows.shift();
   const rmap = receiptMap_();
-  const owned = [], sold = [];
+  const owned = [], sold = [], all = [];
   rows.forEach(r => {
     if (!r[4]) return;
     const status = r[9] || 'onhand';
@@ -851,8 +925,10 @@ function getPortfolio_() {
       receipts: receiptLinks_(r[21], r[22], rmap)
     };
     (status === 'onhand' || status === 'shipping' ? owned : sold).push(item);
+    all.push(item);
   });
-  return { ok: true, owned: owned.reverse(), sold: sold.reverse() };
+  // cards = everything in one list (the app no longer splits Owned / Sold); owned/sold kept for older app versions
+  return { ok: true, cards: all.reverse(), owned: owned.reverse(), sold: sold.reverse() };
 }
 
 function getOnhandCards_() {
@@ -872,8 +948,10 @@ function getFinance_() {
     const item = { id: r[0], date: fmtDateCell_(r[3]), description: r[4], amount: Number(r[5]) || 0, payMethod: r[6], receipt: r[9] || '', flow: r[10] || 'outflow',
       type: r[2] || '', groupKey: key,
       notes: r[12] || '',
+      // HH:mm: a shipping entry carries the time it was created (col N); receipt entries show their receipt's time
+      time: fmtTimeCell_(r[13]) || (['purchase', 'sale', 'trade'].indexOf(String(r[2])) >= 0 && rc ? rc.time : ''),
       images: taskImages_(r).map(u => ({ raw: u, thumb: toDisplayUrl_(u, 300), full: toDisplayUrl_(u, 1080) })),
-      groupType: rc ? rc.type : '', groupLabel: rc ? rc.description : '', groupDate: rc ? rc.date : '' };
+      groupType: rc ? rc.type : '', groupLabel: rc ? rc.description : '', groupDate: rc ? rc.date : '', groupTime: rc ? rc.time : '' };
     (r[7] === true ? recorded : toRecord).push(item);
   });
   return { ok: true, toRecord: toRecord.reverse(), recorded: recorded.reverse() };
@@ -891,7 +969,7 @@ function getShipping_() {
       soldTo: r[11], soldPrice: Number(r[12]) || 0,
       shipType: r[13], shipMethod: r[14], shipFee: Number(r[15]) || 0,
       deductedFrom: r[16], scheduledDate: fmtDateCell_(r[17]),
-      shippedDate: fmtDateCell_(r[18]), proofPhoto: toDisplayUrl_(r[19]),
+      shippedDate: fmtDateCell_(r[18]), shippedTime: fmtTimeCell_(r[25]), proofPhoto: toDisplayUrl_(r[19]),
       saleReceipt: r[22] || '',
       address: r[24] || '',
       // cards that came from one sale receipt share a key, so the app can show them as one task
@@ -904,7 +982,7 @@ function getShipping_() {
 
 function getReceipts_() {
   const rows = receiptsSheet_().getDataRange().getValues(); rows.shift();
-  const receipts = rows.filter(r => r[0]).map(r => ({ id: r[0], type: r[1], date: fmtDateCell_(r[2]), url: toDisplayUrl_(r[3]), description: r[4] }));
+  const receipts = rows.filter(r => r[0]).map(r => ({ id: r[0], type: r[1], date: fmtDateCell_(r[2]), url: toDisplayUrl_(r[3]), description: r[4], time: fmtTimeCell_(r[5]) }));
   return { ok: true, receipts: receipts.reverse() };
 }
 
@@ -913,11 +991,13 @@ function getReceipts_() {
 // "a,b,c" -> ['a','b','c'] (blank entries dropped)
 function splitIds_(v) { return String(v || '').split(',').map(s => s.trim()).filter(Boolean); }
 
-// Cards needs column Y (ShippingAddress). Older sheets stop at X; add it on first use.
+// Cards needs columns Y (ShippingAddress) and Z (ShippedTime). Older sheets stop at X; add them on first use.
 function ensureCardsColumns_(cards) {
-  const need = 25;
+  const need = 26;
   if (cards.getMaxColumns() < need) cards.insertColumnsAfter(cards.getMaxColumns(), need - cards.getMaxColumns());
-  if (!cards.getRange(1, need).getValue()) cards.getRange(1, need).setValue('ShippingAddress');
+  const h = cards.getRange(1, 25, 1, 2).getValues()[0];
+  if (!h[0]) cards.getRange(1, 25).setValue('ShippingAddress');
+  if (!h[1]) cards.getRange(1, 26).setValue('ShippedTime');
 }
 
 // Opening the spreadsheet is the slowest single call here; do it once per request, not once per helper call.
@@ -944,6 +1024,22 @@ function cardsSheet_() { return ss_().getSheetByName(CARDS_SHEET); }
 function financeSheet_() { return ss_().getSheetByName(FINANCE_SHEET); }
 function receiptsSheet_() { return ss_().getSheetByName(RECEIPTS_SHEET); }
 function todayStr_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'); }
+function nowTimeStr_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'HH:mm'); }
+function cleanTime_(t) { t = String(t || '').trim(); return /^([01]\d|2[0-3]):[0-5]\d$/.test(t) ? t : ''; }
+
+// Receipts needs column F (Time). Older sheets stop at E; add it on first use.
+function ensureReceiptsColumns_(sh) {
+  if (sh.getMaxColumns() < 6) sh.insertColumnsAfter(sh.getMaxColumns(), 6 - sh.getMaxColumns());
+  if (!sh.getRange(1, 6).getValue()) sh.getRange(1, 6).setValue('Time');
+}
+// One Receipts row. The time is written as text so Sheets never turns "14:30" into a time-of-day value.
+function appendReceipt_(type, date, url, description, time) {
+  const sh = receiptsSheet_();
+  ensureReceiptsColumns_(sh);
+  sh.appendRow([newId_('rc'), type, date, url, description, '']);
+  const t = cleanTime_(time);
+  if (t) sh.getRange(sh.getLastRow(), 6, 1, 1).setNumberFormat('@').setValue(t);
+}
 function newId_(prefix) { return prefix + '_' + Utilities.getUuid().split('-')[0]; }
 
 function findRow_(sheet, id) {
@@ -984,7 +1080,7 @@ function receiptMap_() {
   const rows = sheet.getDataRange().getValues(); rows.shift();
   rows.forEach(r => {
     const k = fileKey_(r[3]);
-    if (r[0] && k) map[k] = { id: r[0], type: r[1] || '', date: fmtDateCell_(r[2]), description: r[4] || '' };
+    if (r[0] && k) map[k] = { id: r[0], type: r[1] || '', date: fmtDateCell_(r[2]), description: r[4] || '', time: fmtTimeCell_(r[5]) };
   });
   return map;
 }

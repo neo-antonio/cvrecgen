@@ -25,6 +25,7 @@ function fmtDay(v) {
   return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+const fmtClock12 = v => { const m = String(v || '').match(/^(\d{1,2}):(\d{2})/); if (!m) return ''; const h = +m[1]; return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`; };
 const isoToday = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
 const dayNum = iso => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5 : NaN; };
 // days past the scheduled date for a to-ship group: >0 delayed, 0 due today, <0 upcoming, null = no schedule
@@ -86,7 +87,7 @@ function cardHtml(group, isToShip) {
   // the two things you act on, shown large: how it ships and when
   const dateText = isToShip
     ? (f.scheduledDate ? fmtWeekday(f.scheduledDate) : 'No schedule set')
-    : fmtWeekday(f.shippedDate);
+    : fmtWeekday(f.shippedDate) + (f.shippedTime ? ' \u00b7 ' + fmtClock12(f.shippedTime) : '');
   const dateLabel = isToShip ? 'Ship on' : 'Shipped on';
   const badge = state === 'late' ? `<span class="ship-badge late">Delayed ${late} day${late === 1 ? '' : 's'}</span>`
     : state === 'today' ? `<span class="ship-badge today">Ship today</span>` : '';

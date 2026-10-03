@@ -3,6 +3,8 @@ const escCal = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': 
 const pad2 = n => String(n).padStart(2, '0');
 const isoOf = (y, m, d) => `${y}-${pad2(m + 1)}-${pad2(d)}`;          // m is 0-based
 const todayIsoCal = () => { const d = new Date(); return isoOf(d.getFullYear(), d.getMonth(), d.getDate()); };
+// '14:30' -> '2:30 PM' (blank in, blank out)
+const fmtClock = v => { const m = String(v || '').match(/^(\d{1,2}):(\d{2})/); if (!m) return ''; const h = +m[1]; return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`; };
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const $ = id => document.getElementById(id);
@@ -55,7 +57,7 @@ function buildShipping(ship) {
   groupShip(ship.shipped || []).forEach(g => {
     const f = g[0], d = String(f.shippedDate || '').slice(0, 10);
     if (!d) return;
-    out.push({ kind: 'shipping', status: 'done', date: d, names: g.map(i => i.name), soldTo: f.soldTo, method: f.shipMethod });
+    out.push({ kind: 'shipping', status: 'done', date: d, time: f.shippedTime, names: g.map(i => i.name), soldTo: f.soldTo, method: f.shipMethod });
   });
   return out;
 }
@@ -64,7 +66,7 @@ function applyCalendar(sh, rc, ev) {
   const ok = r => r && r.ok;
   const failed = [];
   data.shipping = ok(sh) ? buildShipping(sh) : (failed.push('shipping'), []);
-  data.receipts = ok(rc) ? (rc.receipts || []).filter(r => r.date).map(r => ({ kind: 'receipt', status: r.type, date: String(r.date).slice(0, 10), id: r.id, url: r.url, description: r.description })) : (failed.push('receipts'), []);
+  data.receipts = ok(rc) ? (rc.receipts || []).filter(r => r.date).map(r => ({ kind: 'receipt', status: r.type, date: String(r.date).slice(0, 10), id: r.id, url: r.url, description: r.description, time: r.time })) : (failed.push('receipts'), []);
   data.events = ok(ev) ? (ev.events || []).map(e => ({ kind: 'event', status: 'event', date: String(e.date).slice(0, 10), id: e.id, title: e.title, time: e.time, notes: e.notes })) : (failed.push('events'), []);
   return failed;
 }
@@ -95,6 +97,8 @@ const visible = () => [].concat(
   filter === 'all' || filter === 'receipts' ? data.receipts : [],
   filter === 'all' || filter === 'events' ? data.events : []);
 const ORDER = { event: 0, shipping: 1, receipt: 2 };
+// kind first, then by time of day inside a kind (anything without a time goes last)
+const byKindThenTime = (a, b) => (ORDER[a.kind] - ORDER[b.kind]) || String(a.time || '99:99').localeCompare(String(b.time || '99:99'));
 
 function renderLegend() {
   const parts = [];
@@ -114,7 +118,7 @@ function render() {
   let html = '';
   for (let i = 0; i < first; i++) html += '<div class="cal-cell blank"></div>';
   for (let d = 1; d <= days; d++) {
-    const iso = isoOf(view.y, view.m, d), items = (byDate[iso] || []).slice().sort((a, b) => ORDER[a.kind] - ORDER[b.kind]);
+    const iso = isoOf(view.y, view.m, d), items = (byDate[iso] || []).slice().sort(byKindThenTime);
     const shown = items.slice(0, 6), more = items.length - shown.length;
     html += `<button type="button" class="cal-cell${iso === today ? ' today' : ''}${iso === selected ? ' sel' : ''}" data-d="${iso}" aria-label="${iso}">
       <span class="cal-num">${d}</span>
@@ -134,16 +138,16 @@ function fmtLong(iso) {
 }
 function renderDay() {
   $('dayTitle').textContent = fmtLong(selected) + (selected === todayIsoCal() ? ' (today)' : '');
-  const items = visible().filter(x => x.date === selected).sort((a, b) => ORDER[a.kind] - ORDER[b.kind]);
+  const items = visible().filter(x => x.date === selected).sort(byKindThenTime);
   if (!items.length) { $('dayList').innerHTML = '<p class="stub-note" style="margin:8px 0 0">Nothing on this day.</p>'; return; }
   $('dayList').innerHTML = items.map(x => {
     if (x.kind === 'event') return `<div class="cal-item">${marker('event', '', 16)}<div class="cal-item-body"><b>${escCal(x.title)}</b>
-        <span>${[x.time, 'Event'].filter(Boolean).map(escCal).join(' \u00b7 ')}</span>${x.notes ? `<span class="fin-notes">${escCal(x.notes)}</span>` : ''}</div>
+        <span>${[fmtClock(x.time), 'Event'].filter(Boolean).map(escCal).join(' \u00b7 ')}</span>${x.notes ? `<span class="fin-notes">${escCal(x.notes)}</span>` : ''}</div>
         <button type="button" class="ghost sm ev-edit" data-id="${escCal(x.id)}">Edit</button></div>`;
     if (x.kind === 'shipping') return `<a class="cal-item st-${x.status}" href="shipping.html">${marker('shipping', x.status, 16)}<div class="cal-item-body">
-        <b>${escCal(x.names.join(', '))}</b><span>${SHIP_STATUS_LABEL[x.status]} \u00b7 ${escCal(x.method || '\u2014')} \u00b7 sold to ${escCal(x.soldTo || '\u2014')}</span></div></a>`;
+        <b>${escCal(x.names.join(', '))}</b><span>${[SHIP_STATUS_LABEL[x.status], fmtClock(x.time), x.method || '\u2014', 'sold to ' + (x.soldTo || '\u2014')].map(escCal).join(' \u00b7 ')}</span></div></a>`;
     return `<a class="cal-item" ${x.url ? `href="${escCal(x.url)}" target="_blank" rel="noopener"` : ''}>${marker('receipt', x.status, 16)}<div class="cal-item-body">
-        <b>${escCal(x.description || 'Receipt')}</b><span>${RECEIPT_LABEL[x.status] || 'Receipt'} receipt</span></div></a>`;
+        <b>${escCal(x.description || 'Receipt')}</b><span>${[(RECEIPT_LABEL[x.status] || 'Receipt') + ' receipt', fmtClock(x.time)].filter(Boolean).map(escCal).join(' \u00b7 ')}</span></div></a>`;
   }).join('');
 }
 

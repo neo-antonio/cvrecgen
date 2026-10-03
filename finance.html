@@ -31,15 +31,62 @@
 </header>
 
 <main class="port-wrap">
-  <div class="port-summary">
-    <span>Total</span>
-    <b id="finTotal">PHP 0.00</b>
+  <section class="bal-card" id="balCard">
+    <div class="bal-head">
+      <b>Current balance</b>
+      <button type="button" class="ghost sm" id="balEdit">Update</button>
+    </div>
+    <div class="bal-grid">
+      <div><span>Cash</span><b id="balCash">&mdash;</b></div>
+      <div><span>Maribank</span><b id="balMari">&mdash;</b></div>
+      <div><span>Others</span><b id="balOth">&mdash;</b></div>
+    </div>
+    <p class="bal-total" id="balTotal" hidden></p>
+    <p class="bal-note" id="balNote" hidden></p>
+    <p class="bal-meta" id="balMeta">Not set yet &mdash; tap Update to enter what each account holds.</p>
+  </section>
+
+  <div class="fin-pending">
+    <div><span>Inflow to record</span><b class="amt-in" id="finIn">+PHP 0.00</b></div>
+    <div><span>Outflow to record</span><b class="amt-out" id="finOut">&minus;PHP 0.00</b></div>
     <button type="button" class="ghost sm" id="finRefresh">Refresh</button>
   </div>
+  <p class="fin-note" id="finNote">Ticking a task doesn&rsquo;t save it, and the list won&rsquo;t refresh on its own. Tick as many as you need, then tap <b>Record selected</b> to submit. Tap Refresh to pull in newer tasks &mdash; your ticks are kept.</p>
   <button type="button" class="ghost add-task" id="finAdd">+ Add task</button>
   <p class="stub-note" id="finState">Loading&hellip;</p>
   <div id="finList" class="port-list" hidden></div>
+  <div class="fin-submit" id="finSubmitBar" hidden>
+    <div class="fin-submit-info"><b id="finSelCount">0 selected</b><span id="finSelSums"></span></div>
+    <button type="button" class="go sm" id="finSubmit">Record selected</button>
+  </div>
 </main>
+
+<div class="modal" id="balSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Update balance</h3>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">Type what each account actually holds right now. The time you save is kept as &ldquo;last updated&rdquo;.</p>
+    <div class="field">
+      <label for="balCashIn">Cash</label>
+      <div class="money"><em>PHP</em><input type="number" id="balCashIn" inputmode="decimal" step="0.01" placeholder="0.00"></div>
+    </div>
+    <div class="field">
+      <label for="balMariIn">Maribank</label>
+      <div class="money"><em>PHP</em><input type="number" id="balMariIn" inputmode="decimal" step="0.01" placeholder="0.00"></div>
+    </div>
+    <div class="field">
+      <label for="balOthIn">Others</label>
+      <div class="money"><em>PHP</em><input type="number" id="balOthIn" inputmode="decimal" step="0.01" placeholder="0.00"></div>
+    </div>
+    <div class="field">
+      <label for="balNoteIn">Note <small>(optional)</small></label>
+      <textarea id="balNoteIn" rows="2" placeholder="e.g. Others = GCash + PayMaya"></textarea>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="balSave">Save balance</button>
+      <button type="button" class="ghost" id="balCancel">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal" id="taskSheet" hidden>
   <div class="sheet small wide">

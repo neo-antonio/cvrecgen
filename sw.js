@@ -1,4 +1,4 @@
-const V = 'cv-recgen-v17';
+const V = 'cv-recgen-v18';
 const SHELL = ['./', 'index.html', 'receipt.html', 'portfolio.html', 'shipping.html', 'finance.html', 'marketing.html', 'settings.html', 'receipts.html', 'calendar.html',
   'styles.css', 'config.js', 'net.js', 'app.js', 'boot.js', 'portfolio.js', 'finance.js', 'shipping.js', 'receipts.js', 'calendar.js', 'manifest.webmanifest',
   'icons/logo.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-512-maskable.png',

@@ -314,3 +314,27 @@ body.home-body{padding-top:0}
 .cal-item-body b{font:500 13px Poppins,sans-serif;overflow-wrap:anywhere}
 .cal-item-body span{font-size:11px;color:var(--mut)}
 @media(min-width:640px){.cal-cell{min-height:84px}}
+
+/* ---------- Finance: current balance, pending in/out, tick-then-submit ---------- */
+.bal-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:14px}
+.bal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.bal-head b{font:500 13px Poppins,sans-serif}
+.bal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.bal-grid>div{background:#f2f2f2;border-radius:8px;padding:8px 10px;min-width:0}
+.bal-grid span{display:block;font:600 10px Poppins,sans-serif;letter-spacing:.3px;text-transform:uppercase;color:var(--mut)}
+.bal-grid b{display:block;font:600 13px/1.3 Poppins,sans-serif;overflow-wrap:anywhere}
+.bal-total{margin:8px 0 0;font:500 12px Poppins,sans-serif}
+.bal-note{margin:6px 0 0;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.bal-meta{margin:6px 0 0;font-size:11px;color:var(--mut)}
+.fin-pending{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:center;margin-bottom:10px}
+.fin-pending span{display:block;font:500 11px Poppins,sans-serif;color:var(--mut)}
+.fin-pending b{display:block;font:400 16px "Archivo Black",Poppins,sans-serif;overflow-wrap:anywhere}
+.fin-note{margin:0 0 14px;padding:9px 12px;border:1px dashed var(--line);border-radius:var(--r);background:#fffdf5;font-size:12px;line-height:1.5;color:var(--mut)}
+.fin-note b{color:var(--fg)}
+.fin-line.fin-picked{background:#f4faf5}
+.fin-submit{position:sticky;bottom:calc(8px + env(safe-area-inset-bottom));z-index:4;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin-top:14px;padding:10px 12px;background:var(--panel);border:1px solid var(--fg);border-radius:var(--r);box-shadow:0 4px 14px rgba(0,0,0,.12)}
+.fin-submit-info{display:flex;flex-direction:column;min-width:0}
+.fin-submit-info b{font:600 13px Poppins,sans-serif}
+.fin-submit-info span{font-size:11px;color:var(--mut)}
+.fin-submit .go{width:auto;margin:0;padding:0 16px;min-height:40px;white-space:nowrap}
