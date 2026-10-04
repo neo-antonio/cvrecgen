@@ -571,18 +571,16 @@ const outbox = (() => {
   return { put: e => run('readwrite', s => s.put(e)), del: id => run('readwrite', s => s.delete(id)), all: () => run('readonly', s => s.getAll()).then(r => r || []) };
 })();
 
-function xhrPost(bodyStr, onUpload) {
-  return new Promise((resolve, reject) => {
-    const x = new XMLHttpRequest();
-    x.open('POST', CONFIG.portfolio.endpoint);
-    x.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');   // avoids a CORS preflight to Apps Script
-    x.timeout = 120000;
-    if (onUpload) x.upload.onprogress = e => { if (e.lengthComputable) onUpload(e.loaded / e.total); };
-    x.onload = () => { let data = null; try { data = JSON.parse(x.responseText); } catch (_) {} resolve({ status: x.status, data }); };
-    x.onerror = () => reject(new Error('network'));
-    x.ontimeout = () => reject(new Error('timeout'));
-    x.send(bodyStr);
-  });
+// NOTE: plain fetch with a text/plain body = a "simple" request, so the browser skips the CORS preflight that
+// Apps Script cannot answer. (An XHR with upload-progress listeners forces a preflight and is blocked, so there
+// is deliberately no byte-level upload progress.)
+async function xhrPost(bodyStr) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 120000);
+  try {
+    const res = await fetch(CONFIG.portfolio.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: bodyStr, signal: ctl.signal });
+    let data = null; try { data = await res.json(); } catch (_) {}
+    return { status: res.status, data };
+  } finally { clearTimeout(timer); }
 }
 // "Did it land anyway?" — the server remembers each finished syncId for a few hours.
 async function pollStatus(id, tries) {
@@ -596,9 +594,9 @@ async function pollStatus(id, tries) {
   return null;
 }
 // -> { state: 'done', result } | { state: 'error', message } | { state: 'unconfirmed' }
-async function deliver(entry, onUpload, onWaiting) {
+async function deliver(entry, onWaiting) {
   let resp;
-  try { resp = await xhrPost(entry.body, onUpload); }
+  try { resp = await xhrPost(entry.body); }
   catch (_) {
     if (onWaiting) onWaiting();
     const r = await pollStatus(entry.id, 20);   // ~60s
@@ -621,14 +619,14 @@ const setClose = (disabled, label) => { $('#close').disabled = disabled; $('#clo
 
 function plannedSteps(d) {
   const k = d.mode === 'purchase' ? d.items.length : d.mode === 'sold' ? d.items.filter(i => i.cardId).length : 0;
-  const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'run', t: 'Uploading\u2026 0%' }, { st: 'wait', t: 'Saving receipt to archive' }];
+  const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'run', t: 'Uploading to server\u2026' }, { st: 'wait', t: 'Saving receipt to archive' }];
   if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k, 'finance task')}` }); }
   else if (d.mode === 'sold') st.push({ st: 'wait', t: `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
   else { if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio)) st.push({ st: 'wait', t: 'Updating portfolio' }); st.push({ st: 'wait', t: 'Creating finance task' }); }
   return st;
 }
 function resultSteps(d, r) {
-  const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'ok', t: 'Uploaded' },
+  const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'ok', t: 'Sent to server' },
     r.receipt ? { st: 'ok', t: 'Receipt saved to archive' } : { st: 'warn', t: 'Receipt image could not be saved to the archive' }];
   const pf = r.photosFailed ? ` (${nPl(r.photosFailed, 'photo')} could not be saved)` : '';
   if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `${nPl(r.cards || 0, 'card')} added to portfolio${pf}` }); st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` }); }
@@ -643,13 +641,12 @@ function resultSteps(d, r) {
 
 async function runEntry(entry, d) {
   $('#sync').hidden = false; $('#syncRetry').hidden = true; $('#syncMsg').textContent = 'Keep this page open until this finishes.';
-  const steps = plannedSteps(d); drawSteps(steps); setBar(0, false);
+  const steps = plannedSteps(d); drawSteps(steps); setBar(1, true);   // no byte-level progress is available, so the bar just shows activity
   setClose(true, 'Saving\u2026');
   inflight++;
   await outbox.put(entry);   // survives the page being closed; removed only once the server confirms
   const out = await deliver(entry,
-    p => { steps[1].t = `Uploading\u2026 ${Math.round(p * 100)}%`; setBar(p, false); if (p >= 1) { steps[1] = { st: 'ok', t: 'Uploaded' }; steps[2].st = 'run'; setBar(1, true); } drawSteps(steps); },
-    () => { steps[1] = { st: 'ok', t: 'Sent' }; steps[2].st = 'run'; $('#syncMsg').textContent = 'Connection dropped \u2014 checking whether it went through\u2026'; setBar(1, true); drawSteps(steps); });
+    () => { steps[1] = { st: 'ok', t: 'Sent' }; steps[2].st = 'run'; $('#syncMsg').textContent = 'Connection dropped \u2014 checking whether it went through\u2026'; drawSteps(steps); });
   inflight--;
   setBar(1, false); setClose(false, 'Close');
   if (out.state === 'done') {
