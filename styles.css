@@ -346,3 +346,22 @@ body.home-body{padding-top:0}
 .fin-submit-info b{font:600 13px Poppins,sans-serif}
 .fin-submit-info span{font-size:11px;color:var(--mut)}
 .fin-submit .go{width:auto;margin:0;padding:0 16px;min-height:40px;white-space:nowrap}
+
+/* ---------- receipt sync progress ---------- */
+.sync{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 14px}
+.sync-bar{height:6px;background:#e6e6e6;border-radius:3px;overflow:hidden;margin-bottom:10px}
+.sync-bar i{display:block;height:100%;width:0;background:var(--fg);border-radius:3px;transition:width .25s}
+.sync-bar.busy i{width:35%!important;animation:syncslide 1.1s ease-in-out infinite alternate}
+@keyframes syncslide{from{margin-left:0}to{margin-left:65%}}
+.sync ul{list-style:none;margin:0;padding:0;display:grid;gap:7px;font:500 13px Poppins,sans-serif}
+.sync li{display:flex;align-items:center;gap:9px;color:var(--mut)}
+.sync li.run,.sync li.ok,.sync li.warn,.sync li.err{color:var(--fg)}
+.sync .ic{width:18px;height:18px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 11px Poppins,sans-serif;border:2px solid var(--line);box-sizing:border-box}
+.sync li.run .ic{border-top-color:var(--fg);animation:syncspin .8s linear infinite}
+.sync li.ok .ic{background:#1c8a3a;border-color:#1c8a3a;color:#fff}
+.sync li.warn .ic{background:#b36b00;border-color:#b36b00;color:#fff}
+.sync li.err .ic{background:#c0392b;border-color:#c0392b;color:#fff}
+@keyframes syncspin{to{transform:rotate(360deg)}}
+.sync-msg{margin:10px 0 0;font:400 12px/1.45 Poppins,sans-serif;color:var(--mut)}
+.sync-msg:empty{display:none}
+.sync .ghost{margin-top:10px}

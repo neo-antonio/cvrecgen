@@ -233,14 +233,31 @@ $('#psLinkUse').onclick = () => {
   updateThumb(activePhotoId);
   closePhotoSheet();
 };
+// Phone photos are several MB each and ride along in the same request as the receipt, which is what made
+// big receipts slow or fail. Scale to 1600px / JPEG 85% (plenty for a card photo) before keeping them.
+function shrinkPhoto(file, max = 1600, q = 0.85) {
+  return new Promise(res => {
+    const raw = () => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file); };
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      if (k === 1 && file.size < 400 * 1024) return raw();
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      res(c.toDataURL('image/jpeg', q));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); raw(); };
+    img.src = url;
+  });
+}
 function handleFile(input, kind) {
   input.addEventListener('change', () => {
     const f = input.files[0]; input.value = '';
     if (!f || !activePhotoId) return;
     const id = activePhotoId;
-    const reader = new FileReader();
-    reader.onload = () => { itemPhotos[id] = { kind, src: reader.result }; updateThumb(id); };
-    reader.readAsDataURL(f);
+    shrinkPhoto(f).then(src => { itemPhotos[id] = { kind, src }; updateThumb(id); });
     closePhotoSheet();
   });
 }
@@ -501,90 +518,178 @@ function draw(x, d, s, dry, logo) {
 
 const loadImg = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
 
-/* ---------- Purchase / sale sync (Google Sheets via Apps Script) ---------- */
-async function postBlind_(payload, failMsg) {
-  try {
-    // Try a normal request first so we can read back real success/failure.
-    const res = await fetch(CONFIG.portfolio.endpoint, payload);
-    let data = null;
-    try { data = await res.json(); } catch (_) {}
-    if (!res.ok || !data || data.ok !== true) {
-      const msg = (data && data.error) || `HTTP ${res.status}`;
-      console.warn('Sync rejected:', msg, data);
-      toast('Sync failed: ' + msg);
-    }
-  } catch (err) {
-    // Google Apps Script often skips CORS headers on POST responses, which fetch()
-    // treats as a hard failure even though the script ran fine on Google's end.
-    // Fall back to a no-cors request: it still reaches the script and gets executed,
-    // we just can't read anything back — including a wrong-secret rejection — so
-    // check your Sheet the first few times to be sure it's actually landing.
-    console.warn('Sync: readable response blocked (likely CORS), retrying blind.', err);
-    try { await fetch(CONFIG.portfolio.endpoint, { ...payload, mode: 'no-cors' }); }
-    catch (err2) { console.warn('Sync failed outright', err2); toast(failMsg); }
-  }
-}
+/* ---------- Receipt sync (Google Sheets via Apps Script) ----------
+   A receipt is sent as ONE request carrying the receipt image and any item photos. It is first
+   written to an on-device outbox (IndexedDB), then sent with a progress panel; it leaves the outbox
+   only once the server confirms. If the page is closed mid-upload, or the answer never arrives, the
+   same request (same syncId) is re-sent on the next visit — the server ignores a syncId it has
+   already processed, so a re-send can never create duplicate cards or Finance tasks. */
+const nPl = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Every purchased item bills to Finance (portfolio-flagged or not, e.g. packaging supplies);
-// portfolio-flagged items also get a new Cards row — d.portfolio is ONE checkbox for the whole
-// receipt, so it applies to every item the same way. The receipt image itself is archived to
-// Drive so it can be linked back to from Portfolio/Finance cards and the receipts archive.
-async function syncPortfolio(d, receiptPhoto) {
-  if (!CONFIG.portfolio.endpoint || !d.items.length) return;
-  const payload = {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // avoids a CORS preflight to Apps Script
-    body: JSON.stringify({
-      action: 'purchase', secret: CONFIG.portfolio.secret,
-      date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, notes: d.notes,
-      items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: d.portfolio })),
-      receiptPhoto
-    })
-  };
-  await postBlind_(payload, 'Receipt saved, but Finance sync failed (offline?).');
+// portfolio-flagged items also get a new Cards row — d.portfolio is ONE checkbox for the whole receipt.
+function purchaseBody(d, receiptPhoto) {
+  if (!d.items.length) return null;
+  return { action: 'purchase', date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, notes: d.notes,
+    items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: d.portfolio })), receiptPhoto };
 }
-
-// Cards sold always move to "shipping" so they show up under To ship, even when there's no
-// shipping fee (care of buyer with no cost, or a straight meet-up) — the shipping tab is where
-// you confirm it actually went out, and that's also what creates the Finance entry for the
-// shipping fee to record. The sale amount itself bills to Finance right away, separately.
-async function syncSale(d, receiptPhoto) {
+// Cards sold always move to "shipping" so they show up under To ship, even with no shipping fee; the
+// sale amount bills to Finance right away, the shipping-fee entry is created once the batch ships.
+function saleBody(d, receiptPhoto) {
   const sold = d.items.filter(i => i.cardId);
-  if (!CONFIG.portfolio.endpoint || !sold.length) return;
-  const payload = {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({
-      action: 'sell', secret: CONFIG.portfolio.secret,
-      date: d.date, time: d.time, buyer: d.party, notes: d.notes, pay: d.pay,
-      shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
-      shipAddress: d.shipAddr, packaging: d.pack,
-      items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
-      receiptPhoto
-    })
-  };
-  await postBlind_(payload, 'Receipt saved, but portfolio/shipping sync failed (offline?).');
+  if (!sold.length) return null;
+  return { action: 'sell', date: d.date, time: d.time, buyer: d.party, notes: d.notes, pay: d.pay,
+    shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
+    shipAddress: d.shipAddr, packaging: d.pack,
+    items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })), receiptPhoto };
+}
+// Items traded away become "traded"; items received become new onhand Cards only if d.receivedPortfolio is
+// ticked. Any cash paid/received bills to Finance as one entry.
+function tradeBody(d, receiptPhoto) {
+  if (!d.tradedItems.length && !d.receivedItems.length) return null;
+  return { action: 'trade', date: d.date, time: d.time, tradedTo: d.party, tradedBy: d.people, notes: d.notes,
+    tradedItems: d.tradedItems.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
+    receivedItems: d.receivedItems.map(i => ({ name: i.name, cost: i.cost, photo: i.photo })),
+    receivedPortfolio: d.receivedPortfolio, cashDirection: d.cashDirection, cashAmount: d.cashAmount, cashMethod: d.cashMethod, receiptPhoto };
 }
 
-// Items traded away are marked "traded" on their Cards row; items received become new onhand
-// Cards ONLY if d.receivedPortfolio is checked — one checkbox for the whole received list, same
-// as purchase's single portfolio flag. Any cash paid/received bills to Finance as one entry.
-async function syncTrade(d, receiptPhoto) {
-  if (!CONFIG.portfolio.endpoint || (!d.tradedItems.length && !d.receivedItems.length)) return;
-  const payload = {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({
-      action: 'trade', secret: CONFIG.portfolio.secret,
-      date: d.date, time: d.time, tradedTo: d.party, tradedBy: d.people, notes: d.notes,
-      tradedItems: d.tradedItems.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
-      receivedItems: d.receivedItems.map(i => ({ name: i.name, cost: i.cost, photo: i.photo })),
-      receivedPortfolio: d.receivedPortfolio,
-      cashDirection: d.cashDirection, cashAmount: d.cashAmount, cashMethod: d.cashMethod,
-      receiptPhoto
-    })
-  };
-  await postBlind_(payload, 'Receipt saved, but portfolio/finance sync failed (offline?).');
+/* on-device outbox */
+const outbox = (() => {
+  let p = null;
+  const open = () => p || (p = new Promise(res => {
+    try {
+      const r = indexedDB.open('cv-outbox', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('q', { keyPath: 'id' });
+      r.onsuccess = () => res(r.result); r.onerror = () => res(null);
+    } catch (_) { res(null); }
+  }));
+  const run = (mode, fn) => open().then(db => db ? new Promise(res => {
+    try { const t = db.transaction('q', mode), req = fn(t.objectStore('q')); t.oncomplete = () => res(req.result); t.onerror = t.onabort = () => res(undefined); }
+    catch (_) { res(undefined); }
+  }) : undefined);
+  return { put: e => run('readwrite', s => s.put(e)), del: id => run('readwrite', s => s.delete(id)), all: () => run('readonly', s => s.getAll()).then(r => r || []) };
+})();
+
+function xhrPost(bodyStr, onUpload) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', CONFIG.portfolio.endpoint);
+    x.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');   // avoids a CORS preflight to Apps Script
+    x.timeout = 120000;
+    if (onUpload) x.upload.onprogress = e => { if (e.lengthComputable) onUpload(e.loaded / e.total); };
+    x.onload = () => { let data = null; try { data = JSON.parse(x.responseText); } catch (_) {} resolve({ status: x.status, data }); };
+    x.onerror = () => reject(new Error('network'));
+    x.ontimeout = () => reject(new Error('timeout'));
+    x.send(bodyStr);
+  });
+}
+// "Did it land anyway?" — the server remembers each finished syncId for a few hours.
+async function pollStatus(id, tries) {
+  for (let k = 0; k < tries; k++) {
+    await sleep(3000);
+    try {
+      const r = await jsonp(CONFIG.portfolio.endpoint + '?action=syncStatus&syncId=' + encodeURIComponent(id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+      if (r && r.ok && r.done) return r.result;
+    } catch (_) {}
+  }
+  return null;
+}
+// -> { state: 'done', result } | { state: 'error', message } | { state: 'unconfirmed' }
+async function deliver(entry, onUpload, onWaiting) {
+  let resp;
+  try { resp = await xhrPost(entry.body, onUpload); }
+  catch (_) {
+    if (onWaiting) onWaiting();
+    const r = await pollStatus(entry.id, 20);   // ~60s
+    return r ? { state: 'done', result: r } : { state: 'unconfirmed' };
+  }
+  const d = resp.data;
+  if (d && d.ok === true) return { state: 'done', result: d };
+  if (d && d.error) return { state: 'error', message: d.error === 'unauthorized' ? 'wrong secret in config.js' : d.error };
+  const r = await pollStatus(entry.id, 5);      // a reply we could not read: check whether it landed
+  return r ? { state: 'done', result: r } : { state: 'error', message: 'HTTP ' + resp.status };
+}
+
+/* progress panel */
+let inflight = 0;
+window.addEventListener('beforeunload', e => { if (inflight > 0) { e.preventDefault(); e.returnValue = ''; } });
+const IC = { wait: '', run: '', ok: '\u2713', warn: '!', err: '\u2715' };
+const drawSteps = steps => { $('#syncSteps').innerHTML = steps.map(s => `<li class="${s.st}"><span class="ic">${IC[s.st]}</span><span>${s.t}</span></li>`).join(''); };
+const setBar = (p, busy) => { $('#syncBar').style.width = Math.round(p * 100) + '%'; $('#syncBar').parentNode.classList.toggle('busy', !!busy); };
+const setClose = (disabled, label) => { $('#close').disabled = disabled; $('#close').textContent = label; };
+
+function plannedSteps(d) {
+  const k = d.mode === 'purchase' ? d.items.length : d.mode === 'sold' ? d.items.filter(i => i.cardId).length : 0;
+  const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'run', t: 'Uploading\u2026 0%' }, { st: 'wait', t: 'Saving receipt to archive' }];
+  if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k, 'finance task')}` }); }
+  else if (d.mode === 'sold') st.push({ st: 'wait', t: `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
+  else { if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio)) st.push({ st: 'wait', t: 'Updating portfolio' }); st.push({ st: 'wait', t: 'Creating finance task' }); }
+  return st;
+}
+function resultSteps(d, r) {
+  const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'ok', t: 'Uploaded' },
+    r.receipt ? { st: 'ok', t: 'Receipt saved to archive' } : { st: 'warn', t: 'Receipt image could not be saved to the archive' }];
+  const pf = r.photosFailed ? ` (${nPl(r.photosFailed, 'photo')} could not be saved)` : '';
+  if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `${nPl(r.cards || 0, 'card')} added to portfolio${pf}` }); st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` }); }
+  else if (d.mode === 'sold') st.push({ st: 'ok', t: `${nPl(r.cards || 0, 'card')} moved to Shipping` }, { st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
+  else {
+    if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio))
+      st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `Portfolio updated: ${r.traded || 0} traded out, ${r.received || 0} added${pf}` });
+    st.push({ st: 'ok', t: 'Finance task created' });
+  }
+  return st;
+}
+
+async function runEntry(entry, d) {
+  $('#sync').hidden = false; $('#syncRetry').hidden = true; $('#syncMsg').textContent = 'Keep this page open until this finishes.';
+  const steps = plannedSteps(d); drawSteps(steps); setBar(0, false);
+  setClose(true, 'Saving\u2026');
+  inflight++;
+  await outbox.put(entry);   // survives the page being closed; removed only once the server confirms
+  const out = await deliver(entry,
+    p => { steps[1].t = `Uploading\u2026 ${Math.round(p * 100)}%`; setBar(p, false); if (p >= 1) { steps[1] = { st: 'ok', t: 'Uploaded' }; steps[2].st = 'run'; setBar(1, true); } drawSteps(steps); },
+    () => { steps[1] = { st: 'ok', t: 'Sent' }; steps[2].st = 'run'; $('#syncMsg').textContent = 'Connection dropped \u2014 checking whether it went through\u2026'; setBar(1, true); drawSteps(steps); });
+  inflight--;
+  setBar(1, false); setClose(false, 'Close');
+  if (out.state === 'done') {
+    await outbox.del(entry.id);
+    drawSteps(resultSteps(d, out.result));
+    const bad = !out.result.receipt || out.result.photosFailed;
+    $('#syncMsg').textContent = bad ? 'Saved, with the warning above. The cards and finance tasks are in place.' : (out.result.duplicate ? 'Already saved earlier \u2014 nothing was added twice.' : 'All saved.');
+  } else if (out.state === 'unconfirmed') {
+    steps[2] = { st: 'warn', t: 'Could not confirm the save' }; steps.slice(3).forEach(s => s.st = 'wait'); drawSteps(steps);
+    $('#syncMsg').textContent = 'Nothing is lost: this receipt is stored on your device and will be re-sent automatically the next time you open Receipt. You can also tap Retry now.';
+    $('#syncRetry').hidden = false; $('#syncRetry').onclick = () => runEntry(entry, d);
+  } else {
+    await outbox.del(entry.id);
+    steps[2] = { st: 'err', t: 'Server rejected it: ' + out.message }; steps.slice(3).forEach(s => s.st = 'wait'); drawSteps(steps);
+    $('#syncMsg').textContent = 'The receipt image is still above, so you can download it. Tap Retry to send it again.';
+    $('#syncRetry').hidden = false; $('#syncRetry').onclick = () => runEntry(entry, d);
+  }
+}
+function startSync(d, body) {
+  if (!CONFIG.portfolio.endpoint || !body) return Promise.resolve();
+  const id = 'rs_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  body.secret = CONFIG.portfolio.secret; body.syncId = id;
+  return runEntry({ id, body: JSON.stringify(body), createdAt: Date.now() }, d);
+}
+
+// Receipts that never got confirmed (page closed mid-upload, offline, ...) are re-sent when Receipt is opened.
+async function resumeOutbox() {
+  if (!CONFIG.portfolio.endpoint) return;
+  const pending = await outbox.all();
+  if (!pending.length) return;
+  toast(`Finishing ${nPl(pending.length, 'receipt')} that didn\u2019t finish saving\u2026`);
+  let ok = 0;
+  for (const e of pending) {
+    inflight++;
+    const out = await deliver(e);
+    inflight--;
+    if (out.state === 'done') { await outbox.del(e.id); ok++; }
+    else if (out.state === 'error') await outbox.del(e.id);   // the server refused it: retrying will not change that
+  }
+  toast(ok === pending.length ? `Saved ${nPl(ok, 'pending receipt')}.` : `${ok} of ${pending.length} pending receipts saved; the rest will retry next time.`);
 }
 
 const blobToDataUrl = blob => new Promise((res, rej) => {
@@ -630,9 +735,7 @@ async function generate() {
     const name = `CVRecGen-${d.mode}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.jpg`;
     showPreview(blob, name);
     const receiptPhoto = { kind: 'camera', src: await blobToDataUrl(blob) };
-    if (d.mode === 'purchase') syncPortfolio(d, receiptPhoto);
-    else if (d.mode === 'sold') syncSale(d, receiptPhoto);
-    else syncTrade(d, receiptPhoto);
+    startSync(d, d.mode === 'purchase' ? purchaseBody(d, receiptPhoto) : d.mode === 'sold' ? saleBody(d, receiptPhoto) : tradeBody(d, receiptPhoto)).catch(err => console.warn('Sync failed', err));
     resetAfterCardReceipt(d);
     if (skipped) toast('Logo skipped. Open the app from http://localhost or your website to include it.');
   } catch (e) {
@@ -669,7 +772,8 @@ function showPreview(blob, name) {
   const canShare = navigator.canShare && navigator.canShare({ files: [file] });
   $('#share').hidden = !canShare;
   $('#share').onclick = () => navigator.share({ files: [file] }).catch(() => {});
-  $('#close').onclick = () => { $('#modal').hidden = true; URL.revokeObjectURL(url); };
+  $('#sync').hidden = true; setClose(false, 'Close');
+  $('#close').onclick = () => { if (inflight > 0 && $('#close').disabled) return; $('#modal').hidden = true; URL.revokeObjectURL(url); };
   $('#modal').hidden = false;
 }
 
@@ -682,3 +786,4 @@ function toast(m) {
 $('#date').value = todayStr();
 $('#time').value = nowTimeStr();   // time the page was loaded; editable
 setMode('purchase');
+resumeOutbox().catch(err => console.warn('Outbox resume failed', err));
