@@ -117,6 +117,7 @@ body.home-body{padding-top:0}
 .port-summary span{font:500 12px Poppins,sans-serif;color:var(--mut)}
 .port-summary b{font:400 20px "Archivo Black",Poppins,sans-serif;margin-right:auto}
 .port-summary .ghost.sm{align-self:center}
+.port-summary .port-count{font:600 11px Poppins,sans-serif;color:var(--fg);background:#ececec;border-radius:999px;padding:3px 10px;white-space:nowrap}
 .port-list{display:flex;flex-direction:column;gap:10px}
 .port-card{display:flex;flex-direction:column;gap:8px;padding:8px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);min-width:0}
 .port-card-main{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center}
@@ -365,3 +366,20 @@ body.home-body{padding-top:0}
 .sync-msg{margin:10px 0 0;font:400 12px/1.45 Poppins,sans-serif;color:var(--mut)}
 .sync-msg:empty{display:none}
 .sync .ghost{margin-top:10px}
+
+/* balance: auto-update line, button pair, card lists inside finance tasks */
+.bal-btns{display:flex;gap:6px}
+.bal-auto-line{margin:6px 0 0;font-size:11px;line-height:1.5;color:var(--fg);overflow-wrap:anywhere}
+.fin-cl{margin-top:4px;font-size:12px}
+.fin-cl em{display:block;font:600 10px Poppins,sans-serif;font-style:normal;letter-spacing:.4px;text-transform:uppercase;color:var(--mut);margin-top:6px}
+.fin-cl ul{list-style:none;margin:2px 0 0;padding:0}
+.fin-cl li{padding:1px 0;overflow-wrap:anywhere}
+.fin-cl li::before{content:"\2022";color:var(--mut);margin-right:6px}
+.fin-cl a,.fin-viewcard{color:#2f6fe0;text-decoration:none}
+.fin-cl a:hover,.fin-viewcard:hover{text-decoration:underline}
+.fin-viewcard{display:inline-block;margin-top:3px;font:500 11px Poppins,sans-serif}
+.fin-cl .fin-plain{margin:2px 0}
+
+.tabs.tabs-5{grid-template-columns:repeat(5,1fr)}
+.tabs.tabs-5 .tab{font-size:12px;padding-left:2px;padding-right:2px}
+.fin-viewcard{align-self:flex-start}

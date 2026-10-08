@@ -24,10 +24,11 @@
     <h2>Receipt</h2>
     <a href="receipts.html" class="back" aria-label="Past receipts">&#128193;</a>
   </div>
-  <nav class="tabs tabs-3" role="tablist">
+  <nav class="tabs tabs-4" role="tablist">
     <button type="button" class="tab active" data-mode="purchase" role="tab">Purchase</button>
     <button type="button" class="tab" data-mode="sold" role="tab">Sold</button>
     <button type="button" class="tab" data-mode="trade" role="tab">Trade</button>
+    <button type="button" class="tab" data-mode="transfer" role="tab">Transfer</button>
   </nav>
 </header>
 
@@ -40,7 +41,7 @@
     </div>
   </div>
 
-  <div class="field">
+  <div class="field" data-only="purchase sold trade">
     <label for="party" id="lParty">Seller</label>
     <input type="text" id="party" autocomplete="off">
   </div>
@@ -51,6 +52,28 @@
       <button type="button" class="ms-btn" id="msBtn"><span id="msText" class="ph">Select name(s)</span><i></i></button>
       <div class="ms-panel" id="msPanel" hidden></div>
     </div>
+  </div>
+
+  <div class="field" data-only="transfer" hidden>
+    <label for="trFrom">Transfer from</label>
+    <select id="trFrom"><option>Cash</option><option>Maribank</option><option>Cash reserves</option><option>Others</option></select>
+    <input type="text" id="trFromOther" placeholder="Specify account" hidden>
+  </div>
+
+  <div class="field" data-only="transfer" hidden>
+    <label for="trTo">Transfer to</label>
+    <select id="trTo"><option>Maribank</option><option>Cash</option><option>Cash reserves</option><option>Others</option></select>
+    <input type="text" id="trToOther" placeholder="Specify account" hidden>
+  </div>
+
+  <div class="field" data-only="transfer" hidden>
+    <label for="trAmt">Amount</label>
+    <div class="money"><em>PHP</em><input type="number" id="trAmt" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+  </div>
+
+  <div class="field" data-only="transfer" hidden>
+    <label for="trFee">Transfer fee <small>(optional, paid from the source account)</small></label>
+    <div class="money"><em>PHP</em><input type="number" id="trFee" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
   </div>
 
   <div class="field" data-only="purchase sold" hidden>

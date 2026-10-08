@@ -6,6 +6,7 @@ const $portList = document.getElementById('portList');
 const $portState = document.getElementById('portState');
 const $portTotal = document.getElementById('portTotal');
 const $portSummaryLabel = document.querySelector('.port-summary span');
+const $portCount = document.getElementById('portCount');
 const $portRefresh = document.getElementById('portRefresh');
 const $portSearch = document.getElementById('portSearch');
 
@@ -91,6 +92,7 @@ function renderTab() {
     $portState.textContent = portData.cards.length ? 'No cards match your search/filter.' : 'No cards yet.';
     $portState.hidden = false; $portList.hidden = true;
     $portTotal.textContent = portPhp(0);
+    $portCount.textContent = '0 cards';
     return;
   }
   $portList.innerHTML = list.map(cardHtml).join('');
@@ -98,6 +100,7 @@ function renderTab() {
     ? list.reduce((a, i) => a + (Number(i.soldPrice) || 0), 0)
     : list.filter(isOwned).reduce((a, i) => a + (Number(i.purchaseCost) || 0), 0);
   $portTotal.textContent = portPhp(total);
+  $portCount.textContent = list.length + (list.length === 1 ? ' card' : ' cards');   // follows the active chip + search, same as the total
   $portState.hidden = true; $portList.hidden = false;
 }
 

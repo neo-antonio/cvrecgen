@@ -24,8 +24,8 @@ const api = (action, params = {}) => CONFIG.portfolio.endpoint + '?action=' + ac
 
 /* ---------- markers ---------- */
 const SHIP_STATUS_LABEL = { toship: 'To ship', missed: 'Missed / delayed', done: 'Shipped' };
-const RECEIPT_COLOR = { purchase: '#d93a3a', sale: '#2e9e4a', trade: '#8a4fd0' };
-const RECEIPT_LABEL = { purchase: 'Purchase', sale: 'Sale', trade: 'Trade' };
+const RECEIPT_COLOR = { purchase: '#d93a3a', sale: '#2e9e4a', trade: '#8a4fd0', transfer: '#e08a00' };
+const RECEIPT_LABEL = { purchase: 'Purchase', sale: 'Sale', trade: 'Trade', transfer: 'Transfer' };
 const EVENT_COLOR = '#2f6fe0';
 
 function marker(kind, status, size = 12) {
@@ -105,7 +105,7 @@ function renderLegend() {
   if (filter === 'all' || filter === 'shipping')
     parts.push(`<span>${marker('shipping', 'toship')} To ship</span><span>${marker('shipping', 'missed')} Missed</span><span>${marker('shipping', 'done')} Shipped</span>`);
   if (filter === 'all' || filter === 'receipts')
-    parts.push(['purchase', 'sale', 'trade'].map(t => `<span>${marker('receipt', t)} ${RECEIPT_LABEL[t]}</span>`).join(''));
+    parts.push(['purchase', 'sale', 'trade', 'transfer'].map(t => `<span>${marker('receipt', t)} ${RECEIPT_LABEL[t]}</span>`).join(''));
   if (filter === 'all' || filter === 'events') parts.push(`<span>${marker('event')} Event</span>`);
   $('calLegend').innerHTML = parts.join('');
 }

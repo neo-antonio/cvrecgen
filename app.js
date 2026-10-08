@@ -268,7 +268,11 @@ const packaging = () => mode === 'sold' ? (parseFloat($('#pack').value) || 0) : 
 // Purchase: shipping always counted in the total. Sold: shipping counts only when the buyer shoulders it (c/o buyer);
 // it's excluded when it's on us (c/o us) or when there's no shipping at all. Trade: there's no
 // item-for-item price, so the "total" is just whatever cash changed hands (if any).
+const transferAmount = () => parseFloat($('#trAmt').value) || 0;
+const transferFee = () => Math.max(0, parseFloat($('#trFee').value) || 0);
+const acct = (sel, other) => $(sel).value === 'Others' ? ($(other).value.trim() || 'Others') : $(sel).value;
 const grandTotal = () => {
+  if (mode === 'transfer') return transferAmount();
   if (mode === 'trade') return cashAmount();
   return mode === 'purchase' ? subtotal() + shipping() : subtotal() + packaging() + (shipType() === 'buyer' ? shipping() : 0);
 };
@@ -294,7 +298,8 @@ function people() {
 const MODE_LABELS = {
   purchase: { party: 'Seller', people: 'Bought by', pay: 'Purchased using', total: 'Total spent', notes: 'Add notes e.g. box size, supplier link.' },
   sold: { party: 'Buyer', people: 'Sold by', pay: 'Received in', total: 'Total received', notes: 'Add notes e.g. excess cash from shipping overpay, for CV storing, for reimbursements' },
-  trade: { party: 'Traded to', people: 'Traded by', pay: 'Purchased using', total: 'Cash amount', notes: 'Add notes about the trade.' }
+  trade: { party: 'Traded to', people: 'Traded by', pay: 'Purchased using', total: 'Cash amount', notes: 'Add notes about the trade.' },
+  transfer: { party: '', people: 'Transferred by', pay: '', total: 'Amount transferred', notes: 'Add notes e.g. reason for the transfer, reference number.' }
 };
 async function setMode(m) {
   mode = m;
@@ -354,10 +359,15 @@ function update() {
     $('#cashMethodOther').hidden = $('#cashMethod').value !== 'Others';
   }
 
+  if (mode === 'transfer') {
+    $('#trFromOther').hidden = $('#trFrom').value !== 'Others';
+    $('#trToOther').hidden = $('#trTo').value !== 'Others';
+  }
+
   $('#buyerWarn').hidden = !(mode === 'sold' && shipType() === 'buyer');
   $('#totalVal').textContent = php(grandTotal());
 }
-['#ship', '#pack', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod'].forEach(s => $(s).addEventListener('input', update));
+['#ship', '#pack', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod', '#trFrom', '#trTo', '#trAmt', '#trFee'].forEach(s => $(s).addEventListener('input', update));
 $$('input[name=st]').forEach(r => r.addEventListener('change', update));
 $$('input[name=cashDir]').forEach(r => r.addEventListener('change', update));
 
@@ -387,13 +397,15 @@ function collect() {
     receivedPortfolio: $('#receivedPortfolio').checked,
     cashDirection: trade ? cashDirection() : 'none',
     cashAmount: trade ? cashAmount() : 0,
-    cashMethod: $('#cashMethod').value === 'Others' ? ($('#cashMethodOther').value.trim() || 'Others') : $('#cashMethod').value
+    cashMethod: $('#cashMethod').value === 'Others' ? ($('#cashMethodOther').value.trim() || 'Others') : $('#cashMethod').value,
+    // transfer-only fields
+    from: acct('#trFrom', '#trFromOther'), to: acct('#trTo', '#trToOther'), amount: mode === 'transfer' ? transferAmount() : 0, fee: mode === 'transfer' ? transferFee() : 0
   };
 }
 
 /* ---------- Receipt renderer (1080 x 1080) ---------- */
 function draw(x, d, s, dry, logo) {
-  const W = 1080, P = 72, R = W - P, G = '#b4b4b4', sold = d.mode === 'sold', trade = d.mode === 'trade';
+  const W = 1080, P = 72, R = W - P, G = '#b4b4b4', sold = d.mode === 'sold', trade = d.mode === 'trade', xfer = d.mode === 'transfer';
   if (!dry) { x.fillStyle = '#000'; x.fillRect(0, 0, W, W); }
   x.textBaseline = 'top';
   const set = (w, z, a) => x.font = `${w} ${Math.round(z * s)}px ${a ? '"Archivo Black"' : 'Poppins'}, sans-serif`;
@@ -421,7 +433,7 @@ function draw(x, d, s, dry, logo) {
   } else if (!dry) { x.font = '34px "Archivo Black"'; txt(CONFIG.brand, P, y + 20, '#fff'); }
   if (!dry) { x.font = '600 22px Poppins'; txt(CONFIG.brand, R, y + 26, G, 'right'); }
   y = 168;
-  if (!dry) { x.font = '58px "Archivo Black"'; txt(trade ? 'TRADE RECEIPT' : (sold ? 'SALES RECEIPT' : 'PURCHASE RECEIPT'), P, y, '#fff'); }
+  if (!dry) { x.font = '58px "Archivo Black"'; txt(xfer ? 'TRANSFER RECEIPT' : trade ? 'TRADE RECEIPT' : (sold ? 'SALES RECEIPT' : 'PURCHASE RECEIPT'), P, y, '#fff'); }
   y += 92; rule(y); y += 28;
 
   const row = (l, v) => {
@@ -435,7 +447,12 @@ function draw(x, d, s, dry, logo) {
 
   row('Date', fmtDate(d.date));
   if (d.time) row('Time', fmtTime(d.time));
-  if (trade) {
+  if (xfer) {
+    row('Transferred by', d.people);
+    row('From', d.from);
+    row('To', d.to);
+    if (d.fee > 0) row('Transfer fee', `${php(d.fee)} (from ${d.from})`);
+  } else if (trade) {
     row('Traded to', d.party);
     row('Traded by', d.people);
   } else {
@@ -445,7 +462,12 @@ function draw(x, d, s, dry, logo) {
   }
   y += 8 * s; rule(y); y += 22 * s;
 
-  if (trade) {
+  if (xfer) {
+    y += 6 * s; rule(y, G); y += 24 * s;
+    set(400, 30, true); txt('AMOUNT TRANSFERRED', P, y + 12 * s, '#fff');
+    set(400, 44, true); txt(php(d.amount), R, y, '#fff', 'right');
+    y += 66 * s;
+  } else if (trade) {
     sec('Items traded');
     if (d.tradedItems.length) {
       d.tradedItems.forEach(i => {
@@ -554,6 +576,12 @@ function tradeBody(d, receiptPhoto) {
     receivedPortfolio: d.receivedPortfolio, cashDirection: d.cashDirection, cashAmount: d.cashAmount, cashMethod: d.cashMethod, receiptPhoto };
 }
 
+// A transfer moves cash between two of our own accounts: Finance gets one outflow (source) and one inflow (destination).
+function transferBody(d, receiptPhoto) {
+  if (!(d.amount > 0)) return null;
+  return { action: 'transfer', date: d.date, time: d.time, by: d.people, from: d.from, to: d.to, amount: d.amount, fee: d.fee, notes: d.notes, receiptPhoto };
+}
+
 /* on-device outbox */
 const outbox = (() => {
   let p = null;
@@ -620,7 +648,8 @@ const setClose = (disabled, label) => { $('#close').disabled = disabled; $('#clo
 function plannedSteps(d) {
   const k = d.mode === 'purchase' ? d.items.length : d.mode === 'sold' ? d.items.filter(i => i.cardId).length : 0;
   const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'run', t: 'Uploading to server\u2026' }, { st: 'wait', t: 'Saving receipt to archive' }];
-  if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k, 'finance task')}` }); }
+  if (d.mode === 'transfer') st.push({ st: 'wait', t: `Creating ${d.fee > 0 ? 3 : 2} finance tasks` });
+  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k, 'finance task')}` }); }
   else if (d.mode === 'sold') st.push({ st: 'wait', t: `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
   else { if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio)) st.push({ st: 'wait', t: 'Updating portfolio' }); st.push({ st: 'wait', t: 'Creating finance task' }); }
   return st;
@@ -629,7 +658,8 @@ function resultSteps(d, r) {
   const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'ok', t: 'Sent to server' },
     r.receipt ? { st: 'ok', t: 'Receipt saved to archive' } : { st: 'warn', t: 'Receipt image could not be saved to the archive' }];
   const pf = r.photosFailed ? ` (${nPl(r.photosFailed, 'photo')} could not be saved)` : '';
-  if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `${nPl(r.cards || 0, 'card')} added to portfolio${pf}` }); st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` }); }
+  if (d.mode === 'transfer') st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
+  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `${nPl(r.cards || 0, 'card')} added to portfolio${pf}` }); st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` }); }
   else if (d.mode === 'sold') st.push({ st: 'ok', t: `${nPl(r.cards || 0, 'card')} moved to Shipping` }, { st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
   else {
     if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio))
@@ -707,7 +737,10 @@ function render(d, logo) {
 
 async function generate() {
   const d = collect();
-  if (d.mode === 'trade') {
+  if (d.mode === 'transfer') {
+    if (!(d.amount > 0)) return toast('Enter the amount transferred.');
+    if (d.from.trim().toLowerCase() === d.to.trim().toLowerCase()) return toast('Pick two different accounts.');
+  } else if (d.mode === 'trade') {
     if (!d.tradedItems.length && !d.receivedItems.length) return toast('Add at least one traded or received item.');
     if (d.cashDirection !== 'none' && !d.cashAmount) return toast('Enter a cash amount, or set cash to None.');
   } else {
@@ -732,7 +765,7 @@ async function generate() {
     const name = `CVRecGen-${d.mode}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.jpg`;
     showPreview(blob, name);
     const receiptPhoto = { kind: 'camera', src: await blobToDataUrl(blob) };
-    startSync(d, d.mode === 'purchase' ? purchaseBody(d, receiptPhoto) : d.mode === 'sold' ? saleBody(d, receiptPhoto) : tradeBody(d, receiptPhoto)).catch(err => console.warn('Sync failed', err));
+    startSync(d, d.mode === 'purchase' ? purchaseBody(d, receiptPhoto) : d.mode === 'sold' ? saleBody(d, receiptPhoto) : d.mode === 'transfer' ? transferBody(d, receiptPhoto) : tradeBody(d, receiptPhoto)).catch(err => console.warn('Sync failed', err));
     resetAfterCardReceipt(d);
     if (skipped) toast('Logo skipped. Open the app from http://localhost or your website to include it.');
   } catch (e) {
@@ -751,6 +784,8 @@ function resetAfterCardReceipt(d) {
     onhandCards = onhandCards.filter(c => !used.has(String(c.id)));
     $('#items').innerHTML = ''; refreshPicker('sold');
     $('#pack').value = ''; $('#shipAddr').value = '';   // per-sale fields: never carry one buyer's over to the next sale
+  } else if (d.mode === 'transfer') {
+    $('#trAmt').value = ''; $('#trFee').value = '';   // per-transfer: never carry one amount over to the next
   } else if (d.mode === 'trade') {
     const used = new Set(d.tradedItems.map(i => String(i.cardId)));
     onhandCards = onhandCards.filter(c => !used.has(String(c.id)));

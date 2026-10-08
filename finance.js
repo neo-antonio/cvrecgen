@@ -37,6 +37,51 @@ const finNum = n => Number(n || 0).toLocaleString('en-PH', { minimumFractionDigi
 const FIN_ICON = { doc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M9 12h7M9 16h7"/>', trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>', undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>', pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>' };
 const finIcon = (name, cls, label, id) => `<button type="button" class="icon-btn flat ${cls}" data-id="${id}" title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${FIN_ICON[name]}</svg></button>`;
 
+/* ---------- Task display: tidy trade titles, card lists and per-card links ---------- */
+const cardsText = (heading, names) => names.length ? `${heading} (${names.length})\n` + names.map(n => '\u2022 ' + n).join('\n') : '';
+const splitNames = s => String(s || '').split(', ').map(x => x.trim()).filter(Boolean);
+// Trades made before the layout change stored everything in one long title. Rebuild a short title + list from it.
+function prettyTask(it) {
+  let title = it.description || '', notes = it.notes || '', m;
+  if (it.type === 'trade') {
+    if ((m = title.match(/^(Trade with .+?) \(no cash\)(?: \u2014 (.*))?$/))) {
+      title = m[1] + ' \u2014 no cash';
+      notes = [cardsText('Cards', splitNames(m[2])), notes].filter(Boolean).join('\n');
+    } else if ((m = title.match(/^Cash (paid|received) \u2014 trade with (.+?)(?: \((.*)\))?$/))) {
+      title = 'Trade with ' + m[2] + ' \u2014 cash ' + m[1];
+      notes = [cardsText('Cards', splitNames(m[3])), notes].filter(Boolean).join('\n');
+    }
+  }
+  return { title, notes };
+}
+// "\u2022 name" lines become list items (a link when the card has a photo), headings become small labels, anything else stays text.
+function notesHtml(text, cards) {
+  const link = {};
+  (cards || []).forEach(c => { if (c.link && !link[c.name]) link[c.name] = c.link; });
+  let out = '', open = false;
+  const close = () => { if (open) { out += '</ul>'; open = false; } };
+  String(text || '').split('\n').forEach(line => {
+    let m;
+    if ((m = line.match(/^\u2022 (.+)$/))) {
+      if (!open) { out += '<ul>'; open = true; }
+      const u = link[m[1]];
+      out += '<li>' + (u ? `<a href="${escFin(u)}" target="_blank" rel="noopener">${escFin(m[1])} \u2197</a>` : escFin(m[1])) + '</li>';
+    } else if (/^(Gave|Received|Cards) \(\d+\)$/.test(line)) { close(); out += `<em>${escFin(line)}</em>`; }
+    else if (line.trim()) { close(); out += `<div class="fin-plain">${escFin(line)}</div>`; }
+  });
+  close();
+  return out ? `<div class="fin-cl">${out}</div>` : '';
+}
+function taskDetailHtml(it, pt) {
+  const cards = it.cards || [];
+  let text = pt.notes, one = '';
+  if (it.type !== 'trade') {
+    if (cards.length > 1) text = [text, cardsText('Cards', cards.map(c => c.name))].filter(Boolean).join('\n');
+    else if (cards.length === 1 && cards[0].link) one = `<a class="fin-viewcard" href="${escFin(cards[0].link)}" target="_blank" rel="noopener">View card \u2197</a>`;
+  }
+  return notesHtml(text, cards) + one;
+}
+
 function rowHtml(it, recordable) {
   const flowCls = it.flow === 'inflow' ? 'amt-in' : it.flow === 'none' ? 'amt-none' : 'amt-out';
   const sign = it.flow === 'inflow' ? '+' : it.flow === 'none' ? '' : '\u2212';
@@ -45,13 +90,14 @@ function rowHtml(it, recordable) {
   const acts = finIcon('pencil', 'fin-edit', 'Edit task', it.id)
     + (!recordable ? finIcon('undo', 'fin-unrecord', 'Undo', it.id) : '')
     + finIcon('trash', 'fin-delete danger', 'Delete task', it.id);
-  const notes = it.notes ? `<span class="fin-notes">${escFin(it.notes)}</span>` : '';
+  const pt = prettyTask(it);
+  const detail = taskDetailHtml(it, pt);
   const imgs = it.images || [];
   const thumbs = imgs.length ? `<div class="fin-thumbs">${imgs.map((im, i) => `<button type="button" class="fin-thumb" data-id="${it.id}" data-i="${i}" aria-label="View image ${i + 1}"><img src="${escFin(im.thumb)}" alt="" loading="lazy"></button>`).join('')}</div>` : '';
   const isPicked = recordable && picked.has(String(it.id));
   return `<div class="fin-item fin-line${isPicked ? ' fin-picked' : ''}" data-id="${it.id}">
       <label class="fin-chk">${recordable ? `<input type="checkbox" class="fin-mark"${isPicked ? ' checked' : ''}>` : '<span class="fin-done">&check;</span>'}</label>
-      <div class="port-info"><b>${escFin(it.description)}</b>${notes}<span>${meta}</span>${thumbs}</div>
+      <div class="port-info"><b>${escFin(pt.title)}</b><span>${meta}</span>${detail}${thumbs}</div>
       <div class="fin-right">
         <div class="fin-amt ${flowCls}">${sign}${finPhp(it.amount)}</div>
         <div class="fin-line-acts">${acts}</div>
@@ -63,7 +109,7 @@ function rowHtml(it, recordable) {
    already stores). Standalone tasks, even ones with a receipt attached, stay together in
    "Standalone tasks". groupKey/groupLabel come from the newer Code.gs; against an older one we
    fall back to the raw URL. */
-const RECEIPT_NAME = { purchase: 'Purchase receipt', sale: 'Sale receipt', trade: 'Trade receipt', shipping: 'Sale receipt' };
+const RECEIPT_NAME = { purchase: 'Purchase receipt', sale: 'Sale receipt', trade: 'Trade receipt', transfer: 'Transfer receipt', shipping: 'Sale receipt' };
 function groupItems(list) {
   const groups = [], byKey = {};
   list.forEach(it => {
@@ -140,7 +186,7 @@ let finFirst = true;
 async function loadFinance() {
   if (!CONFIG.portfolio.endpoint) { $finState.textContent = "Sync isn't set up yet."; $finState.hidden = false; $finList.hidden = true; return; }
   const cached = finFirst ? cacheGet('finance') : null; finFirst = false;
-  if (cached) { finData = cached; prunePicks(); renderTab(); }
+  if (cached) { finData = cached; prunePicks(); renderTab(); renderBalance(); }
   else { $finState.textContent = 'Loading\u2026'; $finState.hidden = false; $finList.hidden = true; }
   try {
     const url = CONFIG.portfolio.endpoint + '?action=finance&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
@@ -150,6 +196,7 @@ async function loadFinance() {
     cacheSet('finance', finData);
     prunePicks();
     renderTab();
+    renderBalance();
   } catch (err) {
     console.warn('Finance load failed', err);
     if (cached) return toast('Could not refresh \u2014 showing your last saved data.');
@@ -257,8 +304,9 @@ function openEditor(id) {
   $ts('taskHeading').textContent = t ? 'Edit task' : 'Add task';
   $ts('taskHint').hidden = !t;
   $ts('taskNewOnly').hidden = !!t;
-  $ts('taskTitle').value = t ? t.description : '';
-  $ts('taskDesc').value = t ? (t.notes || '') : '';
+  const pt = t ? prettyTask(t) : null;
+  $ts('taskTitle').value = pt ? pt.title : '';
+  $ts('taskDesc').value = pt ? pt.notes : '';
   $ts('taskSave').textContent = t ? 'Save changes' : 'Add task';
   if (!t) {
     $ts('taskAmt').value = ''; $ts('taskPay').value = 'Cash';
@@ -412,10 +460,81 @@ $ts('taskSave').onclick = async () => {
   btn.disabled = false; btn.textContent = wasNew ? 'Add task' : 'Save changes';
 };
 
-/* ---------- Current balance (manual, for reconciliation) ---------- */
-// Typed in by hand: Cash, Maribank, Others + a note. "Last updated" is this device's clock at the moment it is saved.
-let balance = null;
+/* ---------- Current balance: a typed starting point + everything that happened after it ---------- */
+// "Update" saves a baseline (what each account really holds at that moment). The balance shown is that baseline
+// plus every Finance task dated after it (ticked or not, inflow or outflow, by pay method) plus daily interest.
+let balance = null;   // { cash, maribank, reserves, others, note, updatedAt, skip:[ids] }
 const nowStamp = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+const r2 = x => Math.round(x * 100) / 100;
+const BUCKETS = ['cash', 'maribank', 'reserves', 'others'];
+
+// Defaults = Maribank Savings: 3.25% p.a. up to PHP 1,000,000, 3.75% above, 20% withholding tax, applied to Maribank and Cash reserves.
+const DEFAULT_INTEREST = { lo: 3.25, hi: 3.75, threshold: 1000000, tax: 20, accounts: { cash: false, maribank: true, reserves: true, others: false } };
+function normInterest(c) {
+  const n = (v, d) => (v === '' || v == null || !isFinite(Number(v)) || Number(v) < 0) ? d : Number(v);
+  c = c || {};
+  const a = c.accounts || {};
+  return { lo: n(c.lo, DEFAULT_INTEREST.lo), hi: n(c.hi, DEFAULT_INTEREST.hi), threshold: n(c.threshold, DEFAULT_INTEREST.threshold), tax: Math.min(100, n(c.tax, DEFAULT_INTEREST.tax)),
+    accounts: Object.fromEntries(BUCKETS.map(k => [k, a[k] == null ? DEFAULT_INTEREST.accounts[k] : !!a[k]])) };
+}
+let interestCfg = normInterest(cacheGet('interest'));
+
+// pay method text -> which balance it moves ("Specify" entries like GCash fall under Others)
+function bucketOf(pay) {
+  const p = String(pay || '').trim().toLowerCase();
+  if (!p) return '';
+  if (p === 'cash') return 'cash';
+  if (p.includes('maribank')) return 'maribank';
+  if (/^(cash )?reserves?$/.test(p)) return 'reserves';
+  return 'others';
+}
+const nextDay = iso => { const [y, m, d] = iso.split('-').map(Number), n = new Date(y, m - 1, d + 1), p = k => String(k).padStart(2, '0'); return `${n.getFullYear()}-${p(n.getMonth() + 1)}-${p(n.getDate())}`; };
+
+function computeBalance() {
+  const b = balance;
+  if (!b) return null;
+  const m = String(b.updatedAt || '').match(/^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}:\d{2})/);
+  const bDate = m ? m[1] : (String(b.updatedAt || '').slice(0, 10) || todayIso()), bTime = m ? m[2].padStart(5, '0') : '00:00';
+  const skip = new Set((b.skip || []).map(String));
+  // dated after the baseline? Same day: compare the time; with no time it counts unless it already existed when the baseline was saved
+  const after = t => {
+    const d = String(t.date || '').slice(0, 10);
+    if (!d) return false;
+    if (d !== bDate) return d > bDate;
+    const tm = String(t.time || '').trim();
+    return tm ? tm.padStart(5, '0') > bTime : !skip.has(String(t.id));
+  };
+  const daily = {}, base = { cash: +b.cash || 0, maribank: +b.maribank || 0, reserves: +b.reserves || 0, others: +b.others || 0 };
+  let inSum = 0, outSum = 0, n = 0;
+  finData.toRecord.concat(finData.recorded).forEach(t => {
+    if (t.flow !== 'inflow' && t.flow !== 'outflow') return;
+    const k = bucketOf(t.payMethod);
+    if (!k || !after(t)) return;
+    const amt = Number(t.amount) || 0, d = String(t.date).slice(0, 10);
+    (daily[k] = daily[k] || {})[d] = ((daily[k] || {})[d] || 0) + (t.flow === 'inflow' ? amt : -amt);
+    if (t.flow === 'inflow') inSum += amt; else outSum += amt;
+    n++;
+  });
+  const cfg = interestCfg, today = todayIso(), out = { n, inSum, outSum, interest: 0, since: bDate };
+  BUCKETS.forEach(k => {
+    let cur = base[k];
+    const days = daily[k] || {};
+    let guard = 0;
+    for (let d = bDate; d < today && guard < 4000; d = nextDay(d), guard++) {
+      cur += days[d] || 0;                                   // that day's transactions
+      if (cfg.accounts[k] && cur > 0) {                      // midnight credit on the day's ending balance
+        const rate = (cur > cfg.threshold ? cfg.hi : cfg.lo) / 100;
+        const gross = r2(cur * rate / 365);
+        const net = r2(gross - r2(gross * cfg.tax / 100));
+        cur += net; out.interest += net;
+      }
+    }
+    Object.keys(days).forEach(d => { if (d >= today) cur += days[d]; });   // today (not credited yet) and anything dated later
+    out[k] = r2(cur);
+  });
+  out.interest = r2(out.interest);
+  return out;
+}
 
 // Portfolio value is not typed in: it is the same "Onhand value" the Portfolio tab shows
 // (cards still in our hands, i.e. onhand + shipping, valued at purchase cost).
@@ -425,23 +544,29 @@ const portValueOf = d => {
   return cards.filter(c => c.tag === 'onhand' || c.tag === 'shipping').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
 };
 
+let lastAuto = null;
 function renderBalance() {
-  const b = balance;
-  document.getElementById('balCash').textContent = b ? finNum(b.cash) : '\u2014';
-  document.getElementById('balMari').textContent = b ? finNum(b.maribank) : '\u2014';
-  document.getElementById('balPort').textContent = portValue != null ? finNum(portValue) : '\u2014';
-  document.getElementById('balRes').textContent = b ? finNum(b.reserves) : '\u2014';
-  document.getElementById('balOth').textContent = b ? finNum(b.others) : '\u2014';
-  document.getElementById('balSub').hidden = !b;
-  document.getElementById('balTotal').hidden = !b;
-  if (b) {
-    const liquid = (+b.cash || 0) + (+b.maribank || 0);
-    document.getElementById('balSubVal').textContent = finPhp(liquid);
-    document.getElementById('balTotalVal').textContent = finPhp(liquid + (+b.reserves || 0) + (+portValue || 0) + (+b.others || 0));
+  const b = balance, c = lastAuto = computeBalance();
+  const set = (id, v) => document.getElementById(id).textContent = v;
+  set('balCash', c ? finNum(c.cash) : '\u2014');
+  set('balMari', c ? finNum(c.maribank) : '\u2014');
+  set('balPort', portValue != null ? finNum(portValue) : '\u2014');
+  set('balRes', c ? finNum(c.reserves) : '\u2014');
+  set('balOth', c ? finNum(c.others) : '\u2014');
+  document.getElementById('balSub').hidden = !c;
+  document.getElementById('balTotal').hidden = !c;
+  if (c) {
+    const liquid = c.cash + c.maribank;
+    set('balSubVal', finPhp(liquid));
+    set('balTotalVal', finPhp(liquid + c.reserves + (+portValue || 0) + c.others));
   }
+  const auto = document.getElementById('balAuto');
+  const bits = c ? [c.inSum ? `+${finPhp(c.inSum)} in` : '', c.outSum ? `\u2212${finPhp(c.outSum)} out` : '', c.interest ? `+${finPhp(c.interest)} interest (after ${interestCfg.tax}% tax)` : ''].filter(Boolean) : [];
+  auto.hidden = !bits.length;
+  if (bits.length) auto.textContent = `Since ${fmtDay(c.since)}: ` + bits.join(' \u00b7 ');
   document.getElementById('balNote').hidden = !(b && b.note);
   if (b && b.note) document.getElementById('balNote').textContent = b.note;
-  document.getElementById('balMeta').textContent = b ? 'Last updated ' + fmtStamp(b.updatedAt) + ' \u00b7 Portfolio is pulled live' : 'Not set yet \u2014 tap Update to enter what each account holds.';
+  set('balMeta', b ? 'Starting point set ' + fmtStamp(b.updatedAt) + ' \u00b7 updates automatically from tasks and interest \u00b7 Portfolio is pulled live' : 'Not set yet \u2014 tap Update to enter what each account holds. Tasks and interest are added on top from then on.');
 }
 let portFirstFin = true;
 async function loadPortValue() {
@@ -466,16 +591,20 @@ async function loadBalance() {
     if (!data.ok) throw new Error(data.error || 'Unknown error');
     balance = data.balance || null;
     if (balance) cacheSet('balance', balance);
+    if (data.interest) { interestCfg = normInterest(data.interest); cacheSet('interest', interestCfg); }   // older Code.gs sends none: keep local/default
     renderBalance();
   } catch (err) { console.warn('Balance load failed', err); }   // keeps whatever is already showing
 }
+
+/* Update = overwrite the balance by hand. Fields start at the current auto values; saving makes them the new starting point. */
 const closeBalSheet = () => document.getElementById('balSheet').hidden = true;
 document.getElementById('balEdit').onclick = () => {
-  const b = balance || {};
-  document.getElementById('balCashIn').value = b.cash != null ? b.cash : '';
-  document.getElementById('balMariIn').value = b.maribank != null ? b.maribank : '';
-  document.getElementById('balResIn').value = b.reserves != null ? b.reserves : '';
-  document.getElementById('balOthIn').value = b.others != null ? b.others : '';
+  const c = lastAuto || {}, b = balance || {};
+  const v = k => c[k] != null ? c[k] : (b[k] != null ? b[k] : '');
+  document.getElementById('balCashIn').value = v('cash');
+  document.getElementById('balMariIn').value = v('maribank');
+  document.getElementById('balResIn').value = v('reserves');
+  document.getElementById('balOthIn').value = v('others');
   document.getElementById('balNoteIn').value = b.note || '';
   document.getElementById('balSheet').hidden = false;
   document.getElementById('balCashIn').focus();
@@ -487,16 +616,44 @@ document.getElementById('balSave').onclick = async () => {
   const next = { cash: val('balCashIn'), maribank: val('balMariIn'), reserves: val('balResIn'), others: val('balOthIn'), note: document.getElementById('balNoteIn').value.trim(), updatedAt: nowStamp() };
   if (![next.cash, next.maribank, next.reserves, next.others].every(isFinite)) return toast('Enter valid amounts.');
   if (!CONFIG.portfolio.endpoint) return toast("Sync isn't set up yet.");
+  // untimed tasks dated today already exist now, so the typed amounts include them: remember them so they are not added twice
+  const today = todayIso();
+  next.skip = finData.toRecord.concat(finData.recorded).filter(t => String(t.date || '').slice(0, 10) === today && !String(t.time || '').trim()).map(t => String(t.id));
   const btn = document.getElementById('balSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
   try {
     const url = CONFIG.portfolio.endpoint + '?action=saveBalance&cash=' + next.cash + '&maribank=' + next.maribank + '&reserves=' + next.reserves + '&others=' + next.others
-      + '&note=' + encodeURIComponent(next.note) + '&at=' + encodeURIComponent(next.updatedAt) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+      + '&note=' + encodeURIComponent(next.note) + '&at=' + encodeURIComponent(next.updatedAt) + '&skip=' + encodeURIComponent(next.skip.join(',')) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
     balance = next; cacheSet('balance', balance); renderBalance();
     closeBalSheet(); toast('Balance saved.');
   } catch (err) { toast('Could not save balance: ' + err.message); }
   btn.disabled = false; btn.textContent = 'Save balance';
+};
+
+/* Interest settings: kept apart from the balance so changing a rate never resets the starting point. */
+const $i = id => document.getElementById(id);
+function fillInterest(c) {
+  $i('intLo').value = c.lo; $i('intHi').value = c.hi; $i('intThr').value = c.threshold; $i('intTax').value = c.tax;
+  $i('intCash').checked = c.accounts.cash; $i('intMari').checked = c.accounts.maribank; $i('intRes').checked = c.accounts.reserves; $i('intOth').checked = c.accounts.others;
+}
+$i('balInterest').onclick = () => { fillInterest(interestCfg); $i('intSheet').hidden = false; };
+const closeInt = () => $i('intSheet').hidden = true;
+$i('intCancel').onclick = closeInt;
+$i('intSheet').addEventListener('click', e => { if (e.target.id === 'intSheet') closeInt(); });
+$i('intReset').onclick = () => fillInterest(DEFAULT_INTEREST);
+$i('intSave').onclick = async () => {
+  const num = id => { const v = $i(id).value.trim(); return v === '' ? NaN : Number(v); };
+  const next = { lo: num('intLo'), hi: num('intHi'), threshold: num('intThr'), tax: num('intTax'),
+    accounts: { cash: $i('intCash').checked, maribank: $i('intMari').checked, reserves: $i('intRes').checked, others: $i('intOth').checked } };
+  if (![next.lo, next.hi, next.threshold, next.tax].every(x => isFinite(x) && x >= 0) || next.tax > 100) return toast('Enter valid rates (tax 0\u2013100%).');
+  interestCfg = normInterest(next); cacheSet('interest', interestCfg); renderBalance(); closeInt();
+  if (!CONFIG.portfolio.endpoint) return;
+  try {
+    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=saveInterest&json=' + encodeURIComponent(JSON.stringify(interestCfg)) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
+    toast('Interest settings saved.');
+  } catch (err) { toast('Saved on this device only: ' + err.message); }
 };
 
 // Refresh reloads both the task list and the balance (your ticks are kept)

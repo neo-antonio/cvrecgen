@@ -34,7 +34,10 @@
   <section class="bal-card" id="balCard">
     <div class="bal-head">
       <b>Current balance</b>
-      <button type="button" class="ghost sm" id="balEdit">Update</button>
+      <span class="bal-btns">
+        <button type="button" class="ghost sm" id="balInterest">Interest</button>
+        <button type="button" class="ghost sm" id="balEdit">Update</button>
+      </span>
     </div>
     <div class="bal-grid">
       <div><span>Cash</span><b id="balCash">&mdash;</b></div>
@@ -46,6 +49,7 @@
     <div class="bal-sub" id="balSub" hidden><span>Liquid subtotal <small>Cash + Maribank</small></span><b id="balSubVal"></b></div>
     <div class="bal-total" id="balTotal" hidden><span>Total business value</span><b id="balTotalVal"></b></div>
     <p class="bal-note" id="balNote" hidden></p>
+    <p class="bal-auto-line" id="balAuto" hidden></p>
     <p class="bal-meta" id="balMeta">Not set yet &mdash; tap Update to enter what each account holds.</p>
   </section>
 
@@ -67,7 +71,7 @@
 <div class="modal" id="balSheet" hidden>
   <div class="sheet small wide">
     <h3>Update balance</h3>
-    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">Type what each account actually holds right now. The time you save is kept as &ldquo;last updated&rdquo;.</p>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">Saving sets a new starting point: from this moment, new tasks and interest are added on top of what you type here. Amounts are prefilled with the current auto balance.</p>
     <div class="field">
       <label for="balCashIn">Cash</label>
       <div class="money"><em>PHP</em><input type="number" id="balCashIn" inputmode="decimal" step="0.01" placeholder="0.00"></div>
@@ -91,6 +95,41 @@
     <div class="acts">
       <button type="button" class="go sm" id="balSave">Save balance</button>
       <button type="button" class="ghost" id="balCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="intSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Interest settings</h3>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">Credited daily at midnight on the previous day&rsquo;s ending balance, less withholding tax. Changes apply to the whole period since the last balance update.</p>
+    <div class="field">
+      <label for="intLo">Rate up to the threshold <small>(% per year)</small></label>
+      <input type="number" id="intLo" inputmode="decimal" min="0" step="0.01">
+    </div>
+    <div class="field">
+      <label for="intHi">Rate above the threshold <small>(% per year)</small></label>
+      <input type="number" id="intHi" inputmode="decimal" min="0" step="0.01">
+    </div>
+    <div class="field">
+      <label for="intThr">Threshold balance</label>
+      <div class="money"><em>PHP</em><input type="number" id="intThr" inputmode="decimal" min="0" step="1"></div>
+    </div>
+    <div class="field">
+      <label for="intTax">Withholding tax <small>(%)</small></label>
+      <input type="number" id="intTax" inputmode="decimal" min="0" max="100" step="0.01">
+    </div>
+    <div class="field">
+      <label>Earns interest</label>
+      <label class="port-chk"><input type="checkbox" id="intCash"><span>Cash</span></label>
+      <label class="port-chk"><input type="checkbox" id="intMari"><span>Maribank</span></label>
+      <label class="port-chk"><input type="checkbox" id="intRes"><span>Cash reserves</span></label>
+      <label class="port-chk"><input type="checkbox" id="intOth"><span>Others</span></label>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="intSave">Save interest settings</button>
+      <button type="button" class="ghost" id="intReset">Reset to Maribank defaults</button>
+      <button type="button" class="ghost" id="intCancel">Cancel</button>
     </div>
   </div>
 </div>
