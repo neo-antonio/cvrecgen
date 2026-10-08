@@ -464,6 +464,8 @@ $ts('taskSave').onclick = async () => {
 // "Update" saves a baseline (what each account really holds at that moment). The balance shown is that baseline
 // plus every Finance task dated after it (ticked or not, inflow or outflow, by pay method) plus daily interest.
 let balance = null;   // { cash, maribank, reserves, others, note, updatedAt, skip:[ids] }
+// Shipping fees we still owe on sales that are not fully shipped yet: [{ fee, from }] (one per sale batch). The Finance task for them only appears once shipped.
+let shipFees = [];
 const nowStamp = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const r2 = x => Math.round(x * 100) / 100;
 const BUCKETS = ['cash', 'maribank', 'reserves', 'others'];
@@ -497,25 +499,43 @@ function computeBalance() {
   const bDate = m ? m[1] : (String(b.updatedAt || '').slice(0, 10) || todayIso()), bTime = m ? m[2].padStart(5, '0') : '00:00';
   const skip = new Set((b.skip || []).map(String));
   // dated after the baseline? Same day: compare the time; with no time it counts unless it already existed when the baseline was saved
-  const after = t => {
+  const bStamp = bDate + ' ' + bTime;
+  const createdOf = t => { const c = String(t.created || '').match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/); return c ? c[1] + ' ' + c[2] : ''; };
+  const afterByDate = t => {
     const d = String(t.date || '').slice(0, 10);
     if (!d) return false;
     if (d !== bDate) return d > bDate;
     const tm = String(t.time || '').trim();
     return tm ? tm.padStart(5, '0') > bTime : !skip.has(String(t.id));
   };
+  // entered after the baseline was saved (even if dated earlier, e.g. a backdated receipt) -> it is not in the typed amounts yet
+  const enteredAfter = t => { const c = createdOf(t); return !!c && c > bStamp; };
+  const after = t => afterByDate(t) || enteredAfter(t);
   const daily = {}, base = { cash: +b.cash || 0, maribank: +b.maribank || 0, reserves: +b.reserves || 0, others: +b.others || 0 };
   let inSum = 0, outSum = 0, n = 0;
   finData.toRecord.concat(finData.recorded).forEach(t => {
     if (t.flow !== 'inflow' && t.flow !== 'outflow') return;
     const k = bucketOf(t.payMethod);
     if (!k || !after(t)) return;
-    const amt = Number(t.amount) || 0, d = String(t.date).slice(0, 10);
+    const amt = Number(t.amount) || 0;
+    let d = String(t.date || '').slice(0, 10);
+    const cr = createdOf(t);
+    if (cr && cr > bStamp && d < cr.slice(0, 10)) d = cr.slice(0, 10);   // backdated: earns/costs from the day it was entered
+    if (d < bDate) d = bDate;
     (daily[k] = daily[k] || {})[d] = ((daily[k] || {})[d] || 0) + (t.flow === 'inflow' ? amt : -amt);
     if (t.flow === 'inflow') inSum += amt; else outSum += amt;
     n++;
   });
-  const cfg = interestCfg, today = todayIso(), out = { n, inSum, outSum, interest: 0, since: bDate };
+  // shipping fees still to be paid (sale not fully shipped yet): taken off the account now; the real Finance task replaces this once shipped
+  let shipSum = 0;
+  shipFees.forEach(x => {
+    const k = bucketOf(x.from), fee = Number(x.fee) || 0;
+    if (!k || fee <= 0) return;
+    const t0 = todayIso();
+    (daily[k] = daily[k] || {})[t0] = (daily[k][t0] || 0) - fee;
+    shipSum += fee;
+  });
+  const cfg = interestCfg, today = todayIso(), out = { n, inSum, outSum, pendingShip: r2(shipSum), interest: 0, since: bDate, log: [] };
   BUCKETS.forEach(k => {
     let cur = base[k];
     const days = daily[k] || {};
@@ -526,6 +546,7 @@ function computeBalance() {
         const rate = (cur > cfg.threshold ? cfg.hi : cfg.lo) / 100;
         const gross = r2(cur * rate / 365);
         const net = r2(gross - r2(gross * cfg.tax / 100));
+        out.log.push({ date: d, acct: k, bal: r2(cur), rate: rate * 100, gross, tax: r2(gross - net), net });   // for the daily interest log
         cur += net; out.interest += net;
       }
     }
@@ -561,7 +582,7 @@ function renderBalance() {
     set('balTotalVal', finPhp(liquid + c.reserves + (+portValue || 0) + c.others));
   }
   const auto = document.getElementById('balAuto');
-  const bits = c ? [c.inSum ? `+${finPhp(c.inSum)} in` : '', c.outSum ? `\u2212${finPhp(c.outSum)} out` : '', c.interest ? `+${finPhp(c.interest)} interest (after ${interestCfg.tax}% tax)` : ''].filter(Boolean) : [];
+  const bits = c ? [c.inSum ? `+${finPhp(c.inSum)} in` : '', c.outSum ? `\u2212${finPhp(c.outSum)} out` : '', c.pendingShip ? `\u2212${finPhp(c.pendingShip)} shipping fees pending` : '', c.interest ? `+${finPhp(c.interest)} interest (after ${interestCfg.tax}% tax)` : ''].filter(Boolean) : [];
   auto.hidden = !bits.length;
   if (bits.length) auto.textContent = `Since ${fmtDay(c.since)}: ` + bits.join(' \u00b7 ');
   document.getElementById('balNote').hidden = !(b && b.note);
@@ -580,6 +601,29 @@ async function loadPortValue() {
     cacheSet('portfolio', { cards: Array.isArray(data.cards) ? data.cards : (data.owned || []).concat(data.sold || []) });   // same shape portfolio.js saves
     renderBalance();
   } catch (err) { console.warn('Portfolio value load failed', err); }   // keeps whatever is already showing
+}
+// Pending shipping fees: every sale batch that still has an unshipped card owes its whole fee (cards already shipped in
+// the same batch included) to the account chosen as "deducted from".
+const shipFeesOf = d => {
+  const open = new Set((d.toShip || []).map(i => i.groupKey)), g = {};
+  (d.toShip || []).concat(d.shipped || []).forEach(i => {
+    if (!open.has(i.groupKey)) return;
+    const x = g[i.groupKey] = g[i.groupKey] || { fee: 0, from: '' };
+    x.fee += Number(i.shipFee) || 0;
+    if (!x.from) x.from = i.deductedFrom || '';
+  });
+  return Object.keys(g).map(k => g[k]).filter(x => x.fee > 0);
+};
+let shipFirstFin = true;
+async function loadShipFees() {
+  if (!CONFIG.portfolio.endpoint) return;
+  const cached = shipFirstFin ? cacheGet('shipFees') : null; shipFirstFin = false;
+  if (cached) { shipFees = cached; renderBalance(); }
+  try {
+    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=shipping&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    if (!data.ok) throw new Error(data.error || 'Unknown error');
+    shipFees = shipFeesOf(data); cacheSet('shipFees', shipFees); renderBalance();
+  } catch (err) { console.warn('Shipping fees load failed', err); }   // keeps whatever is already showing
 }
 let balFirst = true;
 async function loadBalance() {
@@ -656,9 +700,34 @@ $i('intSave').onclick = async () => {
   } catch (err) { toast('Saved on this device only: ' + err.message); }
 };
 
+/* Daily interest log: what each account earned on each day since the starting point (same numbers the balance uses). */
+const ACCT_LABEL = { cash: 'Cash', maribank: 'Maribank', reserves: 'Cash reserves', others: 'Others' };
+function renderInterestLog() {
+  const c = computeBalance(), body = $i('logBody');
+  if (!balance) { body.innerHTML = '<p class="stub-note">Set a starting balance first (tap Update). Interest is counted from that moment.</p>'; return; }
+  const on = BUCKETS.filter(k => interestCfg.accounts[k]);
+  if (!on.length) { body.innerHTML = '<p class="stub-note">No account is set to earn interest. Turn one on under Interest.</p>'; return; }
+  if (!c.log.length) { body.innerHTML = '<p class="stub-note">Nothing credited yet. Interest is credited at midnight on the day\u2019s ending balance, so the first entry appears tomorrow.</p>'; return; }
+  const tot = {}, byDay = {};
+  c.log.forEach(e => { tot[e.acct] = (tot[e.acct] || 0) + e.net; (byDay[e.date] = byDay[e.date] || []).push(e); });
+  const sum = BUCKETS.filter(k => tot[k]).map(k => `<div><span>${ACCT_LABEL[k]}</span><b class="amt-in">+${finPhp(tot[k])}</b></div>`).join('');
+  const days = Object.keys(byDay).sort().reverse().map(d => {
+    const es = byDay[d], day = es.reduce((a, e) => a + e.net, 0);
+    return `<div class="log-day"><div class="log-day-head"><b>${escFin(fmtDay(d))}</b><b class="amt-in">+${finPhp(day)}</b></div>`
+      + es.map(e => `<div class="log-row"><span>${ACCT_LABEL[e.acct]} <small>on ${finNum(e.bal)} at ${+e.rate.toFixed(2)}%</small></span><span>+${finNum(e.net)}</span></div>`).join('') + '</div>';
+  }).join('');
+  body.innerHTML = `<div class="log-total"><span>Total earned since ${escFin(fmtDay(c.since))} <small>after ${interestCfg.tax}% tax</small></span><b class="amt-in">+${finPhp(c.interest)}</b></div>`
+    + `<div class="log-accts">${sum}</div>` + days
+    + '<p class="stub-note" style="margin:8px 0 0;font-size:11px">Each day is credited at midnight, so today\u2019s interest appears tomorrow.</p>';
+}
+$i('balLog').onclick = () => { renderInterestLog(); $i('logSheet').hidden = false; };
+$i('logClose').onclick = () => $i('logSheet').hidden = true;
+$i('logSheet').addEventListener('click', e => { if (e.target.id === 'logSheet') $i('logSheet').hidden = true; });
+
 // Refresh reloads both the task list and the balance (your ticks are kept)
-$finRefresh.onclick = () => { loadFinance(); loadBalance(); loadPortValue(); };
+$finRefresh.onclick = () => { loadFinance(); loadBalance(); loadPortValue(); loadShipFees(); };
 
 loadBalance();
 loadPortValue();
+loadShipFees();
 loadFinance();

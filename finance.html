@@ -35,6 +35,7 @@
     <div class="bal-head">
       <b>Current balance</b>
       <span class="bal-btns">
+        <button type="button" class="ghost sm" id="balLog">Daily interest</button>
         <button type="button" class="ghost sm" id="balInterest">Interest</button>
         <button type="button" class="ghost sm" id="balEdit">Update</button>
       </span>
@@ -131,6 +132,14 @@
       <button type="button" class="ghost" id="intReset">Reset to Maribank defaults</button>
       <button type="button" class="ghost" id="intCancel">Cancel</button>
     </div>
+  </div>
+</div>
+
+<div class="modal" id="logSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Daily interest</h3>
+    <div id="logBody"></div>
+    <div class="acts"><button type="button" class="ghost" id="logClose">Close</button></div>
   </div>
 </div>
 
