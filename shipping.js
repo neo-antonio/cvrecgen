@@ -173,6 +173,7 @@ function renderTab() {
   $shipState.hidden = true; $shipList.hidden = false;
 }
 
+let shipFirst = true;   // first load of the page draws the cached copy instantly
 async function loadShipping() {
   if (!CONFIG.portfolio.endpoint) { $shipState.textContent = "Sync isn't set up yet."; $shipState.hidden = false; $shipList.hidden = true; return; }
   const cached = shipFirst ? cacheGet('shipping') : null; shipFirst = false;
