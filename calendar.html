@@ -24,11 +24,12 @@
     <h2>Calendar</h2>
     <span class="hbar-spacer" aria-hidden="true"></span>
   </div>
-  <nav class="tabs tabs-4" role="tablist">
+  <nav class="tabs tabs-5" role="tablist">
     <button type="button" class="tab active" data-cfilter="all" role="tab">All</button>
     <button type="button" class="tab" data-cfilter="shipping" role="tab">Shipping</button>
     <button type="button" class="tab" data-cfilter="receipts" role="tab">Receipts</button>
     <button type="button" class="tab" data-cfilter="events" role="tab">Events</button>
+    <button type="button" class="tab" data-cfilter="creatives" role="tab">Creatives</button>
   </nav>
 </header>
 
@@ -83,6 +84,11 @@
       <button type="button" class="ghost" id="evCancel">Cancel</button>
     </div>
   </div>
+</div>
+<div class="cc-apply" id="ccBar" hidden>
+  <span id="ccCount"></span>
+  <button type="button" class="ghost sm" id="ccCancel">Cancel</button>
+  <button type="button" class="go sm" id="ccApply">Apply changes</button>
 </div>
 <div class="toast" id="calToast" hidden></div>
 

@@ -17,6 +17,9 @@
  *   Events:         ID | Date | Title | Time | Notes   (created automatically)
  *   Entities (A-E): ID | Name | Contact | Aliases | Created   (sellers, buyers, trade partners; created automatically).
  *                   Aliases are other spellings (pipe-separated) that resolve to this entity.
+ *   Creatives (A-M): ID | Kind | ReceiptKey | Title | Date | Status | Platforms | Notes | Caption | Edited | Auto | Created | DoneDate
+ *                   Kind: video (a vlog task) or post (one row per receipt group of cards, ID = pg_<receiptKey>).
+ *                   Platforms is JSON {fb,ig,yt,tt: {on,date,link}}. Edited = pipe-separated card IDs already edited (posts).
  *   Optional columns/tabs are created by the script on first use. Interest settings are kept in Script Properties.
  *
  * DEPLOY: Deploy > Manage deployments > edit your Web app > Version: New version > Deploy.
@@ -25,7 +28,8 @@
  * GET  actions: portfolio, onhandCards, finance, shipping, receipts, syncStatus, record, unrecord, balance, saveBalance, saveInterest,
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
- *               entities, entityNames, saveEntity, mergeEntities, deleteEntity
+ *               entities, entityNames, saveEntity, mergeEntities, deleteEntity, creatives, saveCreative, setCreativeCards,
+ *               completeCreatives, deleteCreative
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
 
@@ -95,6 +99,11 @@ function doGet(e) {
     if (action === 'events') return jsonpOut_(getEvents_(), cb);
     if (action === 'saveEvent') return jsonpOut_(saveEvent_(e.parameter), cb);
     if (action === 'deleteEvent') return jsonpOut_(deleteEvent_(e.parameter.eventId), cb);
+    if (action === 'creatives') return jsonpOut_(getCreatives_(), cb);
+    if (action === 'saveCreative') return jsonpOut_(saveCreative_(e.parameter), cb);
+    if (action === 'setCreativeCards') return jsonpOut_(setCreativeCards_(e.parameter), cb);
+    if (action === 'completeCreatives') return jsonpOut_(completeCreatives_(e.parameter), cb);
+    if (action === 'deleteCreative') return jsonpOut_(deleteCreative_(e.parameter.id), cb);
     return jsonpOut_({ ok: false, error: 'unknown action' }, cb);
   } catch (err) {
     return jsonpOut_({ ok: false, error: String(err) }, cb);
@@ -159,7 +168,9 @@ function handlePurchase_(body) {
   });
   appendRows_(cards, cardRows);
   appendRows_(fin, finRows);
-  return { ok: true, receipt: receiptSaved, cards: cardRows.length, finance: finRows.length, photosFailed };
+  let creatives = 0;
+  if (body.vlog) { try { addVideoTask_('Vlog: Purchase from ' + (seller || '\u2014'), body.date || todayStr_(), receiptUrl); creatives = 1; } catch (err) {} }
+  return { ok: true, receipt: receiptSaved, cards: cardRows.length, finance: finRows.length, creatives, photosFailed };
 }
 
 function handleSell_(body) {
@@ -282,7 +293,9 @@ function handleTrade_(body) {
     fin.appendRow([newId_('f'), '', 'trade', body.date || '', 'Trade with ' + partyLabel + ' \u2014 no cash', 0, '', false, '', receiptUrl, 'none', '', tradeNotes]);
   }
 
-  return { ok: true, receipt: receiptSaved, traded: tradedN, received: receivedN, finance: 1, photosFailed };
+  let creatives = 0;
+  if (body.vlog) { try { addVideoTask_('Vlog: Trade with ' + partyLabel, body.date || todayStr_(), receiptUrl); creatives = 1; } catch (err) {} }
+  return { ok: true, receipt: receiptSaved, traded: tradedN, received: receivedN, finance: 1, creatives, photosFailed };
 }
 
 // A transfer between our own accounts: one Receipts row + two Finance tasks (outflow from source, inflow to destination),
@@ -487,7 +500,7 @@ function planReceiptDelete_(receiptId) {
   if (!rFound) return { error: 'not found' };
   const rawUrl = String(rFound.row[3] || '');
   const key = fileKey_(rawUrl);
-  const plan = { rSheet, receiptIdx: rFound.idx, rawUrl, key, cards: [], finance: [] };
+  const plan = { rSheet, receiptIdx: rFound.idx, rawUrl, key, cards: [], finance: [], creatives: [] };
   if (!key) return plan; // no URL on this receipt -> nothing can be linked to it
 
   const cSheet = cardsSheet_(), fSheet = financeSheet_();
@@ -507,6 +520,16 @@ function planReceiptDelete_(receiptId) {
     const remaining = cRows.slice(1).some(row => String(row[23]) === b && !cardIds[String(row[0])]);
     if (remaining) delete batches[b];
   });
+
+  // Creatives (vlog tasks + post groups) tied to this receipt go with it
+  const crSheet = creativesSheet_(false);
+  if (crSheet) {
+    const crRows = crSheet.getDataRange().getValues();
+    for (let r = 1; r < crRows.length; r++) {
+      const row = crRows[r];
+      if (row[0] && row[2] && String(row[2]) === key) plan.creatives.push({ idx: r + 1, id: String(row[0]), title: row[3] || (row[1] === 'post' ? 'Post edits' : 'Vlog task') });
+    }
+  }
 
   const fRows = fSheet.getDataRange().getValues();
   for (let r = 1; r < fRows.length; r++) {
@@ -533,7 +556,7 @@ function deleteRowsBatch_(sheet, idxs) {
 function receiptImpact_(receiptId) {
   const plan = planReceiptDelete_(receiptId);
   if (plan.error) return { ok: false, error: plan.error };
-  return { ok: true, cards: plan.cards.map(c => c.name), finance: plan.finance.map(f => f.description) };
+  return { ok: true, cards: plan.cards.map(c => c.name), finance: plan.finance.map(f => f.description), creatives: plan.creatives.map(c => c.title) };
 }
 
 function deleteReceipt_(receiptId) {
@@ -543,6 +566,7 @@ function deleteReceipt_(receiptId) {
     const plan = planReceiptDelete_(receiptId);
     if (plan.error) return { ok: false, error: plan.error };
     deleteRowsBatch_(financeSheet_(), plan.finance.map(f => f.idx));
+    if (plan.creatives.length) deleteRowsBatch_(creativesSheet_(false), plan.creatives.map(c => c.idx));
     deleteRowsBatch_(cardsSheet_(), plan.cards.map(c => c.idx));
     plan.rSheet.deleteRow(plan.receiptIdx);
     // the image itself goes to the Drive trash (recoverable there); never fail the delete over it
@@ -550,7 +574,7 @@ function deleteReceipt_(receiptId) {
       const m = plan.rawUrl.match(/[-\w]{25,}/);
       if (m) DriveApp.getFileById(m[0]).setTrashed(true);
     } catch (err) {}
-    return { ok: true, deletedCards: plan.cards.length, deletedFinance: plan.finance.length };
+    return { ok: true, deletedCards: plan.cards.length, deletedFinance: plan.finance.length, deletedCreatives: plan.creatives.length };
   } finally {
     lock.releaseLock();
   }
@@ -1027,6 +1051,191 @@ function getReceipts_() {
   const rows = receiptsSheet_().getDataRange().getValues(); rows.shift();
   const receipts = rows.filter(r => r[0]).map(r => ({ id: r[0], type: r[1], date: fmtDateCell_(r[2]), url: toDisplayUrl_(r[3]), description: r[4], time: fmtTimeCell_(r[5]) }));
   return { ok: true, receipts: receipts.reverse() };
+}
+
+/* ---------- creatives: vlog tasks (videos) and per-receipt card edits (posts) ---------- */
+
+// Optional: only show post groups for receipts dated on/after this day (yyyy-mm-dd). '' = every receipt on record.
+const CREATIVES_POSTS_FROM = '';
+const CREATIVES_SHEET = 'Creatives';
+const CREATIVE_HEADERS = ['ID', 'Kind', 'ReceiptKey', 'Title', 'Date', 'Status', 'Platforms', 'Notes', 'Caption', 'Edited', 'Auto', 'Created', 'DoneDate'];
+
+function creativesSheet_(create) {
+  const ss = ss_();
+  let sh = ss.getSheetByName(CREATIVES_SHEET);
+  if (!sh && create) {
+    sh = ss.insertSheet(CREATIVES_SHEET);
+    sh.getRange(1, 1, 1, CREATIVE_HEADERS.length).setValues([CREATIVE_HEADERS]);
+    sh.getRange(1, 1, sh.getMaxRows(), CREATIVE_HEADERS.length).setNumberFormat('@');
+  }
+  return sh;
+}
+
+function cleanDate_(d) { d = String(d || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : ''; }
+function cleanPlatforms_(json) {
+  let o = {};
+  try { o = JSON.parse(json || '{}') || {}; } catch (err) {}
+  const out = {};
+  ['fb', 'ig', 'yt', 'tt'].forEach(k => {
+    const p = o[k]; if (!p) return;
+    const link = String(p.link || '').trim().slice(0, 500);
+    out[k] = { on: p.on === true || p.on === 'true', date: cleanDate_(p.date), link: /^https?:\/\//i.test(link) ? link : '' };
+  });
+  return JSON.stringify(out);
+}
+function parsePlatforms_(cell) { try { return JSON.parse(cell || '{}') || {}; } catch (err) { return {}; } }
+function writeCreativeRow_(sh, idx, row) {
+  const at = idx || (sh.getLastRow() + 1);
+  if (at > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), at - sh.getMaxRows());
+  sh.getRange(at, 1, 1, CREATIVE_HEADERS.length).setNumberFormat('@').setValues([row]);
+}
+function blankCreative_(id, kind, key) {
+  return [id, kind, key || '', '', '', 'todo', '', '', '', '', '', todayStr_(), ''];
+}
+
+// A vlog task made automatically from a purchase / trade receipt.
+function addVideoTask_(title, date, receiptUrl) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = creativesSheet_(true);
+    const row = blankCreative_(newId_('v'), 'video', fileKey_(receiptUrl));
+    row[3] = String(title).slice(0, 200); row[4] = cleanDate_(date) || todayStr_(); row[10] = 'auto';
+    writeCreativeRow_(sh, 0, row);
+  } finally { lock.releaseLock(); }
+}
+
+// Every post group is one receipt's worth of portfolio cards; its ID is stable (pg_ + receipt key).
+function cardGroupId_(c) {
+  const key = fileKey_(c[21]);
+  return key ? 'pg_' + key : 'pg_n_' + fmtDateCell_(c[1]) + '_' + String(c[2] || '').replace(/[^\w]+/g, '').slice(0, 20);
+}
+function creativeObj_(r) {
+  return { id: String(r[0]), kind: String(r[1]), receiptKey: String(r[2] || ''), title: String(r[3] || ''), date: fmtDateCell_(r[4]),
+    status: r[5] === 'done' ? 'done' : 'todo', platforms: parsePlatforms_(r[6]), notes: String(r[7] || ''), caption: String(r[8] || ''),
+    edited: String(r[9] || '').split('|').filter(Boolean), auto: r[10] === 'auto', doneDate: fmtDateCell_(r[12]) };
+}
+
+function getCreatives_() {
+  const sh = creativesSheet_(false);
+  const rows = sh ? sh.getDataRange().getValues().slice(1) : [];
+  const videos = [], stored = {};
+  rows.forEach(r => {
+    if (!r[0]) return;
+    const o = creativeObj_(r);
+    if (o.kind === 'video') videos.push(o); else stored[o.id] = o;
+  });
+
+  const rmap = receiptMap_();
+  const cRows = cardsSheet_().getDataRange().getValues(); cRows.shift();
+  const groups = {}, order = [];
+  cRows.forEach(c => {
+    if (!c[0] || !c[4]) return;
+    const key = fileKey_(c[21]), rc = key ? rmap[key] : null;
+    if (rc && rc.type !== 'purchase' && rc.type !== 'trade') return;
+    const date = rc ? rc.date : fmtDateCell_(c[1]);
+    if (CREATIVES_POSTS_FROM && (!date || date < CREATIVES_POSTS_FROM)) return;
+    const id = cardGroupId_(c);
+    if (!groups[id]) {
+      groups[id] = { id, receiptKey: key, type: rc ? rc.type : 'purchase', label: rc ? rc.description : ('Purchase from ' + (c[2] || '\u2014')), date, cards: [] };
+      order.push(id);
+    }
+    groups[id].cards.push({ id: String(c[0]), name: String(c[4]), photo: toDisplayUrl_(c[7], 300), full: toDisplayUrl_(c[7], 1080), cost: Number(c[5]) || 0 });
+  });
+  const posts = order.map(id => {
+    const g = groups[id], st = stored[id] || creativeObj_(blankCreative_(id, 'post', g.receiptKey));
+    const done = {}; st.edited.forEach(x => done[x] = true);
+    g.cards.forEach(c => c.edited = !!done[c.id]);
+    const n = g.cards.filter(c => c.edited).length;
+    return Object.assign(g, { scheduled: st.date || g.date, platforms: st.platforms, notes: st.notes, caption: st.caption,
+      editedCount: n, status: n === g.cards.length ? 'edited' : 'toedit' });
+  });
+  return { ok: true, videos: videos.reverse(), posts: posts.reverse() };
+}
+
+// Upsert by id. Only the fields that are present in the request are changed, so a date change never wipes the links.
+function saveCreative_(p) {
+  let id = String(p.id || '').trim();
+  const isPost = id.indexOf('pg_') === 0;
+  if (!isPost && !/^v_[0-9a-f]{4,16}$/.test(id)) id = newId_('v');
+  if ('title' in p && !isPost && !String(p.title).trim()) return { ok: false, error: 'missing title' };
+  if ('date' in p && p.date && !cleanDate_(p.date)) return { ok: false, error: 'invalid date' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = creativesSheet_(true);
+    const found = findRow_(sh, id);
+    const row = found ? found.row.slice() : blankCreative_(id, isPost ? 'post' : 'video', isPost ? id.slice(3) : '');
+    if (!found && !isPost) { row[3] = String(p.title || '').trim().slice(0, 200); row[4] = cleanDate_(p.date) || todayStr_(); }
+    if ('title' in p) row[3] = String(p.title).trim().slice(0, 200);
+    if ('date' in p) row[4] = cleanDate_(p.date);
+    if ('status' in p) { row[5] = p.status === 'done' ? 'done' : 'todo'; row[12] = row[5] === 'done' ? todayStr_() : ''; }
+    if ('platforms' in p) row[6] = cleanPlatforms_(p.platforms);
+    if ('notes' in p) row[7] = String(p.notes).trim().slice(0, 1000);
+    if ('caption' in p) row[8] = String(p.caption).trim().slice(0, 1500);
+    writeCreativeRow_(sh, found ? found.idx : 0, row);
+    return { ok: true, id };
+  } finally { lock.releaseLock(); }
+}
+
+// Mark cards of one post group edited (edited=true) or put them back on the to-edit list (edited=false).
+function setCreativeCards_(p) {
+  const id = String(p.id || '');
+  if (id.indexOf('pg_') !== 0) return { ok: false, error: 'not a post group' };
+  const ids = splitIds_(p.cardIds), on = p.edited === 'true' || p.edited === true;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = creativesSheet_(true);
+    const found = findRow_(sh, id);
+    const row = found ? found.row.slice() : blankCreative_(id, 'post', id.slice(3));
+    const set = {}; String(row[9] || '').split('|').filter(Boolean).forEach(x => set[x] = true);
+    ids.forEach(x => { if (on) set[x] = true; else delete set[x]; });
+    row[9] = Object.keys(set).join('|');
+    writeCreativeRow_(sh, found ? found.idx : 0, row);
+    return { ok: true, edited: Object.keys(set) };
+  } finally { lock.releaseLock(); }
+}
+
+// Calendar "Apply changes": many tasks at once. Videos -> done/todo. Post groups -> every card edited / none.
+function completeCreatives_(p) {
+  const ids = splitIds_(p.ids), done = p.status !== 'todo';
+  if (!ids.length) return { ok: false, error: 'nothing selected' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = creativesSheet_(true);
+    let cRows = null, changed = 0;
+    ids.forEach(id => {
+      const found = findRow_(sh, id);
+      if (id.indexOf('pg_') === 0) {
+        if (!cRows) { cRows = cardsSheet_().getDataRange().getValues(); cRows.shift(); }
+        const cardIds = cRows.filter(c => c[0] && c[4] && cardGroupId_(c) === id).map(c => String(c[0]));
+        const row = found ? found.row.slice() : blankCreative_(id, 'post', id.slice(3));
+        row[9] = done ? cardIds.join('|') : '';
+        writeCreativeRow_(sh, found ? found.idx : 0, row); changed++;
+      } else if (found) {
+        const row = found.row.slice();
+        row[5] = done ? 'done' : 'todo'; row[12] = done ? todayStr_() : '';
+        writeCreativeRow_(sh, found.idx, row); changed++;
+      }
+    });
+    return { ok: true, changed };
+  } finally { lock.releaseLock(); }
+}
+
+function deleteCreative_(id) {
+  id = String(id || '');
+  if (!id || id.indexOf('pg_') === 0) return { ok: false, error: 'only video tasks can be deleted' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = creativesSheet_(false);
+    const found = sh && findRow_(sh, id);
+    if (!found) return { ok: false, error: 'not found' };
+    sh.deleteRow(found.idx);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
 }
 
 /* ---------- entities: sellers, buyers and trade partners ---------- */

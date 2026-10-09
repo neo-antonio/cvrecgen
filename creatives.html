@@ -19,16 +19,85 @@
 </head>
 <body>
 <header class="top">
-  <div class="hbar" style="margin-bottom:0">
+  <div class="hbar">
     <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
     <h2>Creatives</h2>
     <span class="hbar-spacer" aria-hidden="true"></span>
   </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-ctab="video" role="tab">Video</button>
+    <button type="button" class="tab" data-ctab="post" role="tab">Posts</button>
+  </nav>
 </header>
 
 <main class="port-wrap">
-  <p class="stub-note">Creatives is empty for now &mdash; this page is ready to be built out.</p>
+  <div id="panelVideo">
+    <div class="filter-chips" id="vFilters">
+      <button type="button" class="chip active" data-f="todo">To do</button>
+      <button type="button" class="chip" data-f="done">Done</button>
+    </div>
+    <button type="button" class="ghost add-task" id="vAdd">+ Add task</button>
+    <p class="rec-count" id="vCount"></p>
+    <p class="stub-note" id="vState">Loading&hellip;</p>
+    <div class="port-list" id="vList" hidden></div>
+  </div>
+
+  <div id="panelPost" hidden>
+    <div class="filter-chips" id="pFilters">
+      <button type="button" class="chip active" data-f="toedit">To edit</button>
+      <button type="button" class="chip" data-f="edited">Edited</button>
+    </div>
+    <div class="rec-tools" style="margin-bottom:10px"><button type="button" class="ghost sm" id="cRefresh">Refresh</button></div>
+    <p class="rec-count" id="pCount"></p>
+    <p class="stub-note" id="pState" hidden></p>
+    <div class="port-list" id="pList" hidden></div>
+  </div>
 </main>
+
+<!-- video task: add / edit -->
+<div class="modal" id="vSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="vHeading">Add video task</h3>
+    <div class="field"><label for="vTitle">Title</label><input type="text" id="vTitle" autocomplete="off" placeholder="e.g. Vlog: Unboxing 20 packs"></div>
+    <div class="field"><label for="vDate">Scheduled date</label><input type="date" id="vDate"></div>
+    <div class="field" id="vPlatWrap">
+      <label>Uploaded to</label>
+      <div id="vPlats"></div>
+    </div>
+    <div class="field"><label for="vNotes">Notes <small>(optional)</small></label><textarea id="vNotes" rows="3" maxlength="1000" placeholder="Ideas, footage location, reminders&hellip;"></textarea></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="vSave">Save</button>
+      <button type="button" class="ghost" id="vCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- post group: details -->
+<div class="modal" id="pSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="pHeading">Post details</h3>
+    <div class="field"><label for="pDate">Scheduled date</label><input type="date" id="pDate"></div>
+    <div class="field">
+      <label>Posted to</label>
+      <div id="pPlats"></div>
+    </div>
+    <div class="field"><label for="pCaption">Caption <small>(to put on the post)</small></label><textarea id="pCaption" rows="4" maxlength="1500" placeholder="Caption for Facebook / Instagram&hellip;"></textarea></div>
+    <div class="field"><label for="pNotes">Notes <small>(optional)</small></label><textarea id="pNotes" rows="3" maxlength="1000"></textarea></div>
+    <div class="acts">
+      <button type="button" class="ghost" id="pCopy">Copy caption</button>
+      <button type="button" class="go sm" id="pSave">Save</button>
+      <button type="button" class="ghost" id="pCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="imgView" hidden>
+  <div class="sheet small">
+    <img id="imgViewImg" alt="">
+    <div class="acts"><button type="button" class="ghost" id="imgViewClose">Close</button></div>
+  </div>
+</div>
+<div class="toast" id="crToast" hidden></div>
 
 <footer class="site-footer">
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
@@ -36,5 +105,7 @@
 </footer>
 <script src="boot.js"></script>
 <script src="config.js"></script>
+<script src="net.js"></script>
+<script src="creatives.js"></script>
 </body>
 </html>

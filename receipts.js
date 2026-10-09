@@ -110,14 +110,15 @@ document.getElementById('imgViewDelete').onclick = async () => {
   try {
     const imp = await jsonp(`${base}?action=receiptImpact&receiptId=${encodeURIComponent(id)}&secret=${sec}`);
     if (!imp.ok) throw new Error(imp.error || 'Request failed');
-    const cards = imp.cards || [], fin = imp.finance || [];
+    const cards = imp.cards || [], fin = imp.finance || [], cre = imp.creatives || [];
     let msg = 'Delete this receipt?\n\n';
-    if (cards.length || fin.length) {
+    if (cards.length || fin.length || cre.length) {
       msg += 'This will also permanently delete:\n';
       if (cards.length) msg += `\u2022 ${cards.length} card${cards.length > 1 ? 's' : ''} (Portfolio / Shipping): ${sumList(cards)}\n`;
       if (fin.length) msg += `\u2022 ${fin.length} Finance entr${fin.length > 1 ? 'ies' : 'y'}: ${sumList(fin)}\n`;
+      if (cre.length) msg += `\u2022 ${cre.length} Creatives task${cre.length > 1 ? 's' : ''}: ${sumList(cre)}\n`;
     } else {
-      msg += 'No cards or Finance entries are linked to it.\n';
+      msg += 'No cards, Finance entries or Creatives tasks are linked to it.\n';
     }
     msg += '\nThis cannot be undone.';
     if (!confirm(msg)) return;
@@ -136,7 +137,7 @@ document.getElementById('imgViewDelete').onclick = async () => {
     }
     if (!del.ok) throw new Error(del.error || 'Request failed');
     document.getElementById('imgView').hidden = true;
-    toast(`Receipt deleted (${del.deletedCards || 0} card${del.deletedCards === 1 ? '' : 's'}, ${del.deletedFinance || 0} finance entr${del.deletedFinance === 1 ? 'y' : 'ies'}).`);
+    toast(`Receipt deleted (${del.deletedCards || 0} card${del.deletedCards === 1 ? '' : 's'}, ${del.deletedFinance || 0} finance entr${del.deletedFinance === 1 ? 'y' : 'ies'}${del.deletedCreatives ? `, ${del.deletedCreatives} creatives task${del.deletedCreatives === 1 ? '' : 's'}` : ''}).`);
     await loadReceipts();
   } catch (err) {
     toast('Could not delete: ' + backendErr(err));

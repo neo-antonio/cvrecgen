@@ -364,6 +364,7 @@ function update() {
     $('#trToOther').hidden = $('#trTo').value !== 'Others';
   }
 
+  $('#vlogWhat').textContent = mode === 'trade' ? 'trade' : 'purchase';
   $('#buyerWarn').hidden = !(mode === 'sold' && shipType() === 'buyer');
   $('#totalVal').textContent = php(grandTotal());
 }
@@ -390,6 +391,7 @@ function collect() {
     shipContact: mode === 'sold' ? $('#shipContact').value.trim() : '',
     deduct: $('#deduct').value === 'Others' ? ($('#deductOther').value.trim() || 'Others') : $('#deduct').value,
     notes: $('#notes').value.trim(),
+    vlog: (mode === 'purchase' || mode === 'trade') && $('#vlog').checked,   // a vlog task is added to Creatives
     // whole-receipt "record to portfolio" flag (purchase mode) — applies to every item
     portfolio: $('#globalPortfolio').checked,
     // trade-only fields
@@ -554,7 +556,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // portfolio-flagged items also get a new Cards row — d.portfolio is ONE checkbox for the whole receipt.
 function purchaseBody(d, receiptPhoto) {
   if (!d.items.length) return null;
-  return { action: 'purchase', date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, notes: d.notes,
+  return { action: 'purchase', date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, notes: d.notes, vlog: d.vlog,
     items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: d.portfolio })), receiptPhoto };
 }
 // Cards sold always move to "shipping" so they show up under To ship, even with no shipping fee; the
@@ -571,7 +573,7 @@ function saleBody(d, receiptPhoto) {
 // ticked. Any cash paid/received bills to Finance as one entry.
 function tradeBody(d, receiptPhoto) {
   if (!d.tradedItems.length && !d.receivedItems.length) return null;
-  return { action: 'trade', date: d.date, time: d.time, tradedTo: d.party, tradedBy: d.people, notes: d.notes,
+  return { action: 'trade', date: d.date, time: d.time, tradedTo: d.party, tradedBy: d.people, notes: d.notes, vlog: d.vlog,
     tradedItems: d.tradedItems.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
     receivedItems: d.receivedItems.map(i => ({ name: i.name, cost: i.cost, photo: i.photo })),
     receivedPortfolio: d.receivedPortfolio, cashDirection: d.cashDirection, cashAmount: d.cashAmount, cashMethod: d.cashMethod, receiptPhoto };
@@ -653,6 +655,7 @@ function plannedSteps(d) {
   else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k, 'finance task')}` }); }
   else if (d.mode === 'sold') st.push({ st: 'wait', t: `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
   else { if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio)) st.push({ st: 'wait', t: 'Updating portfolio' }); st.push({ st: 'wait', t: 'Creating finance task' }); }
+  if (d.vlog) st.push({ st: 'wait', t: 'Adding vlog task to Creatives' });
   return st;
 }
 function resultSteps(d, r) {
@@ -667,6 +670,7 @@ function resultSteps(d, r) {
       st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `Portfolio updated: ${r.traded || 0} traded out, ${r.received || 0} added${pf}` });
     st.push({ st: 'ok', t: 'Finance task created' });
   }
+  if (d.vlog) st.push(r.creatives ? { st: 'ok', t: 'Vlog task added to Creatives' } : { st: 'warn', t: 'Vlog task could not be added to Creatives' });
   return st;
 }
 
@@ -768,6 +772,7 @@ async function generate() {
     const receiptPhoto = { kind: 'camera', src: await blobToDataUrl(blob) };
     startSync(d, d.mode === 'purchase' ? purchaseBody(d, receiptPhoto) : d.mode === 'sold' ? saleBody(d, receiptPhoto) : d.mode === 'transfer' ? transferBody(d, receiptPhoto) : tradeBody(d, receiptPhoto)).then(loadEntities).catch(err => console.warn('Sync failed', err));   // a new name becomes a saved entity: refresh the suggestions
     resetAfterCardReceipt(d);
+    $('#vlog').checked = false;   // per-receipt: never carry one vlog request over to the next receipt
     if (skipped) toast('Logo skipped. Open the app from http://localhost or your website to include it.');
   } catch (e) {
     console.error(e);
