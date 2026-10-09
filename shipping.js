@@ -8,6 +8,7 @@ const $shipTotal = document.getElementById('shipTotal');
 const $shipRefresh = document.getElementById('shipRefresh');
 const CARE_LABEL = { buyer: 'c/o buyer', us: 'c/o us', none: 'No shipping' };
 
+const $shipSearch = document.getElementById('shipSearch'), $shipFrom = document.getElementById('shipFrom'), $shipTo = document.getElementById('shipTo'), $shipCount = document.getElementById('shipCount');
 let shipTab = 'toship';
 let shipData = { toShip: [], shipped: [] };
 let activeShipCardIds = [];       // one card (item photo) or every card of a group (proof photo)
@@ -95,17 +96,20 @@ function cardHtml(group, isToShip) {
       <div><small>Method</small><b>${escShip(f.shipMethod || '\u2014')}</b></div>
       <div class="${state}"><small>${dateLabel}</small><b>${escShip(dateText)}</b>${badge}</div>
     </div>`;
-  const address = (f.address || isToShip) ? `<div class="ship-addr"><small>Ship to</small>${f.address ? escShip(f.address) : '<em>No address yet</em>'}</div>` : '';
+  const address = (f.address || f.contact || isToShip) ? `<div class="ship-addr"><small>Ship to</small>${f.address ? escShip(f.address) : '<em>No address yet</em>'}${f.contact ? `<div class="ship-contact">Contact: ${escShip(f.contact)}</div>` : ''}</div>` : '';
+  // notes written on the sale receipt, right under the address; editable with the pencil
+  const notes = f.notes ? `<div class="ship-addr ship-notes"><small>Notes</small>${escShip(f.notes)}</div>` : '';
   const proof = !isToShip && hasProof ? `<div class="port-thumb"><img src="${proofUrl}" alt="Proof of shipment" class="ship-clickphoto" data-full="${proofUrl}"></div>` : '';
   const receiptBtn = receiptUrl ? shipIcon('doc', 'ship-receipt', 'Receipt', ids, `data-url="${escShip(receiptUrl)}"`) : '';
   const actions = isToShip
-    ? `<div class="ship-actions">${shipIcon('pencil', 'ship-edit', 'Edit method, address & schedule', ids)}${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}</div>`
+    ? `<div class="ship-actions">${shipIcon('pencil', 'ship-edit', 'Edit method, address, notes & schedule', ids)}${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}</div>`
     : `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-editdate', 'Edit shipped details', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${receiptBtn}${shipIcon('undo', 'ship-revert', n > 1 ? 'Revert all' : 'Revert', ids)}</div>`;
   return `<div class="ship-card ${state}" data-ids="${escShip(ids)}">
       ${key}
       <div class="ship-items">${group.map(itemRowHtml).join('')}</div>
       <div class="ship-meta">${metaLines.join('<br>')}</div>
       ${address}
+      ${notes}
       ${actions}
     </div>`;
 }
@@ -125,26 +129,50 @@ function renderAlert() {
   $a.hidden = !parts.length;
 }
 
+// A shipment (all cards from one sale) is shown whole when any of its cards matches the search. The date filter uses
+// the scheduled date on To ship and the shipped date on Shipped; To ship tasks with no scheduled date drop out while a date is set.
 function renderTab() {
   renderAlert();
-  const list = shipTab === 'toship' ? shipData.toShip : shipData.shipped;
+  const isToShip = shipTab === 'toship';
+  document.getElementById('shipFromLbl').textContent = isToShip ? 'Scheduled from' : 'Shipped from';
+  document.getElementById('shipToLbl').textContent = isToShip ? 'Scheduled to' : 'Shipped to';
+  const list = isToShip ? shipData.toShip : shipData.shipped;
   if (!list.length) {
-    $shipState.textContent = shipTab === 'toship' ? 'Nothing waiting to ship.' : 'Nothing shipped yet.';
+    $shipState.textContent = isToShip ? 'Nothing waiting to ship.' : 'Nothing shipped yet.';
+    $shipState.hidden = false; $shipList.hidden = true;
+    $shipTotal.textContent = shipPhp(0);
+    $shipCount.textContent = '';
+    return;
+  }
+  let groups = groupCards(list);
+  if (isToShip) {   // most overdue first, then by scheduled date; unscheduled last
+    const rank = g => { const d = g[0].scheduledDate; return d ? dayNum(d) : Infinity; };
+    groups = groups.map((g, i) => ({ g, i })).sort((a, b) => (rank(a.g) - rank(b.g)) || (a.i - b.i)).map(x => x.g);
+  }
+  let lo = $shipFrom.value, hi = $shipTo.value;
+  if (lo && hi && lo > hi) [lo, hi] = [hi, lo];
+  const q = $shipSearch.value.trim().toLowerCase();
+  const filtered = !!(lo || hi || q);
+  if (filtered) groups = groups.filter(g => {
+    if (lo || hi) {
+      const d = String((isToShip ? g[0].scheduledDate : g[0].shippedDate) || '').slice(0, 10);
+      if (!d || (lo && d < lo) || (hi && d > hi)) return false;
+    }
+    if (q && !g.map(i => [i.name, i.soldTo, i.shipMethod, i.address, i.contact, i.notes].join(' ')).join(' ').toLowerCase().includes(q)) return false;
+    return true;
+  });
+  $shipCount.textContent = `${groups.length} shipment${groups.length === 1 ? '' : 's'}${filtered ? ' match' : ''}`;
+  if (!groups.length) {
+    $shipState.textContent = 'No shipments match your search or dates.';
     $shipState.hidden = false; $shipList.hidden = true;
     $shipTotal.textContent = shipPhp(0);
     return;
   }
-  let groups = groupCards(list);
-  if (shipTab === 'toship') {   // most overdue first, then by scheduled date; unscheduled last
-    const rank = g => { const d = g[0].scheduledDate; return d ? dayNum(d) : Infinity; };
-    groups = groups.map((g, i) => ({ g, i })).sort((a, b) => (rank(a.g) - rank(b.g)) || (a.i - b.i)).map(x => x.g);
-  }
-  $shipList.innerHTML = groups.map(g => cardHtml(g, shipTab === 'toship')).join('');
-  $shipTotal.textContent = shipPhp(list.reduce((a, i) => a + (Number(i.shipFee) || 0), 0));
+  $shipList.innerHTML = groups.map(g => cardHtml(g, isToShip)).join('');
+  $shipTotal.textContent = shipPhp(groups.reduce((a, g) => a + g.reduce((s, i) => s + (Number(i.shipFee) || 0), 0), 0));   // total of what is shown
   $shipState.hidden = true; $shipList.hidden = false;
 }
 
-let shipFirst = true;
 async function loadShipping() {
   if (!CONFIG.portfolio.endpoint) { $shipState.textContent = "Sync isn't set up yet."; $shipState.hidden = false; $shipList.hidden = true; return; }
   const cached = shipFirst ? cacheGet('shipping') : null; shipFirst = false;
@@ -171,6 +199,9 @@ document.querySelectorAll('.tab[data-stab]').forEach(t => t.onclick = () => {
   renderTab();
 });
 $shipRefresh.onclick = loadShipping;
+$shipSearch.addEventListener('input', renderTab);
+[$shipFrom, $shipTo].forEach(i => i.addEventListener('change', renderTab));
+document.getElementById('shipClear').onclick = () => { $shipSearch.value = ''; $shipFrom.value = ''; $shipTo.value = ''; renderTab(); };
 
 $shipList.addEventListener('click', async e => {
   const photo = e.target.closest('.ship-clickphoto');
@@ -254,6 +285,8 @@ function openShipEdit(ids) {
   setMethodFields('shipEditMethod', 'shipEditMethodOther', f.shipMethod);
   document.getElementById('shipEditSched').value = f.scheduledDate ? String(f.scheduledDate).slice(0, 10) : '';
   document.getElementById('shipEditAddr').value = f.address || '';
+  document.getElementById('shipEditContact').value = f.contact || '';
+  document.getElementById('shipEditNotes').value = f.notes || '';
   document.getElementById('shipEditSheet').hidden = false;
 }
 const closeShipEdit = () => { document.getElementById('shipEditSheet').hidden = true; editShipIds = []; };
@@ -269,6 +302,8 @@ document.getElementById('shipEditSave').onclick = async () => {
       + '&method=' + encodeURIComponent(getMethodFields('shipEditMethod', 'shipEditMethodOther'))
       + '&sched=' + encodeURIComponent(document.getElementById('shipEditSched').value)
       + '&address=' + encodeURIComponent(document.getElementById('shipEditAddr').value.trim())
+      + '&contact=' + encodeURIComponent(document.getElementById('shipEditContact').value.trim())
+      + '&notes=' + encodeURIComponent(document.getElementById('shipEditNotes').value.trim())
       + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
@@ -291,7 +326,8 @@ function openShipDate(ids, mode) {
   document.getElementById('shipDateIn').value = edit && f && f.shippedDate ? String(f.shippedDate).slice(0, 10) : isoToday();
   document.getElementById('shipTimeIn').value = edit ? String((f && f.shippedTime) || '').slice(0, 5) : nowHHMM();
   document.getElementById('shipDateMethodWrap').hidden = !edit;
-  if (edit) setMethodFields('shipDateMethod', 'shipDateMethodOther', f && f.shipMethod);
+  document.getElementById('shipDateNotesWrap').hidden = !edit;
+  if (edit) { setMethodFields('shipDateMethod', 'shipDateMethodOther', f && f.shipMethod); document.getElementById('shipDateNotes').value = (f && f.notes) || ''; }
   document.getElementById('shipDateSheet').hidden = false;
 }
 const closeShipDate = () => { document.getElementById('shipDateSheet').hidden = true; shipDateIds = []; };
@@ -306,7 +342,7 @@ document.getElementById('shipDateSave').onclick = async () => {
   try {
     const url = CONFIG.portfolio.endpoint + '?action=' + (edit ? 'updateShipped' : 'markShipped') + '&cardId=' + encodeURIComponent(shipDateIds.join(','))
       + '&date=' + encodeURIComponent(date) + '&time=' + encodeURIComponent(time)
-      + (edit ? '&method=' + encodeURIComponent(getMethodFields('shipDateMethod', 'shipDateMethodOther')) : '') + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+      + (edit ? '&method=' + encodeURIComponent(getMethodFields('shipDateMethod', 'shipDateMethodOther')) + '&notes=' + encodeURIComponent(document.getElementById('shipDateNotes').value.trim()) : '') + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
     closeShipDate();

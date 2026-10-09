@@ -387,6 +387,7 @@ function collect() {
     total: grandTotal(),
     method: $('#method').value === 'Others' ? ($('#methodOther').value.trim() || 'Others') : $('#method').value,
     shipType: t, sched: $('#sched').value, shipAddr: mode === 'sold' ? $('#shipAddr').value.trim() : '',
+    shipContact: mode === 'sold' ? $('#shipContact').value.trim() : '',
     deduct: $('#deduct').value === 'Others' ? ($('#deductOther').value.trim() || 'Others') : $('#deduct').value,
     notes: $('#notes').value.trim(),
     // whole-receipt "record to portfolio" flag (purchase mode) — applies to every item
@@ -563,7 +564,7 @@ function saleBody(d, receiptPhoto) {
   if (!sold.length) return null;
   return { action: 'sell', date: d.date, time: d.time, buyer: d.party, notes: d.notes, pay: d.pay,
     shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
-    shipAddress: d.shipAddr, packaging: d.pack,
+    shipAddress: d.shipAddr, shipContact: d.shipContact, packaging: d.pack,
     items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })), receiptPhoto };
 }
 // Items traded away become "traded"; items received become new onhand Cards only if d.receivedPortfolio is
@@ -765,7 +766,7 @@ async function generate() {
     const name = `CVRecGen-${d.mode}-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.jpg`;
     showPreview(blob, name);
     const receiptPhoto = { kind: 'camera', src: await blobToDataUrl(blob) };
-    startSync(d, d.mode === 'purchase' ? purchaseBody(d, receiptPhoto) : d.mode === 'sold' ? saleBody(d, receiptPhoto) : d.mode === 'transfer' ? transferBody(d, receiptPhoto) : tradeBody(d, receiptPhoto)).catch(err => console.warn('Sync failed', err));
+    startSync(d, d.mode === 'purchase' ? purchaseBody(d, receiptPhoto) : d.mode === 'sold' ? saleBody(d, receiptPhoto) : d.mode === 'transfer' ? transferBody(d, receiptPhoto) : tradeBody(d, receiptPhoto)).then(loadEntities).catch(err => console.warn('Sync failed', err));   // a new name becomes a saved entity: refresh the suggestions
     resetAfterCardReceipt(d);
     if (skipped) toast('Logo skipped. Open the app from http://localhost or your website to include it.');
   } catch (e) {
@@ -783,7 +784,7 @@ function resetAfterCardReceipt(d) {
     const used = new Set(d.items.map(i => String(i.cardId)));
     onhandCards = onhandCards.filter(c => !used.has(String(c.id)));
     $('#items').innerHTML = ''; refreshPicker('sold');
-    $('#pack').value = ''; $('#shipAddr').value = '';   // per-sale fields: never carry one buyer's over to the next sale
+    $('#pack').value = ''; $('#shipAddr').value = ''; $('#shipContact').value = '';   // per-sale fields: never carry one buyer's over to the next sale
   } else if (d.mode === 'transfer') {
     $('#trAmt').value = ''; $('#trFee').value = '';   // per-transfer: never carry one amount over to the next
   } else if (d.mode === 'trade') {
@@ -814,8 +815,35 @@ function toast(m) {
   clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600);
 }
 
+/* ---------- Saved entities (sellers / buyers / trade partners): name suggestions + contact autofill ---------- */
+// The server keeps one entity per person (capitals and spacing ignored). Typing a known name, or picking it from the
+// list, snaps the field to the saved spelling so the receipt image and the sheets always agree.
+let entityList = [];
+const entKey = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+const fillEntityList = () => { $('#partyList').innerHTML = entityList.map(e => `<option value="${escHtml(e.name)}"></option>`).join(''); };
+const findEntity = v => { const k = entKey(v); return k ? entityList.find(e => entKey(e.name) === k || (e.aliases || []).some(a => entKey(a) === k)) : null; };
+async function loadEntities() {
+  try { entityList = JSON.parse(localStorage.getItem('cv:entityNames')) || []; } catch (_) { entityList = []; }
+  fillEntityList();
+  if (!CONFIG.portfolio.endpoint) return;
+  try {
+    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=entityNames&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    if (!data || !data.ok) return;
+    entityList = data.entities || [];
+    fillEntityList();
+    try { localStorage.setItem('cv:entityNames', JSON.stringify(entityList)); } catch (_) {}
+  } catch (err) { console.warn('Could not load saved names', err); }
+}
+$('#party').addEventListener('change', () => {
+  const e = findEntity($('#party').value);
+  if (!e) return;
+  $('#party').value = e.name;
+  if (mode === 'sold' && e.contact && !$('#shipContact').value.trim()) $('#shipContact').value = e.contact;
+});
+
 /* ---------- Init ---------- */
 $('#date').value = todayStr();
 $('#time').value = nowTimeStr();   // time the page was loaded; editable
 setMode('purchase');
 resumeOutbox().catch(err => console.warn('Outbox resume failed', err));
+loadEntities();

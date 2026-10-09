@@ -6,15 +6,17 @@
  * plus a Finance ledger of billable events and a Receipts archive of every generated receipt image.
  *
  * SHEET TABS
- *   Cards   (A-Z):  ID | PurchaseDate | Seller | BoughtBy | ItemName | PurchaseCost | PurchasePayMethod | Photo | PurchaseNotes | Status |
+ *   Cards   (A-AB): ID | PurchaseDate | Seller | BoughtBy | ItemName | PurchaseCost | PurchasePayMethod | Photo | PurchaseNotes | Status |
  *                   SoldDate | SoldTo | SoldPrice | ShipType | ShippingMethod | ShippingFee | ShippingDeductedFrom | ShippingScheduledDate |
- *                   ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress | ShippedTime
+ *                   ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress | ShippedTime | ShippingContact | SaleNotes
  *                   Status is one of: onhand, shipping, shipped, traded.
- *   Finance (A-N):  ID | CardID | Type | Date | Description | Amount | PayMethod | Recorded | RecordedDate | ReceiptURL | Flow | Images | Notes | Time | Created
+ *   Finance (A-N):  ID | CardID | Type | Date | Description | Amount | PayMethod | Recorded | RecordedDate | ReceiptURL | Flow | Images | Notes | Time
  *                   Type: purchase, sale, shipping, trade, transfer, manual.  Flow: inflow, outflow, none.
  *   Receipts (A-F): ID | Type | Date | URL | Description | Time      Type: purchase, sale, trade, transfer.
  *   Balance (A-G):  UpdatedAt | Cash | Maribank | Others | Note | Reserves | Skip   (one row per save; the last row is the baseline)
  *   Events:         ID | Date | Title | Time | Notes   (created automatically)
+ *   Entities (A-E): ID | Name | Contact | Aliases | Created   (sellers, buyers, trade partners; created automatically).
+ *                   Aliases are other spellings (pipe-separated) that resolve to this entity.
  *   Optional columns/tabs are created by the script on first use. Interest settings are kept in Script Properties.
  *
  * DEPLOY: Deploy > Manage deployments > edit your Web app > Version: New version > Deploy.
@@ -22,7 +24,8 @@
  * POST actions: purchase, sell, trade, transfer, shipPhoto, cardPhoto, financeReceipt, saveFinance
  * GET  actions: portfolio, onhandCards, finance, shipping, receipts, syncStatus, record, unrecord, balance, saveBalance, saveInterest,
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
- *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent
+ *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
+ *               entities, entityNames, saveEntity, mergeEntities, deleteEntity
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
 
@@ -84,6 +87,11 @@ function doGet(e) {
     if (action === 'receiptImpact') return jsonpOut_(receiptImpact_(e.parameter.receiptId), cb);
     if (action === 'deleteReceipt') return jsonpOut_(deleteReceipt_(e.parameter.receiptId), cb);
     if (action === 'updateShipping') return jsonpOut_(updateShipping_(e.parameter), cb);
+    if (action === 'entities') return jsonpOut_(getEntities_(), cb);
+    if (action === 'entityNames') return jsonpOut_(getEntityNames_(), cb);
+    if (action === 'saveEntity') return jsonpOut_(saveEntity_(e.parameter), cb);
+    if (action === 'mergeEntities') return jsonpOut_(mergeEntities_(e.parameter), cb);
+    if (action === 'deleteEntity') return jsonpOut_(deleteEntity_(e.parameter.entityId), cb);
     if (action === 'events') return jsonpOut_(getEvents_(), cb);
     if (action === 'saveEvent') return jsonpOut_(saveEvent_(e.parameter), cb);
     if (action === 'deleteEvent') return jsonpOut_(deleteEvent_(e.parameter.eventId), cb);
@@ -127,11 +135,12 @@ function handlePurchase_(body) {
   let photosFailed = 0;
   const items = body.items || [];
   if (!items.length) return { ok: true };
+  const seller = resolveParty_(body.seller);   // saved entity (spelling-safe), created on first use
 
   let receiptUrl = '', receiptSaved = false;
   if (body.receiptPhoto && body.receiptPhoto.src) {
     receiptUrl = safeSave_(body.receiptPhoto.src, 'purchase-receipt-' + (body.date || todayStr_()) + '-' + newId_('r'), RECEIPT_FOLDER_ID);
-    if (receiptUrl) { try { appendReceipt_('purchase', body.date || todayStr_(), receiptUrl, 'Purchase from ' + (body.seller || '\u2014'), body.time); receiptSaved = true; } catch (err) {} }
+    if (receiptUrl) { try { appendReceipt_('purchase', body.date || todayStr_(), receiptUrl, 'Purchase from ' + (seller || '\u2014'), body.time); receiptSaved = true; } catch (err) {} }
   }
 
   const cardRows = [], finRows = [];
@@ -141,7 +150,7 @@ function handlePurchase_(body) {
     let cardId = '';
     if (it.portfolio) {
       cardId = newId_('c');
-      cardRows.push([cardId, body.date || '', body.seller || '', body.people || '', it.name || '', it.cost || 0,
+      cardRows.push([cardId, body.date || '', seller, body.people || '', it.name || '', it.cost || 0,
         body.pay || '', photoUrl, body.notes || '', 'onhand', '', '', '', '', '', '', '', '', '', '', false,
         receiptUrl, '', '']);
     }
@@ -149,8 +158,7 @@ function handlePurchase_(body) {
     finRows.push([newId_('f'), cardId, 'purchase', body.date || '', it.name || '(unnamed item)', it.cost || 0, body.pay || '', false, '', receiptUrl, 'outflow']);
   });
   appendRows_(cards, cardRows);
-  ensureFinanceColumns_(fin);
-  appendRows_(fin, finRows.map(fr_));
+  appendRows_(fin, finRows);
   return { ok: true, receipt: receiptSaved, cards: cardRows.length, finance: finRows.length, photosFailed };
 }
 
@@ -159,6 +167,9 @@ function handleSell_(body) {
   const list = body.items || [];
   if (!list.length) return { ok: true };
   ensureCardsColumns_(cards);
+  const contact = String(body.shipContact || '').trim().slice(0, 60);
+  const saleNotes = String(body.notes || '').trim().slice(0, 1000);
+  const buyer = resolveParty_(body.buyer, contact);   // saved entity (spelling-safe); remembers the contact number
   const noShip = body.shipType === 'none';
   const address = String(body.shipAddress || '').trim().slice(0, 500);
   const packaging = Number(body.packaging) || 0;
@@ -168,7 +179,7 @@ function handleSell_(body) {
   let receiptUrl = '', receiptSaved = false;
   if (body.receiptPhoto && body.receiptPhoto.src) {
     receiptUrl = safeSave_(body.receiptPhoto.src, 'sold-receipt-' + (body.date || todayStr_()) + '-' + newId_('r'), RECEIPT_FOLDER_ID);
-    if (receiptUrl) { try { appendReceipt_('sale', body.date || todayStr_(), receiptUrl, 'Sale to ' + (body.buyer || '\u2014'), body.time); receiptSaved = true; } catch (err) {} }
+    if (receiptUrl) { try { appendReceipt_('sale', body.date || todayStr_(), receiptUrl, 'Sale to ' + (buyer || '\u2014'), body.time); receiptSaved = true; } catch (err) {} }
   }
 
   const rowOf = rowIndex_(cards), finRows = [];
@@ -180,25 +191,25 @@ function handleSell_(body) {
     // Every sale — shipped or not — goes into the "shipping" queue so it shows up under To ship.
     cards.getRange(found.idx, 10, 1, 1).setValue('shipping'); // Status (col J)
     cards.getRange(found.idx, 11, 1, 8).setValues([[           // SoldDate..ShippingScheduledDate (cols K-R)
-      body.date || '', body.buyer || '', Number(it.cost) || 0,
+      body.date || '', buyer, Number(it.cost) || 0,
       body.shipType || '', body.shipMethod || '', noShip ? 0 : perFee,
       body.shipDeductFrom || '', body.shipSched || ''
     ]]);
     cards.getRange(found.idx, 23, 1, 1).setValue(receiptUrl); // SaleReceiptURL (col W)
     cards.getRange(found.idx, 24, 1, 2).setValues([[batchId, address]]); // ShipBatchID, ShippingAddress (cols X-Y)
+    cards.getRange(found.idx, 27, 1, 2).setNumberFormat('@').setValues([[contact, saleNotes]]); // ShippingContact, SaleNotes (cols AA-AB); text format keeps a leading 0
     finRows.push([newId_('f'), it.cardId, 'sale', body.date || '', 'Sale: ' + (it.name || '(unnamed item)'), Number(it.cost) || 0, body.pay || '', false, '', receiptUrl, 'inflow']);
   });
   // packaging the buyer paid for is part of "total received": one inflow row for the whole receipt
   if (packaging > 0) {
-    finRows.push([newId_('f'), '', 'sale', body.date || '', 'Packaging: sale to ' + (body.buyer || '\u2014'), packaging, body.pay || '', false, '', receiptUrl, 'inflow']);
+    finRows.push([newId_('f'), '', 'sale', body.date || '', 'Packaging: sale to ' + (buyer || '\u2014'), packaging, body.pay || '', false, '', receiptUrl, 'inflow']);
   }
   // shipping the buyer paid us ("care of buyer") is money received too: one inflow row per receipt
   const buyerShipping = body.shipType === 'buyer' ? (Number(body.shipFee) || 0) : 0;
   if (buyerShipping > 0) {
-    finRows.push([newId_('f'), '', 'sale', body.date || '', 'Shipping paid by buyer: sale to ' + (body.buyer || '\u2014'), buyerShipping, body.pay || '', false, '', receiptUrl, 'inflow']);
+    finRows.push([newId_('f'), '', 'sale', body.date || '', 'Shipping paid by buyer: sale to ' + (buyer || '\u2014'), buyerShipping, body.pay || '', false, '', receiptUrl, 'inflow']);
   }
-  ensureFinanceColumns_(fin);
-  appendRows_(fin, finRows.map(fr_));
+  appendRows_(fin, finRows);
   return { ok: true, receipt: receiptSaved, cards: moved, finance: finRows.length };
 }
 
@@ -227,7 +238,8 @@ function handleTrade_(body) {
   const receivedItems = body.receivedItems || [];
   if (!tradedItems.length && !receivedItems.length) return { ok: true };
 
-  const partyLabel = body.tradedTo || body.tradedBy || '\u2014';
+  const tradedTo = resolveParty_(body.tradedTo);
+  const partyLabel = tradedTo || body.tradedBy || '\u2014';
   let receiptUrl = '', receiptSaved = false;
   if (body.receiptPhoto && body.receiptPhoto.src) {
     receiptUrl = safeSave_(body.receiptPhoto.src, 'trade-receipt-' + (body.date || todayStr_()) + '-' + newId_('r'), RECEIPT_FOLDER_ID);
@@ -239,7 +251,7 @@ function handleTrade_(body) {
     if (!found) return;
     tradedN++;
     cards.getRange(found.idx, 10, 1, 1).setValue('traded'); // Status (col J)
-    cards.getRange(found.idx, 11, 1, 3).setValues([[body.date || '', body.tradedTo || '', Number(it.cost) || 0]]); // SoldDate/SoldTo/SoldPrice (K-M)
+    cards.getRange(found.idx, 11, 1, 3).setValues([[body.date || '', tradedTo, Number(it.cost) || 0]]); // SoldDate/SoldTo/SoldPrice (K-M)
     cards.getRange(found.idx, 23, 1, 1).setValue(receiptUrl); // SaleReceiptURL (col W)
   });
 
@@ -248,7 +260,7 @@ function handleTrade_(body) {
       let photoUrl = '';
       if (it.photo && it.photo.src) { photoUrl = it.photo.kind === 'link' ? it.photo.src : safeSave_(it.photo.src, it.name, DRIVE_FOLDER_ID); if (it.photo.kind !== 'link' && !photoUrl) photosFailed++; }
       receivedN++;
-      cards.appendRow([newId_('c'), body.date || '', body.tradedTo || '', body.tradedBy || '', it.name || '', Math.max(0, Number(it.cost) || 0),
+      cards.appendRow([newId_('c'), body.date || '', tradedTo, body.tradedBy || '', it.name || '', Math.max(0, Number(it.cost) || 0),
         '', photoUrl, body.notes || '', 'onhand', '', '', '', '', '', '', '', '', '', '', false,
         receiptUrl, '', '']);
     });
@@ -264,10 +276,10 @@ function handleTrade_(body) {
   if ((body.cashDirection === 'paid' || body.cashDirection === 'received') && amt > 0) {
     const flow = body.cashDirection === 'received' ? 'inflow' : 'outflow';
     const desc = 'Trade with ' + partyLabel + ' \u2014 cash ' + body.cashDirection;
-    fin.appendRow(fr_([newId_('f'), '', 'trade', body.date || '', desc, amt, body.cashMethod || '', false, '', receiptUrl, flow, '', tradeNotes]));
+    fin.appendRow([newId_('f'), '', 'trade', body.date || '', desc, amt, body.cashMethod || '', false, '', receiptUrl, flow, '', tradeNotes]);
   } else {
     // no cash changed hands: still a task to tick off (flow "none" = no money moved)
-    fin.appendRow(fr_([newId_('f'), '', 'trade', body.date || '', 'Trade with ' + partyLabel + ' \u2014 no cash', 0, '', false, '', receiptUrl, 'none', '', tradeNotes]));
+    fin.appendRow([newId_('f'), '', 'trade', body.date || '', 'Trade with ' + partyLabel + ' \u2014 no cash', 0, '', false, '', receiptUrl, 'none', '', tradeNotes]);
   }
 
   return { ok: true, receipt: receiptSaved, traded: tradedN, received: receivedN, finance: 1, photosFailed };
@@ -299,7 +311,7 @@ function handleTransfer_(body) {
   ];
   // the fee is a real cost taken from the source account: its own outflow task, under the same receipt
   if (fee > 0) rows.push([newId_('f'), '', 'transfer', date, 'Transfer fee: ' + from + ' \u2192 ' + to, fee, from, false, '', receiptUrl, 'outflow', '', '']);
-  appendRows_(fin, rows.map(fr_));
+  appendRows_(fin, rows);
   return { ok: true, receipt: receiptSaved, finance: rows.length };
 }
 
@@ -405,9 +417,9 @@ function handleSaveFinance_(body) {
     const flow = body.flow === 'inflow' ? 'inflow' : body.flow === 'none' ? 'none' : 'outflow';
     if (flow !== 'none' && (!isFinite(amount) || amount < 0)) return { ok: false, error: 'invalid amount' };
     const id = /^f_[0-9a-f]{4,16}$/.test(String(body.financeId || '')) ? String(body.financeId) : newId_('f');
-    fin.appendRow(fr_([id, '', 'manual', String(body.date || todayStr_()), title,
+    fin.appendRow([id, '', 'manual', String(body.date || todayStr_()), title,
       flow === 'none' ? 0 : amount, flow === 'none' ? '' : String(body.payMethod || ''), false, '', '', flow,
-      urls.length ? JSON.stringify(urls) : '', notes]));
+      urls.length ? JSON.stringify(urls) : '', notes]);
     return { ok: true, id, images: urls.length };
   } finally {
     lock.releaseLock();
@@ -426,28 +438,14 @@ function resolveTaskImage_(im) {
   return /^https?:\/\//i.test(u) ? u : '';
 }
 
-// Finance needs columns L (Images), M (Notes), N (Time) and O (Created). Older sheets don't have them; add on first use.
-// Created = the moment the row was entered, as plain text "yyyy-MM-dd HH:mm" (the app uses it so a receipt dated
-// before the last balance update still counts when it was entered after it).
+// Finance needs columns L (Images), M (Notes) and N (Time). Older sheets don't have them; add on first use.
 function ensureFinanceColumns_(fin) {
-  const need = 15;
+  const need = 14;
   if (fin.getMaxColumns() < need) fin.insertColumnsAfter(fin.getMaxColumns(), need - fin.getMaxColumns());
-  const h = fin.getRange(1, 12, 1, 4).getValues()[0];
+  const h = fin.getRange(1, 12, 1, 3).getValues()[0];
   if (!h[0]) fin.getRange(1, 12, 1, 1).setValue('Images');
   if (!h[1]) fin.getRange(1, 13, 1, 1).setValue('Notes');
   if (!h[2]) fin.getRange(1, 14, 1, 1).setValue('Time');
-  if (!h[3]) { fin.getRange(1, 15, fin.getMaxRows(), 1).setNumberFormat('@'); fin.getRange(1, 15, 1, 1).setValue('Created'); }
-}
-
-// Timezone used to stamp "Created". Keep it the same as the phones that use the app (their dates and times are device-local).
-const APP_TZ = 'Asia/Manila';
-function createdNow_() { return Utilities.formatDate(new Date(), APP_TZ, 'yyyy-MM-dd HH:mm'); }
-// Pad a Finance row out to column N and add the Created stamp in column O.
-function fr_(row) { const r = row.slice(); while (r.length < 14) r.push(''); r.push(createdNow_()); return r; }
-function fmtCreated_(v) {
-  if (v instanceof Date) return Utilities.formatDate(v, ss_().getSpreadsheetTimeZone(), 'yyyy-MM-dd HH:mm');
-  const s = String(v || '').trim();
-  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) ? s.slice(0, 16) : '';
 }
 
 function parseImages_(cell) {
@@ -475,8 +473,7 @@ function addFinance_(p) {
   if (!isFinite(amount) || amount < 0) return { ok: false, error: 'invalid amount' };
   const flow = p.flow === 'inflow' ? 'inflow' : p.flow === 'none' ? 'none' : 'outflow';
   const id = newId_('f');
-  ensureFinanceColumns_(financeSheet_());
-  financeSheet_().appendRow(fr_([id, '', 'manual', String(p.date || todayStr_()), description, flow === 'none' ? 0 : amount, flow === 'none' ? '' : String(p.payMethod || ''), false, '', '', flow]));
+  financeSheet_().appendRow([id, '', 'manual', String(p.date || todayStr_()), description, flow === 'none' ? 0 : amount, flow === 'none' ? '' : String(p.payMethod || ''), false, '', '', flow]);
   return { ok: true, id };
 }
 
@@ -639,11 +636,9 @@ function unmarkShipped_(cardId) {
   const keys = [];
   founds.forEach(f => { keys.push(f.row[23] || f.row[0]); keys.push(f.row[0]); });
   const finRows = findShippingFinance_(fin, keys);
-  if (finRows.some(f => f.row[7] === true)) {
-    return { ok: false, error: 'Its Finance entry is already recorded \u2014 unrecord it first, then revert.' };
-  }
   founds.forEach(f => {
     cards.getRange(f.idx, 10, 1, 1).setValue('shipping');
+    cards.getRange(f.idx, 21, 1, 1).setValue(false);                                // ShippingRecorded
     cards.getRange(f.idx, 19, 1, 1).setValue('');
     if (cards.getMaxColumns() >= 26) cards.getRange(f.idx, 26, 1, 1).setValue(''); // ShippedTime
   });
@@ -658,17 +653,16 @@ function revertToOnhand_(cardId) {
   const found = findRow_(cards, cardId);
   if (!found) return { ok: false, error: 'not found' };
   if (found.row[9] === 'onhand') return { ok: false, error: 'already onhand' };
-  if (found.row[20] === true) return { ok: false, error: 'Its shipping fee is already recorded in Finance \u2014 unrecord it first.' };
   const batchId = found.row[23];
   cards.getRange(found.idx, 10, 1, 1).setValue('onhand');           // Status
   cards.getRange(found.idx, 11, 1, 10).setValues([['', '', '', '', '', '', '', '', '', false]]); // SoldDate..ShippingRecorded (K-U)
   ensureCardsColumns_(cards);
-  cards.getRange(found.idx, 23, 1, 4).setValues([['', '', '', '']]); // SaleReceiptURL, ShipBatchID, ShippingAddress, ShippedTime
+  cards.getRange(found.idx, 23, 1, 6).setValues([['', '', '', '', '', '']]); // SaleReceiptURL, ShipBatchID, ShippingAddress, ShippedTime, ShippingContact, SaleNotes
   if (batchId) {
     const rows = cards.getDataRange().getValues();
     const stillInBatch = rows.slice(1).some(r => r[23] === batchId && r[0] !== cardId);
     if (!stillInBatch) {
-      findShippingFinance_(fin, [batchId, cardId]).filter(f => f.row[7] !== true)
+      findShippingFinance_(fin, [batchId, cardId])
         .map(f => f.idx).sort((a, b) => b - a).forEach(i => fin.deleteRow(i));
     }
   }
@@ -713,6 +707,7 @@ function updateShipped_(p) {
   if (!ids.length) return { ok: false, error: 'missing cardId' };
   const date = String(p.date || '').trim(), time = String(p.time || '').trim();
   const hasMethod = Object.prototype.hasOwnProperty.call(p, 'method'), method = String(p.method || '').trim().slice(0, 60) || 'Others';
+  const hasNotes = Object.prototype.hasOwnProperty.call(p, 'notes'), notes = String(p.notes || '').trim().slice(0, 1000);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, error: 'invalid date' };
   if (time && !/^\d{1,2}:\d{2}$/.test(time)) return { ok: false, error: 'invalid time' };
   const cards = cardsSheet_();
@@ -724,13 +719,13 @@ function updateShipped_(p) {
   founds.forEach(f => {
     cards.getRange(f.idx, 19, 1, 1).setValue(date);                          // ShippedDate (col S)
     if (hasMethod) cards.getRange(f.idx, 15, 1, 1).setValue(method);         // ShippingMethod (col O)
+    if (hasNotes) cards.getRange(f.idx, 28, 1, 1).setValue(notes);           // SaleNotes (col AB)
     cards.getRange(f.idx, 26, 1, 1).setNumberFormat('@').setValue(time);     // ShippedTime (col Z)
     keys.push(f.row[23] || f.row[0]); keys.push(f.row[0]);
   });
   const fin = financeSheet_();
   ensureFinanceColumns_(fin);
   findShippingFinance_(fin, keys).forEach(f => {
-    if (f.row[7] === true) return;                                           // already recorded: leave it
     fin.getRange(f.idx, 4, 1, 1).setValue(date);                             // Date (col D)
     fin.getRange(f.idx, 14, 1, 1).setNumberFormat('@').setValue(time);       // Time (col N)
   });
@@ -753,20 +748,24 @@ function maybeCreateBatchFinance_(batchId, dateStr, timeStr) {
   const receiptUrl = group[0][22] || '';
   const idField = group.length > 1 ? batchId : group[0][0];
   ensureFinanceColumns_(fin);
-  fin.appendRow(fr_([newId_('f'), idField, 'shipping', dateStr || todayStr_(), 'Shipping for ' + names, totalFee, payMethod, false, '', receiptUrl, 'outflow', '', '', '']));
+  // Finance tasks are archive records now, so the entry is created already "recorded" and the cards flip to sold
+  fin.appendRow([newId_('f'), idField, 'shipping', dateStr || todayStr_(), 'Shipping for ' + names, totalFee, payMethod, true, todayStr_(), receiptUrl, 'outflow', '', '', '']);
   fin.getRange(fin.getLastRow(), 14, 1, 1).setNumberFormat('@').setValue(timeStr != null ? timeStr : nowTimeStr_()); // Time (col N)
+  setShippingRecordedFlag_(idField, 'shipping', true);
 }
 
 /* ---------- shipping edits + shared calendar events ---------- */
 
-// Edit the shipping method (col O), scheduled date (col R) and/or address (col Y) of every card in a shipping task.
+// Edit the shipping method (col O), scheduled date (col R), address (col Y), contact (col AA) and/or notes (col AB) of every card in a shipping task.
 function updateShipping_(p) {
   const ids = splitIds_(p.cardId);
   if (!ids.length) return { ok: false, error: 'missing cardId' };
   const hasSched = Object.prototype.hasOwnProperty.call(p, 'sched');
   const hasAddr = Object.prototype.hasOwnProperty.call(p, 'address');
   const hasMethod = Object.prototype.hasOwnProperty.call(p, 'method');
-  if (!hasSched && !hasAddr && !hasMethod) return { ok: false, error: 'nothing to change' };
+  const hasContact = Object.prototype.hasOwnProperty.call(p, 'contact');
+  const hasNotes = Object.prototype.hasOwnProperty.call(p, 'notes');
+  if (!hasSched && !hasAddr && !hasMethod && !hasContact && !hasNotes) return { ok: false, error: 'nothing to change' };
   const sched = String(p.sched || '').trim();
   if (hasSched && sched && !/^\d{4}-\d{2}-\d{2}$/.test(sched)) return { ok: false, error: 'invalid date' };
   const cards = cardsSheet_();
@@ -776,10 +775,14 @@ function updateShipping_(p) {
   if (founds.some(f => f.row[9] !== 'shipping')) return { ok: false, error: 'only cards still to ship can be edited' };
   const address = String(p.address || '').trim().slice(0, 500);
   const method = String(p.method || '').trim().slice(0, 60) || 'Others';
+  const contact = String(p.contact || '').trim().slice(0, 60);
+  const notes = String(p.notes || '').trim().slice(0, 1000);
   founds.forEach(f => {
     if (hasMethod) cards.getRange(f.idx, 15, 1, 1).setValue(method);  // ShippingMethod (col O)
     if (hasSched) cards.getRange(f.idx, 18, 1, 1).setValue(sched);   // ShippingScheduledDate (col R)
     if (hasAddr) cards.getRange(f.idx, 25, 1, 1).setValue(address);  // ShippingAddress (col Y)
+    if (hasContact) cards.getRange(f.idx, 27, 1, 1).setNumberFormat('@').setValue(contact); // ShippingContact (col AA)
+    if (hasNotes) cards.getRange(f.idx, 28, 1, 1).setValue(notes);   // SaleNotes (col AB)
   });
   return { ok: true };
 }
@@ -931,7 +934,7 @@ function getPortfolio_() {
     const tag = status === 'onhand' ? 'onhand'
       : status === 'shipping' ? 'shipping'
       : status === 'traded' ? 'traded'
-      : (r[20] === true ? 'sold' : 'shipped');
+      : 'sold';   // shipped == sold now: Finance tasks are archive records, there is no separate "recorded" step
     const item = {
       id: r[0], name: r[4], photo: toDisplayUrl_(r[7]),
       purchaseDate: fmtDateCell_(r[1]), purchaseCost: Number(r[5]) || 0,
@@ -980,7 +983,6 @@ function getFinance_() {
     const item = { id: r[0], date: fmtDateCell_(r[3]), description: r[4], amount: Number(r[5]) || 0, payMethod: r[6], receipt: r[9] || '', flow: r[10] || 'outflow',
       type: r[2] || '', groupKey: key,
       notes: r[12] || '',
-      created: fmtCreated_(r[14]),
       time: fmtTimeCell_(r[13]) || (['purchase', 'sale', 'trade', 'transfer'].indexOf(String(r[2])) >= 0 && rc ? rc.time : ''),
       images: taskImages_(r).map(u => ({ raw: u, thumb: toDisplayUrl_(u, 300), full: toDisplayUrl_(u, 1080) })),
       cards: cardsFor(r, key),
@@ -1011,6 +1013,8 @@ function getShipping_() {
       shippedDate: fmtDateCell_(r[18]), shippedTime: fmtTimeCell_(r[25]), proofPhoto: toDisplayUrl_(r[19]),
       saleReceipt: r[22] || '',
       address: r[24] || '',
+      contact: String(r[26] || ''),
+      notes: String(r[27] || ''),
       // cards that came from one sale receipt share a key, so the app can show them as one task
       groupKey: fileKey_(r[22]) || (r[23] ? 'b:' + r[23] : 'c:' + r[0])
     };
@@ -1025,18 +1029,241 @@ function getReceipts_() {
   return { ok: true, receipts: receipts.reverse() };
 }
 
+/* ---------- entities: sellers, buyers and trade partners ---------- */
+
+// One saved entity per real person/shop. Every receipt resolves the typed name through this list, so "Kuya Rick" and
+// "KUYA RICK" (or any spelling saved as an alias) end up as the same entity and the same text in every sheet.
+// Matching ignores capitals and extra spaces. Renaming or merging rewrites the old spellings everywhere they were stored.
+const ENTITIES_SHEET = 'Entities';
+const PARTY_TEXT = /^(Purchase from |Sale to |Trade with |Packaging: sale to |Shipping paid by buyer: sale to )(.+?)( \u2014 .*)?$/;
+
+function entitiesSheet_(create) {
+  const ss = ss_();
+  let sh = ss.getSheetByName(ENTITIES_SHEET);
+  if (!sh && create) {
+    sh = ss.insertSheet(ENTITIES_SHEET);
+    sh.getRange(1, 1, 1, 5).setValues([['ID', 'Name', 'Contact', 'Aliases', 'Created']]);
+    sh.getRange('A:E').setNumberFormat('@');   // text, so a contact number keeps its leading 0
+  }
+  return sh;
+}
+
+function cleanParty_(s) { return String(s == null ? '' : s).replace(/\|/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); }
+function partyKey_(s) { return cleanParty_(s).toLowerCase(); }
+
+function readEntities_(sh) {
+  const rows = sh.getDataRange().getValues(), out = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row[0] || !row[1]) continue;
+    out.push({ idx: r + 1, id: String(row[0]), name: String(row[1]), contact: String(row[2] || ''),
+      aliases: String(row[3] || '').split('|').map(a => a.trim()).filter(Boolean) });
+  }
+  return out;
+}
+function entityKeys_(e) { return [e.name].concat(e.aliases).map(partyKey_).filter(Boolean); }
+// normalized name or alias -> entity (names win over aliases)
+function entityMap_(list) {
+  const map = {};
+  list.forEach(e => { const k = partyKey_(e.name); if (k && !map[k]) map[k] = e; });
+  list.forEach(e => e.aliases.forEach(a => { const k = partyKey_(a); if (k && !map[k]) map[k] = e; }));
+  return map;
+}
+
+// Used by the receipt handlers: the canonical name for what was typed (the entity is created on first use).
+// A contact number, when given, is remembered on the entity. Never lets an entity problem block a receipt.
+function resolveParty_(raw, contact) {
+  const name = cleanParty_(raw);
+  if (!name || name === '\u2014') return String(raw || '').trim();
+  try {
+    const sh = entitiesSheet_(true), e = entityMap_(readEntities_(sh))[partyKey_(name)];
+    const c = String(contact || '').trim().slice(0, 60);
+    if (e) { if (c && c !== e.contact) sh.getRange(e.idx, 3, 1, 1).setValue(c); return e.name; }
+    appendRows_(sh, [[newId_('en'), name, c, '', todayStr_()]]);
+    return name;
+  } catch (err) { return name; }
+}
+
+function getEntityNames_() {
+  const sh = entitiesSheet_(false);
+  const list = sh ? readEntities_(sh) : [];
+  return { ok: true, entities: list.map(e => ({ name: e.name, contact: e.contact, aliases: e.aliases })).sort((a, b) => a.name.localeCompare(b.name)) };
+}
+
+// Every party name found in the sheets, by normalized key -> { spelling: count }.
+function scanParties_() {
+  const found = {};
+  const add = raw => {
+    const n = cleanParty_(raw);
+    if (!n || n === '\u2014') return;
+    const k = n.toLowerCase(), c = found[k] || (found[k] = {});
+    c[n] = (c[n] || 0) + 1;
+  };
+  const cRows = cardsSheet_().getDataRange().getValues(); cRows.shift();
+  cRows.forEach(r => { if (r[0]) { add(r[2]); add(r[11]); } });
+  const rs = receiptsSheet_();
+  if (rs) { const rr = rs.getDataRange().getValues(); rr.shift(); rr.forEach(r => { const m = String(r[4] || '').match(PARTY_TEXT); if (m) add(m[2]); }); }
+  return found;
+}
+
+function mapPartyText_(text, canon) {
+  const m = String(text || '').match(PARTY_TEXT);
+  if (!m) return null;
+  const c = canon(m[2]);
+  return c ? m[1] + c + (m[3] || '') : null;
+}
+
+// Rewrite one column (from row 2 down) through fn(value) -> new value, or null to leave it. One write per column.
+function rewriteColumn_(sheet, col, fn) {
+  const n = sheet.getLastRow() - 1;
+  if (n < 1) return 0;
+  const rng = sheet.getRange(2, col, n, 1), vals = rng.getValues();
+  let changed = 0;
+  vals.forEach(v => { const nv = fn(v[0]); if (nv != null && nv !== v[0]) { v[0] = nv; changed++; } });
+  if (changed) rng.setValues(vals);
+  return changed;
+}
+
+// canon(raw) -> the name it should have, or null when it is already right. Applied to Cards (Seller, SoldTo),
+// Receipts descriptions and Finance descriptions. Finance is skipped when nothing else changed (unless forced).
+function rewriteParties_(canon, forceFinance) {
+  let changed = 0;
+  const cards = cardsSheet_();
+  changed += rewriteColumn_(cards, 3, canon);    // Seller
+  changed += rewriteColumn_(cards, 12, canon);   // SoldTo
+  const text = t => mapPartyText_(t, canon);
+  const rs = receiptsSheet_();
+  if (rs) changed += rewriteColumn_(rs, 5, text);
+  if (forceFinance || changed) changed += rewriteColumn_(financeSheet_(), 5, text);
+  return changed;
+}
+
+// Make sure every name already in the sheets is a saved entity, and that spelling variants (capitals / spaces / aliases)
+// are written the same way everywhere. Safe to run repeatedly: when everything is in order it changes nothing.
+function syncEntities_() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = entitiesSheet_(true), ents = readEntities_(sh), map = entityMap_(ents), found = scanParties_(), fresh = [];
+    Object.keys(found).forEach(k => {
+      if (map[k]) return;
+      const sp = found[k], best = Object.keys(sp).sort((a, b) => sp[b] - sp[a])[0];   // most used spelling wins
+      fresh.push([newId_('en'), best, '', '', todayStr_()]);
+    });
+    if (fresh.length) {
+      appendRows_(sh, fresh);
+      fresh.forEach(row => ents.push({ idx: 0, id: row[0], name: row[1], contact: '', aliases: [] }));
+    }
+    const map2 = entityMap_(ents);
+    rewriteParties_(raw => {
+      const n = cleanParty_(raw);
+      if (!n) return null;
+      const e = map2[n.toLowerCase()];
+      return e && e.name !== raw ? e.name : null;
+    }, false);
+    return fresh.length;
+  } finally { lock.releaseLock(); }
+}
+
+// Entities + one slim line per card movement: [entityName, kind, date, value]
+//   buy   = a card we bought (value = what we paid)       sell  = a card we sold (value = sold price)
+//   trade = a card traded in or out (value = its stated value). Trade-in cards are the ones saved with no pay method.
+function getEntities_() {
+  syncEntities_();
+  const ents = readEntities_(entitiesSheet_(true)), map = entityMap_(ents);
+  const nameOf = raw => { const e = map[partyKey_(raw)]; return e ? e.name : ''; };
+  const rows = cardsSheet_().getDataRange().getValues(); rows.shift();
+  const tx = [];
+  rows.forEach(r => {
+    if (!r[0] || !r[4]) return;
+    const status = String(r[9] || 'onhand');
+    const from = nameOf(r[2]);
+    if (from) tx.push([from, (r[6] === '' || r[6] == null) ? 'trade' : 'buy', fmtDateCell_(r[1]), Number(r[5]) || 0]);
+    const to = nameOf(r[11]);
+    if (to && (status === 'shipping' || status === 'shipped')) tx.push([to, 'sell', fmtDateCell_(r[10]), Number(r[12]) || 0]);
+    else if (to && status === 'traded') tx.push([to, 'trade', fmtDateCell_(r[10]), Number(r[12]) || 0]);
+  });
+  return { ok: true, entities: ents.map(e => ({ id: e.id, name: e.name, contact: e.contact, aliases: e.aliases })), tx };
+}
+
+// Create (no entityId) or edit (entityId): rename and/or contact. A rename keeps the old spelling as an alias and
+// rewrites it everywhere. A name another entity already uses is refused: that is what Merge is for.
+function saveEntity_(p) {
+  const name = cleanParty_(p.name);
+  if (!name) return { ok: false, error: 'name cannot be empty' };
+  const contact = String(p.contact || '').trim().slice(0, 60);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = entitiesSheet_(true), ents = readEntities_(sh), key = name.toLowerCase();
+    const self = p.entityId ? ents.filter(e => e.id === String(p.entityId))[0] : null;
+    if (p.entityId && !self) return { ok: false, error: 'not found' };
+    const clash = ents.filter(e => (!self || e.id !== self.id) && entityKeys_(e).indexOf(key) >= 0)[0];
+    if (clash) return { ok: false, error: '"' + clash.name + '" already uses that name. Use Merge instead.' };
+    if (!self) { appendRows_(sh, [[newId_('en'), name, contact, '', todayStr_()]]); return { ok: true }; }
+    if (name === self.name) { sh.getRange(self.idx, 3, 1, 1).setValue(contact); return { ok: true }; }
+    const oldKey = partyKey_(self.name), keys = {};
+    entityKeys_(self).forEach(k => keys[k] = true);
+    let aliases = self.aliases.filter(a => partyKey_(a) !== key);
+    if (oldKey !== key && !aliases.some(a => partyKey_(a) === oldKey)) aliases.push(self.name);
+    sh.getRange(self.idx, 2, 1, 3).setValues([[name, contact, aliases.join('|')]]);
+    rewriteParties_(raw => { const n = cleanParty_(raw); return n && keys[n.toLowerCase()] && raw !== name ? name : null; }, true);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+
+// Fold one or more entities (fromIds, comma-separated) into another (intoId). Their names become aliases of the target,
+// every record is rewritten to the target's name, and the folded entities are removed.
+function mergeEntities_(p) {
+  const into = String(p.intoId || ''), ids = splitIds_(p.fromIds).filter(i => i !== into);
+  if (!into || !ids.length) return { ok: false, error: 'pick what to merge and where' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = entitiesSheet_(true), ents = readEntities_(sh);
+    const target = ents.filter(e => e.id === into)[0], from = ents.filter(e => ids.indexOf(e.id) >= 0);
+    if (!target || from.length !== ids.length) return { ok: false, error: 'not found' };
+    const keys = {}, have = {};
+    let aliases = target.aliases.slice(), contact = target.contact;
+    entityKeys_(target).forEach(k => { keys[k] = true; have[k] = true; });
+    from.forEach(e => {
+      entityKeys_(e).forEach(k => keys[k] = true);
+      [e.name].concat(e.aliases).forEach(a => { const k = partyKey_(a); if (k && !have[k]) { have[k] = true; aliases.push(a); } });
+      if (!contact && e.contact) contact = e.contact;
+    });
+    sh.getRange(target.idx, 3, 1, 2).setValues([[contact, aliases.join('|')]]);
+    deleteRowsBatch_(sh, from.map(e => e.idx));
+    rewriteParties_(raw => { const n = cleanParty_(raw); return n && keys[n.toLowerCase()] && raw !== target.name ? target.name : null; }, true);
+    return { ok: true, merged: from.length };
+  } finally { lock.releaseLock(); }
+}
+
+// Only an entity with no history can be deleted (otherwise the next sync would recreate it): merge it instead.
+function deleteEntity_(entityId) {
+  if (!entityId) return { ok: false, error: 'missing entityId' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = entitiesSheet_(true), e = readEntities_(sh).filter(x => x.id === String(entityId))[0];
+    if (!e) return { ok: false, error: 'not found' };
+    const found = scanParties_();
+    if (entityKeys_(e).some(k => found[k])) return { ok: false, error: 'it has receipts or cards on record. Merge it into another entity instead.' };
+    sh.deleteRow(e.idx);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+
 /* ---------- helpers ---------- */
 
 // "a,b,c" -> ['a','b','c'] (blank entries dropped)
 function splitIds_(v) { return String(v || '').split(',').map(s => s.trim()).filter(Boolean); }
 
-// Cards needs columns Y (ShippingAddress) and Z (ShippedTime). Older sheets stop at X; add them on first use.
+// Cards needs columns Y-AB (ShippingAddress, ShippedTime, ShippingContact, SaleNotes). Older sheets stop at X; add them on first use.
 function ensureCardsColumns_(cards) {
-  const need = 26;
+  const need = 28;
   if (cards.getMaxColumns() < need) cards.insertColumnsAfter(cards.getMaxColumns(), need - cards.getMaxColumns());
-  const h = cards.getRange(1, 25, 1, 2).getValues()[0];
-  if (!h[0]) cards.getRange(1, 25).setValue('ShippingAddress');
-  if (!h[1]) cards.getRange(1, 26).setValue('ShippedTime');
+  const h = cards.getRange(1, 25, 1, 4).getValues()[0];
+  ['ShippingAddress', 'ShippedTime', 'ShippingContact', 'SaleNotes'].forEach((name, i) => { if (!h[i]) cards.getRange(1, 25 + i).setValue(name); });
 }
 
 // Opening the spreadsheet is the slowest single call here; do it once per request, not once per helper call.

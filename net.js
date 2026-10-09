@@ -1,7 +1,7 @@
 /* ---------- Shared network + cache helpers (loaded after config.js on every data page) ---------- */
 // Apps Script cold-starts and occasionally drops a request. Reads are safe to repeat, so they retry
 // quietly (2 more tries) before the page reports a failure. Anything that changes data is never retried.
-const READ_ACTIONS = /[?&]action=(portfolio|finance|shipping|receipts|events|balance|onhandCards|receiptImpact)(&|$)/;
+const READ_ACTIONS = /[?&]action=(portfolio|finance|shipping|receipts|events|balance|onhandCards|receiptImpact|entities|entityNames)(&|$)/;
 
 function jsonpOnce(url, ms) {
   return new Promise((resolve, reject) => {

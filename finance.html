@@ -25,17 +25,17 @@
     <span class="hbar-spacer" aria-hidden="true"></span>
   </div>
   <nav class="tabs" role="tablist">
-    <button type="button" class="tab active" data-ftab="torecord" role="tab">To record</button>
-    <button type="button" class="tab" data-ftab="recorded" role="tab">Recorded</button>
+    <button type="button" class="tab active" data-ftab="balance" role="tab">Balance</button>
+    <button type="button" class="tab" data-ftab="archive" role="tab">Archive</button>
   </nav>
 </header>
 
 <main class="port-wrap">
-  <section class="bal-card" id="balCard">
+  <div id="panelBalance">
+    <section class="bal-card" id="balCard">
     <div class="bal-head">
       <b>Current balance</b>
       <span class="bal-btns">
-        <button type="button" class="ghost sm" id="balLog">Daily interest</button>
         <button type="button" class="ghost sm" id="balInterest">Interest</button>
         <button type="button" class="ghost sm" id="balEdit">Update</button>
       </span>
@@ -53,19 +53,35 @@
     <p class="bal-auto-line" id="balAuto" hidden></p>
     <p class="bal-meta" id="balMeta">Not set yet &mdash; tap Update to enter what each account holds.</p>
   </section>
-
-  <div class="fin-pending">
-    <div><span>Inflow to record</span><b class="amt-in" id="finIn">+PHP 0.00</b></div>
-    <div><span>Outflow to record</span><b class="amt-out" id="finOut">&minus;PHP 0.00</b></div>
-    <button type="button" class="ghost sm" id="finRefresh">Refresh</button>
+    <button type="button" class="ghost add-task" id="balRefresh" style="margin-top:14px">Refresh</button>
   </div>
-  <p class="fin-note" id="finNote">Ticking a task doesn&rsquo;t save it, and the list won&rsquo;t refresh on its own. Tick as many as you need, then tap <b>Record selected</b> to submit. Tap Refresh to pull in newer tasks &mdash; your ticks are kept.</p>
-  <button type="button" class="ghost add-task" id="finAdd">+ Add task</button>
-  <p class="stub-note" id="finState">Loading&hellip;</p>
-  <div id="finList" class="port-list" hidden></div>
-  <div class="fin-submit" id="finSubmitBar" hidden>
-    <div class="fin-submit-info"><b id="finSelCount">0 selected</b><span id="finSelSums"></span></div>
-    <button type="button" class="go sm" id="finSubmit">Record selected</button>
+
+  <div id="panelArchive" hidden>
+    <div class="field" id="finSearchWrap" style="margin-bottom:12px">
+      <input type="search" id="finSearch" placeholder="Search title, notes, card, pay method or amount" autocomplete="off">
+    </div>
+    <div class="filter-chips" id="finFilters">
+      <button type="button" class="chip active" data-type="all">All</button>
+      <button type="button" class="chip" data-type="purchase">Purchase</button>
+      <button type="button" class="chip" data-type="sale">Sold</button>
+      <button type="button" class="chip" data-type="trade">Trade</button>
+      <button type="button" class="chip" data-type="transfer">Transfer</button>
+      <button type="button" class="chip" data-type="interest">Interest</button>
+    </div>
+    <div class="rec-filter">
+      <div class="rec-dates">
+        <div class="field"><label for="finFrom">From</label><input type="date" id="finFrom"></div>
+        <div class="field"><label for="finTo">To</label><input type="date" id="finTo"></div>
+      </div>
+      <div class="rec-tools">
+        <button type="button" class="ghost sm" id="finClear">Clear search &amp; dates</button>
+        <button type="button" class="ghost sm" id="finRefresh">Refresh</button>
+      </div>
+      <p class="rec-count" id="finCount"></p>
+    </div>
+    <button type="button" class="ghost add-task" id="finAdd">+ Add task</button>
+    <p class="stub-note" id="finState">Loading&hellip;</p>
+    <div id="finList" class="port-list" hidden></div>
   </div>
 </main>
 
@@ -132,14 +148,6 @@
       <button type="button" class="ghost" id="intReset">Reset to Maribank defaults</button>
       <button type="button" class="ghost" id="intCancel">Cancel</button>
     </div>
-  </div>
-</div>
-
-<div class="modal" id="logSheet" hidden>
-  <div class="sheet small wide">
-    <h3>Daily interest</h3>
-    <div id="logBody"></div>
-    <div class="acts"><button type="button" class="ghost" id="logClose">Close</button></div>
   </div>
 </div>
 

@@ -17,7 +17,8 @@ let portData = { cards: [] };
 // still in our hands (onhand, or sold but not yet shipped) vs. gone (shipped / sold / traded)
 const isOwned = it => it.tag === 'onhand' || it.tag === 'shipping';
 // Code.gs now sends one `cards` list; against an older deploy (or an older cached copy) merge owned + sold
-const normPort = d => ({ cards: Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || []) });
+// "shipped" no longer exists as a separate state: once shipped, a card is sold (older Code.gs / cached copies still send "shipped")
+const normPort = d => ({ cards: (Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || [])).map(c => c.tag === 'shipped' ? Object.assign({}, c, { tag: 'sold' }) : c) });
 
 const TAG_LABEL = { onhand: 'Onhand', shipping: 'Shipping', shipped: 'Shipped', sold: 'Sold', traded: 'Traded' };
 

@@ -36,6 +36,19 @@
     <b id="shipTotal">PHP 0.00</b>
     <button type="button" class="ghost sm" id="shipRefresh">Refresh</button>
   </div>
+  <div class="field" style="margin-bottom:12px">
+    <input type="search" id="shipSearch" placeholder="Search card, buyer, method, address, contact or notes" autocomplete="off">
+  </div>
+  <div class="rec-filter">
+    <div class="rec-dates">
+      <div class="field"><label for="shipFrom" id="shipFromLbl">Scheduled from</label><input type="date" id="shipFrom"></div>
+      <div class="field"><label for="shipTo" id="shipToLbl">Scheduled to</label><input type="date" id="shipTo"></div>
+    </div>
+    <div class="rec-tools">
+      <button type="button" class="ghost sm" id="shipClear">Clear search &amp; dates</button>
+    </div>
+    <p class="rec-count" id="shipCount"></p>
+  </div>
   <div class="ship-alert" id="shipAlert" role="alert" hidden></div>
   <p class="stub-note" id="shipState">Loading&hellip;</p>
   <div id="shipList" class="port-list" hidden></div>
@@ -82,6 +95,10 @@
       <select id="shipDateMethod"><option>LBC</option><option>Lalamove</option><option>Grab</option><option>Meet-up</option><option>Others</option></select>
       <input type="text" id="shipDateMethodOther" placeholder="Specify shipping method" hidden>
     </div>
+    <div class="field" id="shipDateNotesWrap" hidden>
+      <label for="shipDateNotes">Notes <small>(optional)</small></label>
+      <textarea id="shipDateNotes" rows="3" maxlength="500" placeholder="Notes from the receipt"></textarea>
+    </div>
     <div class="acts">
       <button type="button" class="go sm" id="shipDateSave">Mark shipped</button>
       <button type="button" class="ghost" id="shipDateCancel">Cancel</button>
@@ -105,7 +122,15 @@
     </div>
     <div class="field">
       <label for="shipEditAddr">Shipping address <small>(optional)</small></label>
-      <textarea id="shipEditAddr" rows="4" placeholder="Name, street, barangay, city, province, ZIP, contact number"></textarea>
+      <textarea id="shipEditAddr" rows="4" placeholder="Name, street, barangay, city, province, ZIP"></textarea>
+    </div>
+    <div class="field">
+      <label for="shipEditContact">Contact number <small>(optional)</small></label>
+      <input type="tel" id="shipEditContact" inputmode="tel" autocomplete="off" placeholder="09xx xxx xxxx">
+    </div>
+    <div class="field">
+      <label for="shipEditNotes">Notes <small>(optional)</small></label>
+      <textarea id="shipEditNotes" rows="3" maxlength="500" placeholder="Notes from the receipt, reminders for packing&hellip;"></textarea>
     </div>
     <div class="acts">
       <button type="button" class="go sm" id="shipEditSave">Save changes</button>

@@ -43,7 +43,8 @@
 
   <div class="field" data-only="purchase sold trade">
     <label for="party" id="lParty">Seller</label>
-    <input type="text" id="party" autocomplete="off">
+    <input type="text" id="party" autocomplete="off" list="partyList">
+    <datalist id="partyList"></datalist>
   </div>
 
   <div class="field">
@@ -126,7 +127,12 @@
 
   <div class="field" data-only="sold" hidden>
     <label for="shipAddr">Shipping address <small>(optional, shown in Shipping tab only)</small></label>
-    <textarea id="shipAddr" rows="3" placeholder="Name, street, barangay, city, province, ZIP, contact number"></textarea>
+    <textarea id="shipAddr" rows="3" placeholder="Name, street, barangay, city, province, ZIP"></textarea>
+  </div>
+
+  <div class="field" data-only="sold" hidden>
+    <label for="shipContact">Contact number <small>(optional, shown in Shipping tab only)</small></label>
+    <input type="tel" id="shipContact" inputmode="tel" autocomplete="off" placeholder="09xx xxx xxxx">
   </div>
 
   <div class="field" id="deductRow" hidden>

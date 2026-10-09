@@ -24,16 +24,87 @@
     <h2>Marketing</h2>
     <span class="hbar-spacer" aria-hidden="true"></span>
   </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-mtab="rank" role="tab">Rankings</button>
+    <button type="button" class="tab" data-mtab="ent" role="tab">Entities</button>
+  </nav>
 </header>
 
-<main class="stub">
-  <p class="stub-note">Manage listings and outreach here. This section is coming soon.</p>
+<main class="port-wrap">
+  <div id="panelRank">
+    <div class="filter-chips" id="mkKinds">
+      <button type="button" class="chip active" data-kind="buy">Buying from</button>
+      <button type="button" class="chip" data-kind="sell">Selling to</button>
+      <button type="button" class="chip" data-kind="trade">Trading with</button>
+    </div>
+    <div class="rec-filter">
+      <div class="rec-dates">
+        <div class="field"><label for="mkFrom">From</label><input type="date" id="mkFrom"></div>
+        <div class="field"><label for="mkTo">To</label><input type="date" id="mkTo"></div>
+      </div>
+      <div class="rec-tools">
+        <button type="button" class="ghost sm" id="mkClear">Clear dates</button>
+        <button type="button" class="ghost sm" id="mkRefresh">Refresh</button>
+      </div>
+    </div>
+    <div class="mk-sum" id="mkSum" hidden><span id="mkSumLbl"></span><b id="mkSumVal"></b></div>
+    <p class="stub-note" id="mkState">Loading&hellip;</p>
+    <div class="mk-list" id="mkList" hidden></div>
+  </div>
+
+  <div id="panelEnt" hidden>
+    <div class="field" style="margin-bottom:12px">
+      <input type="search" id="entSearch" placeholder="Search name, contact or other spelling" autocomplete="off">
+    </div>
+    <button type="button" class="ghost add-task" id="entAdd">+ Add entity</button>
+    <p class="rec-count" id="entCount"></p>
+    <p class="stub-note" id="entState" hidden></p>
+    <div class="mk-list" id="entList" hidden></div>
+  </div>
 </main>
+
+<div class="modal" id="entSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="entHeading">Add entity</h3>
+    <div class="field">
+      <label for="entName">Name</label>
+      <input type="text" id="entName" autocomplete="off" placeholder="e.g. Kuya Rick">
+    </div>
+    <div class="field">
+      <label for="entContact">Contact number <small>(optional)</small></label>
+      <input type="tel" id="entContact" inputmode="tel" autocomplete="off" placeholder="09xx xxx xxxx">
+    </div>
+    <p class="stub-note" id="entHint" style="margin:-6px 0 14px;font-size:12px;text-align:center" hidden>Renaming fixes the spelling on every receipt, card and finance entry. The old spelling is remembered, so typing it again still finds this entity.</p>
+    <div class="acts">
+      <button type="button" class="go sm" id="entSave">Save</button>
+      <button type="button" class="ghost" id="entCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="mergeSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Merge entity</h3>
+    <p class="stub-note" id="mergeText" style="margin:-6px 0 12px;font-size:12px;text-align:center"></p>
+    <div class="field">
+      <input type="search" id="mergeSearch" placeholder="Search the entity to keep" autocomplete="off">
+    </div>
+    <div class="rs-list" id="mergeList"></div>
+    <div class="acts" style="margin-top:14px">
+      <button type="button" class="go sm" id="mergeGo" disabled>Merge</button>
+      <button type="button" class="ghost" id="mergeCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="mkToast" hidden></div>
 
 <footer class="site-footer">
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
-  <p>trackello <span class="ver">v1.1</span></p>
+  <p>trackello <span class="ver">v1.2</span></p>
 </footer>
 <script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="net.js"></script>
+<script src="marketing.js"></script>
 </body>
 </html>

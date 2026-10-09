@@ -49,6 +49,14 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7.8" r="4"/><path d="M4.2 20.5c0-4.3 3.5-6.8 7.8-6.8s7.8 2.5 7.8 6.8"/></svg>
       <span>Marketing</span>
     </a>
+    <a class="tile" href="#" id="chartsTile">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 3.5v17h17"/><rect x="7" y="12" width="3" height="5.5" rx=".6"/><rect x="11.5" y="8" width="3" height="9.5" rx=".6"/><rect x="16" y="5" width="3" height="12.5" rx=".6"/></svg>
+      <span>Charts</span>
+    </a>
+    <a class="tile" href="creatives.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18c1.4 0 2-.9 2-1.8 0-1.2-1-1.5-1-2.7 0-1 .8-1.7 1.9-1.7H17a4 4 0 004-4C21 6.6 17 3 12 3z"/><circle cx="7.6" cy="11.2" r="1" fill="currentColor" stroke="none"/><circle cx="10.2" cy="7.4" r="1" fill="currentColor" stroke="none"/><circle cx="14.6" cy="7.4" r="1" fill="currentColor" stroke="none"/></svg>
+      <span>Creatives</span>
+    </a>
     <a class="tile" href="settings.html">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/></svg>
       <span>Settings</span>
@@ -60,6 +68,18 @@
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
   <p>trackello <span class="ver">v1.2</span></p>
 </footer>
+<div class="toast" id="homeToast" hidden></div>
 <script src="boot.js"></script>
+<script src="config.js"></script>
+<script>
+// Charts is a link out to another page. Set CONFIG.chartsUrl in config.js; until then the tile just says so.
+document.getElementById('chartsTile').addEventListener('click', e => {
+  e.preventDefault();
+  if (CONFIG.chartsUrl) { window.open(CONFIG.chartsUrl, '_blank', 'noopener'); return; }
+  const t = document.getElementById('homeToast');
+  t.textContent = 'Charts link is not set yet. Add chartsUrl in config.js.'; t.hidden = false;
+  clearTimeout(t.timer); t.timer = setTimeout(() => t.hidden = true, 3200);
+});
+</script>
 </body>
 </html>

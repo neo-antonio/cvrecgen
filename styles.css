@@ -194,7 +194,7 @@ body.home-body{padding-top:0}
 /* ---------- Finance: tasks grouped by receipt, standalone tasks ---------- */
 .tag-none{background:#eaeaea;color:#555}
 .add-task{width:100%;margin-bottom:14px}
-#finList{align-items:start}
+
 /* one quiet card per receipt: header + hairline-separated task lines */
 .fin-group{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);min-width:0;overflow:hidden}
 .fin-group-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:#fafafa;border-bottom:1px solid var(--line)}
@@ -384,24 +384,40 @@ body.home-body{padding-top:0}
 .tabs.tabs-5 .tab{font-size:12px;padding-left:2px;padding-right:2px}
 .fin-viewcard{align-self:flex-start}
 
-/* Finance: task groups flow in two balanced columns, so a short group no longer stretches to match a tall neighbour */
-@media(min-width:640px){
-  #finList.port-list{display:block;column-count:2;column-gap:10px}
-  #finList .fin-group{break-inside:avoid;margin-bottom:10px}
-}
-.bal-head{flex-wrap:wrap}
+/* finance archive */
+.fin-line.nochk{grid-template-columns:1fr auto}
+.rec-tools .ghost.sm{flex:1}
 
-/* Finance: daily interest log */
-.log-total{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;background:#e9e9e9;border-radius:10px;margin-bottom:8px}
-.log-total span{font:600 11px Poppins,sans-serif;letter-spacing:.4px;text-transform:uppercase}
-.log-total small{display:block;font:400 10px Poppins,sans-serif;letter-spacing:0;text-transform:none;color:var(--mut)}
-.log-total b{font:600 15px/1.2 Poppins,sans-serif;text-align:right;overflow-wrap:anywhere}
-.log-accts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
-.log-accts>div{background:#f2f2f2;border-radius:8px;padding:6px 10px;min-width:0}
-.log-accts span{display:block;font:600 10px Poppins,sans-serif;letter-spacing:.3px;text-transform:uppercase;color:var(--mut)}
-.log-accts b{font:600 12px/1.3 Poppins,sans-serif;overflow-wrap:anywhere}
-.log-day{border-top:1px solid var(--line);padding:8px 0}
-.log-day-head{display:flex;justify-content:space-between;gap:10px;font:500 12px Poppins,sans-serif}
-.log-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--mut);padding:1px 0}
-.log-row small{font-size:10px}
-#logBody{max-height:55vh;overflow-y:auto;margin-bottom:14px}
+/* Finance archive + Shipping lists: one column at every width. In the two-column grid each row is as tall as its
+   tallest card, so a short card next to a long one left a big empty gap under it. */
+#finList.port-list,#shipList.port-list{display:flex;flex-direction:column;gap:10px}
+#finList.port-list>*,#shipList.port-list>*{min-width:0}
+
+/* ---------- Shipping: contact line + receipt notes under the address ---------- */
+.ship-contact{margin-top:4px;font-weight:600}
+.ship-notes small{color:var(--mut)}
+
+/* ---------- Marketing: rankings + entities ---------- */
+.mk-sum{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.mk-sum span{font:500 12px Poppins,sans-serif;color:var(--mut)}
+.mk-sum b{font:400 20px "Archivo Black",Poppins,sans-serif;text-align:right;overflow-wrap:anywhere}
+.mk-list{display:flex;flex-direction:column;gap:8px}
+.mk-row{display:grid;grid-template-columns:26px 1fr auto;gap:10px;align-items:center;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);min-width:0}
+.mk-rank{width:26px;height:26px;border-radius:50%;background:#ececec;color:var(--mut);display:flex;align-items:center;justify-content:center;font:600 12px Poppins,sans-serif}
+.mk-row.top .mk-rank{background:var(--fg);color:var(--bg)}
+.mk-main{min-width:0;display:flex;flex-direction:column;gap:2px}
+.mk-main b{font:500 14px Poppins,sans-serif;overflow-wrap:anywhere}
+.mk-main span{font-size:11px;color:var(--mut)}
+.mk-bar{display:block;height:4px;background:#ececec;border-radius:2px;overflow:hidden;margin-top:4px}
+.mk-bar u{display:block;height:100%;background:var(--fg);border-radius:2px;text-decoration:none}
+.mk-val{font:600 13px Poppins,sans-serif;white-space:nowrap;text-align:right}
+.ent-card{display:flex;flex-direction:column;gap:6px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);min-width:0}
+.ent-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.ent-name{display:flex;flex-direction:column;gap:1px;min-width:0}
+.ent-name b{font:500 14px Poppins,sans-serif;overflow-wrap:anywhere}
+.ent-name span{font-size:11px;color:var(--mut)}
+.ent-acts{display:flex;gap:2px;margin-right:-6px;flex:none}
+.ent-alias{font-size:11px;color:var(--mut);overflow-wrap:anywhere}
+.ent-stats{font-size:12px;line-height:1.6;padding:6px 10px;border-radius:8px;background:#f2f2f2}
+.mg-item.on{border-color:var(--fg);box-shadow:0 0 0 1px var(--fg);background:#f4f4f4}
+.mg-item b{display:block}

@@ -1,20 +1,19 @@
-/* ---------- Finance (To record / Recorded) — reads/writes the Finance sheet via Code.gs ---------- */
+/* ---------- Finance (Balance / Archive) — reads/writes the Finance sheet via Code.gs ---------- */
 const finPhp = n => 'PHP ' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const escFin = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const $finList = document.getElementById('finList');
 const $finState = document.getElementById('finState');
-const $finIn = document.getElementById('finIn');
-const $finOut = document.getElementById('finOut');
-const $finNote = document.getElementById('finNote');
-const $finSubmitBar = document.getElementById('finSubmitBar');
 const $finRefresh = document.getElementById('finRefresh');
+const $finSearch = document.getElementById('finSearch');
+const $finFrom = document.getElementById('finFrom'), $finTo = document.getElementById('finTo'), $finCount = document.getElementById('finCount');
 
-let finTab = 'torecord';
+let finTab = 'balance';
+let arcType = 'all';
 let finData = { toRecord: [], recorded: [] };
-// Ticked-but-not-yet-submitted tasks. Ticking only changes this set (no request, no re-render);
-// the Record selected button is what sends them.
-let picked = new Set();
+// Tasks are archive records: every task counts toward the balance the moment it exists (no ticking / recording).
+// The server still sends them as two lists (toRecord / recorded) for older reasons; they are simply merged here.
+const finAll = () => finData.toRecord.concat(finData.recorded);
 
 function toast(m) {
   const t = document.getElementById('finToast'); t.textContent = m; t.hidden = false;
@@ -82,21 +81,17 @@ function taskDetailHtml(it, pt) {
   return notesHtml(text, cards) + one;
 }
 
-function rowHtml(it, recordable) {
+function rowHtml(it) {
   const flowCls = it.flow === 'inflow' ? 'amt-in' : it.flow === 'none' ? 'amt-none' : 'amt-out';
   const sign = it.flow === 'inflow' ? '+' : it.flow === 'none' ? '' : '\u2212';
   const flowWord = it.flow === 'inflow' ? 'Inflow' : it.flow === 'none' ? 'No cash' : 'Outflow';
   const meta = [fmtDay(it.date), fmtClock(it.time), it.payMethod ? escFin(it.payMethod) : '', flowWord].filter(Boolean).join(' \u00b7 ');
-  const acts = finIcon('pencil', 'fin-edit', 'Edit task', it.id)
-    + (!recordable ? finIcon('undo', 'fin-unrecord', 'Undo', it.id) : '')
-    + finIcon('trash', 'fin-delete danger', 'Delete task', it.id);
+  const acts = finIcon('pencil', 'fin-edit', 'Edit task', it.id) + finIcon('trash', 'fin-delete danger', 'Delete task', it.id);
   const pt = prettyTask(it);
   const detail = taskDetailHtml(it, pt);
   const imgs = it.images || [];
   const thumbs = imgs.length ? `<div class="fin-thumbs">${imgs.map((im, i) => `<button type="button" class="fin-thumb" data-id="${it.id}" data-i="${i}" aria-label="View image ${i + 1}"><img src="${escFin(im.thumb)}" alt="" loading="lazy"></button>`).join('')}</div>` : '';
-  const isPicked = recordable && picked.has(String(it.id));
-  return `<div class="fin-item fin-line${isPicked ? ' fin-picked' : ''}" data-id="${it.id}">
-      <label class="fin-chk">${recordable ? `<input type="checkbox" class="fin-mark"${isPicked ? ' checked' : ''}>` : '<span class="fin-done">&check;</span>'}</label>
+  return `<div class="fin-item fin-line nochk" data-id="${it.id}">
       <div class="port-info"><b>${escFin(pt.title)}</b><span>${meta}</span>${detail}${thumbs}</div>
       <div class="fin-right">
         <div class="fin-amt ${flowCls}">${sign}${finPhp(it.amount)}</div>
@@ -113,80 +108,102 @@ const RECEIPT_NAME = { purchase: 'Purchase receipt', sale: 'Sale receipt', trade
 function groupItems(list) {
   const groups = [], byKey = {};
   list.forEach(it => {
-    const key = it.type === 'manual' ? 'none' : (it.groupKey || (it.receipt ? 'url:' + it.receipt : 'none'));
+    const key = it.type === 'manual' ? '' : (it.groupKey || (it.receipt ? 'url:' + it.receipt : ''));
+    if (!key) { groups.push({ key: 'solo:' + it.id, solo: true, items: [it], first: it }); return; }   // standalone task: its own entry, sorted by its own date
     if (!byKey[key]) { byKey[key] = { key, items: [], first: it }; groups.push(byKey[key]); }
     byKey[key].items.push(it);
   });
-  return groups;
+  groups.forEach(g => {
+    // a group sits where its newest task sits; its type is the receipt's type (shipping fees belong to the sale)
+    g.stamp = g.items.reduce((m, i) => { const s = String(i.date || '').slice(0, 10) + ' ' + String(i.time || '00:00').padStart(5, '0'); return s > m ? s : m; }, '');
+    g.type = g.solo ? (g.first.type || 'manual') : (g.first.groupType || g.first.type);
+  });
+  return groups.sort((a, b) => a.stamp < b.stamp ? 1 : a.stamp > b.stamp ? -1 : 0);   // most recent first (stable on ties)
 }
-function groupHtml(g, recordable) {
-  const f = g.first, standalone = g.key === 'none';
+function groupHtml(g) {
+  if (g.solo) return `<section class="fin-group">${rowHtml(g.first)}</section>`;
+  const f = g.first;
   const kind = RECEIPT_NAME[f.groupType] || RECEIPT_NAME[f.type] || 'Receipt';
-  const title = standalone ? 'Standalone tasks' : (f.groupLabel || kind);
+  const title = f.groupLabel || kind;
   const n = g.items.length;
   const count = `${n} task${n > 1 ? 's' : ''}`;
-  const sub = standalone ? count : [kind, fmtDay(f.groupDate || f.date), f.groupDate ? fmtClock(f.groupTime) : '', count].filter(Boolean).join(' \u00b7 ');
+  const sub = [kind, fmtDay(f.groupDate || f.date), f.groupDate ? fmtClock(f.groupTime) : '', count].filter(Boolean).join(' \u00b7 ');
   // money in / out of this receipt's tasks, so shipping and packaging paid by the buyer show in the total
   const inSum = g.items.filter(i => i.flow === 'inflow').reduce((a, i) => a + (Number(i.amount) || 0), 0);
   const outSum = g.items.filter(i => i.flow === 'outflow').reduce((a, i) => a + (Number(i.amount) || 0), 0);
-  const totals = !standalone && n > 1 && (inSum || outSum)
+  const totals = n > 1 && (inSum || outSum)
     ? `<div class="fin-group-total">${inSum ? `<span class="amt-in">In +${finPhp(inSum)}</span>` : ''}${outSum ? `<span class="amt-out">Out \u2212${finPhp(outSum)}</span>` : ''}</div>` : '';
-  const receiptBtn = !standalone && f.receipt ? `<button type="button" class="icon-btn fin-receipt" data-url="${escFin(f.receipt)}" title="View receipt" aria-label="View receipt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${FIN_ICON.doc}</svg></button>` : '';
+  const receiptBtn = f.receipt ? `<button type="button" class="icon-btn fin-receipt" data-url="${escFin(f.receipt)}" title="View receipt" aria-label="View receipt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${FIN_ICON.doc}</svg></button>` : '';
   return `<section class="fin-group">
       <div class="fin-group-head">
         <div class="fin-group-title"><b>${escFin(title)}</b><span>${escFin(sub)}</span></div>
         ${totals}${receiptBtn}
       </div>
-      ${g.items.map(it => rowHtml(it, recordable)).join('')}
+      ${g.items.map(rowHtml).join('')}
     </section>`;
 }
 
-/* Money still waiting to be recorded, split by direction. Always computed from the To record list,
-   whichever tab is open; tasks with no cash movement count for neither side. */
-function renderPending() {
-  const sum = flow => finData.toRecord.filter(i => i.flow === flow).reduce((a, i) => a + (Number(i.amount) || 0), 0);
-  $finIn.textContent = '+' + finPhp(sum('inflow'));
-  $finOut.textContent = '\u2212' + finPhp(sum('outflow'));
-}
-
-// the sticky "Record selected" bar: how many ticked, and what they add up to
-function renderSubmitBar() {
-  const sel = finData.toRecord.filter(t => picked.has(String(t.id)));
-  const show = finTab === 'torecord' && sel.length > 0;
-  $finSubmitBar.hidden = !show;
-  if (!show) return;
-  const inS = sel.filter(t => t.flow === 'inflow').reduce((a, t) => a + (Number(t.amount) || 0), 0);
-  const outS = sel.filter(t => t.flow === 'outflow').reduce((a, t) => a + (Number(t.amount) || 0), 0);
-  document.getElementById('finSelCount').textContent = `${sel.length} selected`;
-  document.getElementById('finSelSums').textContent = [inS ? 'In +' + finPhp(inS) : '', outS ? 'Out \u2212' + finPhp(outS) : ''].filter(Boolean).join(' \u00b7 ') || 'No cash movement';
-}
-
-function renderTab() {
-  renderPending();
-  $finNote.hidden = finTab !== 'torecord';
-  const list = finTab === 'torecord' ? finData.toRecord : finData.recorded;
-  if (!list.length) {
-    $finState.textContent = finTab === 'torecord' ? 'Nothing waiting to be recorded.' : 'Nothing recorded yet.';
+/* Archive: newest first. The date range filters tasks by their own date (From/To in either order, inclusive);
+   the chips filter by receipt type. Shipping fees follow their sale; standalone tasks show under All. */
+const ACCT_NAME = { cash: 'Cash', maribank: 'Maribank', reserves: 'Cash reserves', others: 'Others' };
+// Daily interest: what each earning account was credited per day since the last balance update (computed, not stored)
+function renderInterest(lo, hi) {
+  const c = balance ? computeBalance() : null;
+  let days = c ? c.days : [];
+  if (lo || hi) days = days.filter(x => (!lo || x.credit >= lo) && (!hi || x.credit <= hi));
+  const total = r2(days.reduce((a, x) => a + x.total, 0));
+  $finCount.textContent = days.length ? `${days.length} day${days.length === 1 ? '' : 's'} \u00b7 +${finPhp(total)} after ${interestCfg.tax}% tax` : '';
+  if (!days.length) {
+    $finState.textContent = !balance ? 'Set a starting balance first (Balance tab \u2192 Update). Interest is counted from then on.'
+      : (lo || hi ? 'No interest credited in that date range.' : 'No interest credited yet since the last balance update (it is credited at midnight).');
     $finState.hidden = false; $finList.hidden = true;
-    renderSubmitBar();
     return;
   }
-  $finList.innerHTML = groupItems(list).map(g => groupHtml(g, finTab === 'torecord')).join('');
+  const rows = days.map(x => {
+    const lines = BUCKETS.filter(k => x.per[k]).map(k => `<li>${escFin(ACCT_NAME[k])} \u00b7 PHP ${finNum(x.per[k].bal)} at ${x.per[k].rate}% \u00b7 +${finPhp(x.per[k].net)}</li>`).join('');
+    return `<div class="fin-item fin-line nochk">
+      <div class="port-info"><b>${escFin(fmtDay(x.credit))}</b><span>Credited at midnight, on ${escFin(fmtDay(x.basis))} ending balance</span><div class="fin-cl"><ul>${lines}</ul></div></div>
+      <div class="fin-right"><div class="fin-amt amt-in">+${finPhp(x.total)}</div></div>
+    </div>`;
+  }).join('');
+  $finList.innerHTML = `<section class="fin-group"><div class="fin-group-head"><div class="fin-group-title"><b>Daily interest</b><span>${escFin('Since ' + fmtDay(c.since) + ' \u00b7 ' + interestCfg.tax + '% withholding tax already taken out')}</span></div></div>${rows}</section>`;
   $finState.hidden = true; $finList.hidden = false;
-  renderSubmitBar();
 }
 
-// ticks only survive for tasks that are still waiting to be recorded
-function prunePicks() {
-  const live = new Set(finData.toRecord.map(t => String(t.id)));
-  picked = new Set([...picked].filter(id => live.has(id)));
+function renderArchive() {
+  let lo = $finFrom.value, hi = $finTo.value;
+  if (lo && hi && lo > hi) [lo, hi] = [hi, lo];
+  document.getElementById('finAdd').hidden = arcType === 'interest';
+  document.getElementById('finSearchWrap').hidden = arcType === 'interest';   // interest rows are not tasks
+  if (arcType === 'interest') return renderInterest(lo, hi);
+  const all = finAll();
+  let items = all;
+  if (lo || hi) items = items.filter(t => { const d = String(t.date || '').slice(0, 10); return d && (!lo || d >= lo) && (!hi || d <= hi); });
+  const q = $finSearch.value.trim().toLowerCase();
+  if (q) items = items.filter(t => {
+    const pt = prettyTask(t);
+    const hay = [pt.title, pt.notes, t.description, t.payMethod, t.groupLabel, t.type, t.date, String(t.amount), finNum(t.amount), (t.cards || []).map(c => c.name).join(' ')].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+  let groups = groupItems(items);
+  if (arcType !== 'all') groups = groups.filter(g => g.type === arcType);
+  const n = groups.reduce((a, g) => a + g.items.length, 0);
+  $finCount.textContent = all.length ? `${n} task${n === 1 ? '' : 's'}` : '';
+  if (!groups.length) {
+    $finState.textContent = !all.length ? 'No tasks yet.' : (q || lo || hi ? 'No tasks match your search or dates.' : 'No tasks in this category.');
+    $finState.hidden = false; $finList.hidden = true;
+    return;
+  }
+  $finList.innerHTML = groups.map(groupHtml).join('');
+  $finState.hidden = true; $finList.hidden = false;
 }
+const renderTab = renderArchive;
 
 let finFirst = true;
 async function loadFinance() {
   if (!CONFIG.portfolio.endpoint) { $finState.textContent = "Sync isn't set up yet."; $finState.hidden = false; $finList.hidden = true; return; }
   const cached = finFirst ? cacheGet('finance') : null; finFirst = false;
-  if (cached) { finData = cached; prunePicks(); renderTab(); renderBalance(); }
+  if (cached) { finData = cached; renderTab(); renderBalance(); }
   else { $finState.textContent = 'Loading\u2026'; $finState.hidden = false; $finList.hidden = true; }
   try {
     const url = CONFIG.portfolio.endpoint + '?action=finance&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
@@ -194,7 +211,6 @@ async function loadFinance() {
     if (!data.ok) throw new Error(data.error || 'Unknown error');
     finData = { toRecord: data.toRecord || [], recorded: data.recorded || [] };
     cacheSet('finance', finData);
-    prunePicks();
     renderTab();
     renderBalance();
   } catch (err) {
@@ -208,44 +224,18 @@ async function loadFinance() {
 function setFinTab(name) {
   document.querySelectorAll('.tab[data-ftab]').forEach(x => x.classList.toggle('active', x.dataset.ftab === name));
   finTab = name;
-  renderTab();
+  document.getElementById('panelBalance').hidden = name !== 'balance';
+  document.getElementById('panelArchive').hidden = name !== 'archive';
 }
 document.querySelectorAll('.tab[data-ftab]').forEach(t => t.onclick = () => setFinTab(t.dataset.ftab));
-
-// Ticking is local: no request and no re-render, so you can tick several tasks in a row.
-$finList.addEventListener('change', e => {
-  if (!e.target.classList.contains('fin-mark')) return;
-  const row = e.target.closest('.fin-item');
-  const id = String(row.dataset.id);
-  if (e.target.checked) picked.add(id); else picked.delete(id);
-  row.classList.toggle('fin-picked', e.target.checked);
-  renderSubmitBar();
+document.querySelectorAll('#finFilters .chip').forEach(c => c.onclick = () => {
+  document.querySelectorAll('#finFilters .chip').forEach(x => x.classList.toggle('active', x === c));
+  arcType = c.dataset.type;
+  renderArchive();
 });
-
-// Submit every ticked task. IDs go in small batches (one Apps Script call each); the list is reloaded once at the end.
-document.getElementById('finSubmit').onclick = async () => {
-  const ids = finData.toRecord.map(t => String(t.id)).filter(id => picked.has(id));
-  if (!ids.length) return;
-  const btn = document.getElementById('finSubmit');
-  btn.disabled = true; btn.textContent = 'Recording\u2026';
-  let done = 0, failure = null;
-  for (let i = 0; i < ids.length; i += 20) {
-    const chunk = ids.slice(i, i + 20);
-    try {
-      const url = CONFIG.portfolio.endpoint + '?action=record&financeId=' + encodeURIComponent(chunk.join(',')) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
-      const data = await jsonp(url);
-      if (!data.ok) throw new Error(data.error || 'Request failed');
-      chunk.forEach(id => picked.delete(id));
-      done += chunk.length;
-    } catch (err) { failure = err; break; }
-  }
-  await loadFinance();   // shows what actually landed; anything that did not stays ticked
-  btn.disabled = false; btn.textContent = 'Record selected';
-  if (failure) {
-    console.warn('Record failed', failure);
-    toast(`${done ? done + ' recorded, but the rest' : 'Could not record'}: ${failure.message}. Check the list, then try again.`);
-  } else toast(`${done} task${done === 1 ? '' : 's'} recorded.`);
-};
+[$finFrom, $finTo].forEach(i => i.addEventListener('change', renderArchive));
+$finSearch.addEventListener('input', renderArchive);
+document.getElementById('finClear').onclick = () => { $finFrom.value = ''; $finTo.value = ''; $finSearch.value = ''; renderArchive(); };
 
 $finList.addEventListener('click', async e => {
   const receiptBtn = e.target.closest('.fin-receipt');
@@ -273,19 +263,6 @@ $finList.addEventListener('click', async e => {
     return;
   }
 
-  const undoBtn = e.target.closest('.fin-unrecord');
-  if (undoBtn) {
-    undoBtn.disabled = true;
-    try {
-      const url = CONFIG.portfolio.endpoint + '?action=unrecord&financeId=' + encodeURIComponent(undoBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
-      const data = await jsonp(url);
-      if (!data.ok) throw new Error(data.error || 'Request failed');
-      await loadFinance();
-    } catch (err) {
-      undoBtn.disabled = false;
-      toast('Could not undo: ' + err.message);
-    }
-  }
 });
 
 /* ---------- Task editor: add a standalone task, or edit any task (title, description, up to 5 images) ---------- */
@@ -464,8 +441,6 @@ $ts('taskSave').onclick = async () => {
 // "Update" saves a baseline (what each account really holds at that moment). The balance shown is that baseline
 // plus every Finance task dated after it (ticked or not, inflow or outflow, by pay method) plus daily interest.
 let balance = null;   // { cash, maribank, reserves, others, note, updatedAt, skip:[ids] }
-// Shipping fees we still owe on sales that are not fully shipped yet: [{ fee, from }] (one per sale batch). The Finance task for them only appears once shipped.
-let shipFees = [];
 const nowStamp = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const r2 = x => Math.round(x * 100) / 100;
 const BUCKETS = ['cash', 'maribank', 'reserves', 'others'];
@@ -499,43 +474,26 @@ function computeBalance() {
   const bDate = m ? m[1] : (String(b.updatedAt || '').slice(0, 10) || todayIso()), bTime = m ? m[2].padStart(5, '0') : '00:00';
   const skip = new Set((b.skip || []).map(String));
   // dated after the baseline? Same day: compare the time; with no time it counts unless it already existed when the baseline was saved
-  const bStamp = bDate + ' ' + bTime;
-  const createdOf = t => { const c = String(t.created || '').match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/); return c ? c[1] + ' ' + c[2] : ''; };
-  const afterByDate = t => {
+  const after = t => {
     const d = String(t.date || '').slice(0, 10);
     if (!d) return false;
     if (d !== bDate) return d > bDate;
     const tm = String(t.time || '').trim();
     return tm ? tm.padStart(5, '0') > bTime : !skip.has(String(t.id));
   };
-  // entered after the baseline was saved (even if dated earlier, e.g. a backdated receipt) -> it is not in the typed amounts yet
-  const enteredAfter = t => { const c = createdOf(t); return !!c && c > bStamp; };
-  const after = t => afterByDate(t) || enteredAfter(t);
   const daily = {}, base = { cash: +b.cash || 0, maribank: +b.maribank || 0, reserves: +b.reserves || 0, others: +b.others || 0 };
   let inSum = 0, outSum = 0, n = 0;
   finData.toRecord.concat(finData.recorded).forEach(t => {
     if (t.flow !== 'inflow' && t.flow !== 'outflow') return;
     const k = bucketOf(t.payMethod);
     if (!k || !after(t)) return;
-    const amt = Number(t.amount) || 0;
-    let d = String(t.date || '').slice(0, 10);
-    const cr = createdOf(t);
-    if (cr && cr > bStamp && d < cr.slice(0, 10)) d = cr.slice(0, 10);   // backdated: earns/costs from the day it was entered
-    if (d < bDate) d = bDate;
+    const amt = Number(t.amount) || 0, d = String(t.date).slice(0, 10);
     (daily[k] = daily[k] || {})[d] = ((daily[k] || {})[d] || 0) + (t.flow === 'inflow' ? amt : -amt);
     if (t.flow === 'inflow') inSum += amt; else outSum += amt;
     n++;
   });
-  // shipping fees still to be paid (sale not fully shipped yet): taken off the account now; the real Finance task replaces this once shipped
-  let shipSum = 0;
-  shipFees.forEach(x => {
-    const k = bucketOf(x.from), fee = Number(x.fee) || 0;
-    if (!k || fee <= 0) return;
-    const t0 = todayIso();
-    (daily[k] = daily[k] || {})[t0] = (daily[k][t0] || 0) - fee;
-    shipSum += fee;
-  });
-  const cfg = interestCfg, today = todayIso(), out = { n, inSum, outSum, pendingShip: r2(shipSum), interest: 0, since: bDate, log: [] };
+  const cfg = interestCfg, today = todayIso(), out = { n, inSum, outSum, interest: 0, since: bDate, days: [] };
+  const hist = {};   // basis day -> { account -> { bal, rate, net } }, for the daily interest archive
   BUCKETS.forEach(k => {
     let cur = base[k];
     const days = daily[k] || {};
@@ -546,7 +504,7 @@ function computeBalance() {
         const rate = (cur > cfg.threshold ? cfg.hi : cfg.lo) / 100;
         const gross = r2(cur * rate / 365);
         const net = r2(gross - r2(gross * cfg.tax / 100));
-        out.log.push({ date: d, acct: k, bal: r2(cur), rate: rate * 100, gross, tax: r2(gross - net), net });   // for the daily interest log
+        (hist[d] = hist[d] || {})[k] = { bal: r2(cur), rate: r2(rate * 100), net };
         cur += net; out.interest += net;
       }
     }
@@ -554,15 +512,20 @@ function computeBalance() {
     out[k] = r2(cur);
   });
   out.interest = r2(out.interest);
+  // one row per day, credited at the midnight after the day it is based on; newest first
+  out.days = Object.keys(hist).sort().reverse().map(d => {
+    const per = hist[d];
+    return { basis: d, credit: nextDay(d), per, total: r2(BUCKETS.reduce((a, k) => a + (per[k] ? per[k].net : 0), 0)) };
+  });
   return out;
 }
 
-// Portfolio value is not typed in: it is the same "Onhand value" the Portfolio tab shows
-// (cards still in our hands, i.e. onhand + shipping, valued at purchase cost).
+// Portfolio value is not typed in: cards that are on hand (status "onhand" only, not ones already sold and waiting
+// to ship), valued at purchase cost.
 let portValue = null;
 const portValueOf = d => {
   const cards = Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || []);
-  return cards.filter(c => c.tag === 'onhand' || c.tag === 'shipping').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
+  return cards.filter(c => c.tag === 'onhand').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
 };
 
 let lastAuto = null;
@@ -582,11 +545,12 @@ function renderBalance() {
     set('balTotalVal', finPhp(liquid + c.reserves + (+portValue || 0) + c.others));
   }
   const auto = document.getElementById('balAuto');
-  const bits = c ? [c.inSum ? `+${finPhp(c.inSum)} in` : '', c.outSum ? `\u2212${finPhp(c.outSum)} out` : '', c.pendingShip ? `\u2212${finPhp(c.pendingShip)} shipping fees pending` : '', c.interest ? `+${finPhp(c.interest)} interest (after ${interestCfg.tax}% tax)` : ''].filter(Boolean) : [];
+  const bits = c ? [c.inSum ? `+${finPhp(c.inSum)} in` : '', c.outSum ? `\u2212${finPhp(c.outSum)} out` : '', c.interest ? `+${finPhp(c.interest)} interest (after ${interestCfg.tax}% tax)` : ''].filter(Boolean) : [];
   auto.hidden = !bits.length;
   if (bits.length) auto.textContent = `Since ${fmtDay(c.since)}: ` + bits.join(' \u00b7 ');
   document.getElementById('balNote').hidden = !(b && b.note);
   if (b && b.note) document.getElementById('balNote').textContent = b.note;
+  if (arcType === 'interest') renderArchive();
   set('balMeta', b ? 'Starting point set ' + fmtStamp(b.updatedAt) + ' \u00b7 updates automatically from tasks and interest \u00b7 Portfolio is pulled live' : 'Not set yet \u2014 tap Update to enter what each account holds. Tasks and interest are added on top from then on.');
 }
 let portFirstFin = true;
@@ -601,29 +565,6 @@ async function loadPortValue() {
     cacheSet('portfolio', { cards: Array.isArray(data.cards) ? data.cards : (data.owned || []).concat(data.sold || []) });   // same shape portfolio.js saves
     renderBalance();
   } catch (err) { console.warn('Portfolio value load failed', err); }   // keeps whatever is already showing
-}
-// Pending shipping fees: every sale batch that still has an unshipped card owes its whole fee (cards already shipped in
-// the same batch included) to the account chosen as "deducted from".
-const shipFeesOf = d => {
-  const open = new Set((d.toShip || []).map(i => i.groupKey)), g = {};
-  (d.toShip || []).concat(d.shipped || []).forEach(i => {
-    if (!open.has(i.groupKey)) return;
-    const x = g[i.groupKey] = g[i.groupKey] || { fee: 0, from: '' };
-    x.fee += Number(i.shipFee) || 0;
-    if (!x.from) x.from = i.deductedFrom || '';
-  });
-  return Object.keys(g).map(k => g[k]).filter(x => x.fee > 0);
-};
-let shipFirstFin = true;
-async function loadShipFees() {
-  if (!CONFIG.portfolio.endpoint) return;
-  const cached = shipFirstFin ? cacheGet('shipFees') : null; shipFirstFin = false;
-  if (cached) { shipFees = cached; renderBalance(); }
-  try {
-    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=shipping&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
-    if (!data.ok) throw new Error(data.error || 'Unknown error');
-    shipFees = shipFeesOf(data); cacheSet('shipFees', shipFees); renderBalance();
-  } catch (err) { console.warn('Shipping fees load failed', err); }   // keeps whatever is already showing
 }
 let balFirst = true;
 async function loadBalance() {
@@ -700,34 +641,11 @@ $i('intSave').onclick = async () => {
   } catch (err) { toast('Saved on this device only: ' + err.message); }
 };
 
-/* Daily interest log: what each account earned on each day since the starting point (same numbers the balance uses). */
-const ACCT_LABEL = { cash: 'Cash', maribank: 'Maribank', reserves: 'Cash reserves', others: 'Others' };
-function renderInterestLog() {
-  const c = computeBalance(), body = $i('logBody');
-  if (!balance) { body.innerHTML = '<p class="stub-note">Set a starting balance first (tap Update). Interest is counted from that moment.</p>'; return; }
-  const on = BUCKETS.filter(k => interestCfg.accounts[k]);
-  if (!on.length) { body.innerHTML = '<p class="stub-note">No account is set to earn interest. Turn one on under Interest.</p>'; return; }
-  if (!c.log.length) { body.innerHTML = '<p class="stub-note">Nothing credited yet. Interest is credited at midnight on the day\u2019s ending balance, so the first entry appears tomorrow.</p>'; return; }
-  const tot = {}, byDay = {};
-  c.log.forEach(e => { tot[e.acct] = (tot[e.acct] || 0) + e.net; (byDay[e.date] = byDay[e.date] || []).push(e); });
-  const sum = BUCKETS.filter(k => tot[k]).map(k => `<div><span>${ACCT_LABEL[k]}</span><b class="amt-in">+${finPhp(tot[k])}</b></div>`).join('');
-  const days = Object.keys(byDay).sort().reverse().map(d => {
-    const es = byDay[d], day = es.reduce((a, e) => a + e.net, 0);
-    return `<div class="log-day"><div class="log-day-head"><b>${escFin(fmtDay(d))}</b><b class="amt-in">+${finPhp(day)}</b></div>`
-      + es.map(e => `<div class="log-row"><span>${ACCT_LABEL[e.acct]} <small>on ${finNum(e.bal)} at ${+e.rate.toFixed(2)}%</small></span><span>+${finNum(e.net)}</span></div>`).join('') + '</div>';
-  }).join('');
-  body.innerHTML = `<div class="log-total"><span>Total earned since ${escFin(fmtDay(c.since))} <small>after ${interestCfg.tax}% tax</small></span><b class="amt-in">+${finPhp(c.interest)}</b></div>`
-    + `<div class="log-accts">${sum}</div>` + days
-    + '<p class="stub-note" style="margin:8px 0 0;font-size:11px">Each day is credited at midnight, so today\u2019s interest appears tomorrow.</p>';
-}
-$i('balLog').onclick = () => { renderInterestLog(); $i('logSheet').hidden = false; };
-$i('logClose').onclick = () => $i('logSheet').hidden = true;
-$i('logSheet').addEventListener('click', e => { if (e.target.id === 'logSheet') $i('logSheet').hidden = true; });
-
 // Refresh reloads both the task list and the balance (your ticks are kept)
-$finRefresh.onclick = () => { loadFinance(); loadBalance(); loadPortValue(); loadShipFees(); };
+const refreshAll = () => { loadFinance(); loadBalance(); loadPortValue(); };
+$finRefresh.onclick = refreshAll;
+document.getElementById('balRefresh').onclick = refreshAll;
 
 loadBalance();
 loadPortValue();
-loadShipFees();
 loadFinance();
