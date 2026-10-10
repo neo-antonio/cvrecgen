@@ -87,7 +87,7 @@ function buildMessages(question, history, recs, summary, budget) {
     + 'You have read-only access: you cannot add, change or delete anything, and you must say so if asked to. '
     + 'If the data does not contain the answer, say you could not find it in the data. Never guess or invent names, dates or numbers. Currency is PHP. Be concise. '
     + 'Today is ' + today + '.\n\n'
-    + 'SUMMARY (exact counts and totals; use these for "how many" and "total" questions):\n' + summary + '\n\n'
+    + 'SUMMARY (exact counts and totals; use these for "how many" and "total" questions):\n' + summary.slice(0, Math.max(600, budget)) + '\n\n'
     + 'RECORDS (only the rows most relevant to this question, not the full list):\n' + pickRecords(recs, question, budget).join('\n');
   return [{ role: 'system', content: sys }]
     .concat(history.slice(-2).map(m => ({ role: m.role, content: m.content.slice(0, 400) })))
@@ -103,7 +103,7 @@ function buildMessages(question, history, recs, summary, budget) {
     return;
   }
   const $ = id => document.getElementById(id);
-  let wl = null, engine = null, loadedId = '', recs = [], summary = '', history = [], busy = false;
+  let wl = null, engine = null, loadedId = '', loadedKey = '1B', recs = [], summary = '', history = [], busy = false;
 
   const setState = t => { $('cbState').textContent = t; };
   const setBar = (p, show = true) => { $('cbBarWrap').hidden = !show; $('cbBar').style.width = Math.round((p || 0) * 100) + '%'; };
@@ -131,7 +131,38 @@ function buildMessages(question, history, recs, summary, budget) {
     }
     return false;
   }
-  async function modelId(size) { size = (String(size).match(/[\d.]+/) || ['3'])[0] + 'B'; return 'Llama-3.2-' + size + '-Instruct-q4f' + (await hasF16() ? '16' : '32') + '_1-MLC'; }
+  /* Model list. k = value in the dropdown, base = WebLLM model id without the quantisation suffix,
+     rb = how many characters of records to send (small context windows need less). */
+  const MODELS = [
+    { k: '1B',      base: 'Llama-3.2-1B-Instruct',        rb: 2400, label: 'Fast \u00b7 Llama 3.2 1B (about 0.9 GB)' },
+    { k: '3B',      base: 'Llama-3.2-3B-Instruct',        rb: 2400, label: 'Better \u00b7 Llama 3.2 3B (about 2.3 GB)' },
+    { k: 'qwen05',  base: 'Qwen2.5-0.5B-Instruct',        rb: 1800, label: 'Tiny \u00b7 Qwen 2.5 0.5B (about 0.4 GB, weak answers)' },
+    { k: 'qwen15',  base: 'Qwen2.5-1.5B-Instruct',        rb: 2400, label: 'Small \u00b7 Qwen 2.5 1.5B (about 1.2 GB)' },
+    { k: 'qwen3',   base: 'Qwen2.5-3B-Instruct',          rb: 2400, label: 'Good \u00b7 Qwen 2.5 3B (about 2.2 GB)' },
+    { k: 'qwen7',   base: 'Qwen2.5-7B-Instruct',          rb: 2400, label: 'Strong \u00b7 Qwen 2.5 7B (about 4.5 GB, needs 6 GB+ VRAM)' },
+    { k: 'smol',    base: 'SmolLM2-360M-Instruct',        rb: 1500, label: 'Smallest \u00b7 SmolLM2 360M (about 0.25 GB, weak answers)' },
+    { k: 'smol17',  base: 'SmolLM2-1.7B-Instruct',        rb: 2000, label: 'Small \u00b7 SmolLM2 1.7B (about 1.2 GB)' },
+    { k: 'gemma2b', base: 'gemma-2-2b-it',                rb: 2200, label: 'Compact \u00b7 Gemma 2 2B (about 1.6 GB)' },
+    { k: 'phi',     base: 'Phi-3.5-mini-instruct',        rb: 2400, label: 'Reasoning \u00b7 Phi 3.5 mini 3.8B (about 2.2 GB)' },
+    { k: 'mistral', base: 'Mistral-7B-Instruct-v0.3',     rb: 2400, label: 'Heavy \u00b7 Mistral 7B (about 4 GB, needs 6 GB+ VRAM)' },
+    { k: 'gemma9b', base: 'gemma-2-9b-it',                rb: 2400, label: 'Heaviest \u00b7 Gemma 2 9B (about 5.5 GB, needs 8 GB+ VRAM)' },
+    { k: 'tiny',    base: 'TinyLlama-1.1B-Chat-v1.0',     rb: 900,  label: 'Basic \u00b7 TinyLlama 1.1B (about 0.7 GB, 2K context)' },
+    { k: 'stable',  base: 'stablelm-2-zephyr-1_6b',       rb: 2000, label: 'Compact \u00b7 StableLM 2 Zephyr 1.6B (about 1.0 GB)' },
+  ];
+  const modelOf = k => MODELS.find(m => m.k === k) || MODELS[0];
+  async function modelId(k) { return modelOf(k).base + '-q4f' + (await hasF16() ? '16' : '32') + '_1-MLC'; }
+  function fillModels() {
+    const sel = $('cbModel'), keep = sel.value || '1B';
+    sel.innerHTML = '';
+    MODELS.forEach(m => { const o = document.createElement('option'); o.value = m.k; o.textContent = m.label; sel.appendChild(o); });
+    sel.value = MODELS.some(m => m.k === keep) ? keep : '1B';
+  }
+  // hide models this WebLLM build does not know, so a dead option is never offered
+  function pruneModels() {
+    if (!wl) return;
+    const have = new Set(wl.prebuiltAppConfig.model_list.map(m => m.model_id)), sel = $('cbModel');
+    [...sel.options].forEach(o => { const m = modelOf(o.value); if (!have.has(m.base + '-q4f32_1-MLC') && !have.has(m.base + '-q4f16_1-MLC')) o.remove(); });
+  }
   async function refreshButton() {
     if (!wl) return;
     try {
@@ -181,6 +212,14 @@ function buildMessages(question, history, recs, summary, budget) {
     const hit = await cache.match(manUrl);
     if (hit) man = await hit.clone().json();
     else { const r = await getWithBackoff(from('ndarray-cache.json'), 'Reading model list'); await cache.put(manUrl, r.clone()); man = await r.json(); }
+    // small files WebLLM also reads from Hugging Face: config + tokenizer (so a blocked IP can't stop them either)
+    const extras = [['mlc-chat-config.json', 'webllm/config', true], ['tokenizer.json', 'webllm/model', true], ['tokenizer_config.json', 'webllm/model', false]];
+    for (const [name, scope, must] of extras) {
+      try {
+        const c = await caches.open(scope), key = origin + name;
+        if (!(await c.match(key))) { setState('Reading ' + name + '\u2026'); await c.put(key, await getWithBackoff(from(name), name)); }
+      } catch (e) { if (must) throw e; }
+    }
     const files = man.records || [];
     const total = files.reduce((a, f) => a + (f.nbytes || 0), 0) || 1;
     let done = 0;
@@ -225,7 +264,7 @@ function buildMessages(question, history, recs, summary, budget) {
         }
       }
       if (lastErr) throw lastErr;
-      loadedId = id; setBar(1, false); console.log('Loaded model', useId); setState('Ready. Ask anything about your data.'); enableChat(true);
+      loadedId = id; loadedKey = $('cbModel').value; setBar(1, false); console.log('Loaded model', useId); setState('Ready. Ask anything about your data.'); enableChat(true);
     } catch (err) {
       console.warn(err); engine = null; setBar(0, false);
       const msg = String(err && err.message || err);
@@ -243,8 +282,9 @@ function buildMessages(question, history, recs, summary, budget) {
       if (!recs.length) await loadData();
       const run = budget => engine.chat.completions.create({ messages: buildMessages(q, history, recs, summary, budget), stream: true, temperature: 0.2, max_tokens: 400 });
       let stream;
-      try { stream = await run(2400); }
-      catch (e) { if (/context|exceed|token/i.test(String(e && e.message || e))) stream = await run(900); else throw e; }
+      const rb = modelOf(loadedKey).rb;
+      try { stream = await run(rb); }
+      catch (e) { if (/context|exceed|token/i.test(String(e && e.message || e))) stream = await run(Math.round(rb * 0.4)); else throw e; }
       let txt = '';
       for await (const ch of stream) { const d = ch.choices[0] && ch.choices[0].delta && ch.choices[0].delta.content; if (d) { txt += d; bubble.textContent = txt; bubble.scrollIntoView({ block: 'end' }); } }
       bubble.textContent = txt || '(no answer)';
@@ -274,5 +314,6 @@ function buildMessages(question, history, recs, summary, budget) {
 
   if (!navigator.gpu) setState('This browser does not support WebGPU, which the local model needs. Try the latest Chrome or Edge.');
   loadData();
-  import(WEBLLM_URL).then(m => { wl = m; refreshButton(); }).catch(() => setState('Could not load the WebLLM library (check your connection).'));
+  fillModels();
+  import(WEBLLM_URL).then(m => { wl = m; pruneModels(); refreshButton(); }).catch(() => setState('Could not load the WebLLM library (check your connection).'));
 })();
