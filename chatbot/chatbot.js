@@ -61,13 +61,13 @@ function buildSummary(recs) {
     Object.keys(cats).forEach(k => line += '; ' + k + ': ' + Object.entries(cats[k]).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([v, c]) => v + '=' + c).join(', '));
     lines.push(line);
   });
-  return lines.join('\n').slice(0, 3000);
+  return lines.join('\n').slice(0, 1500);
 }
 
 const STOP = new Set('the an of and or to in on for is are was were be how many much what which who when where does did we our my me you your with at by from this that these those it its as about tell show list give all any have has had can could should would please'.split(' '));
 const tokens = q => [...new Set((String(q).toLowerCase().match(/[a-z0-9.\-]{2,}/g) || []))].filter(t => !STOP.has(t));
 
-function pickRecords(recs, q, budget = 4500) {
+function pickRecords(recs, q, budget = 2400) {
   const toks = tokens(q);
   const scored = recs.map(r => ({ r, s: toks.reduce((a, t) => a + (r.low.includes(t) ? 1 : 0), 0) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.r);
   let pool = scored;
@@ -81,22 +81,27 @@ function pickRecords(recs, q, budget = 4500) {
   return out;
 }
 
-function buildMessages(question, history, recs, summary) {
+function buildMessages(question, history, recs, summary, budget) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const sys = 'You are the Court Vision assistant inside the trackello app. Answer ONLY from the DATA below, which was read from the business\'s Google Sheet backend. '
     + 'You have read-only access: you cannot add, change or delete anything, and you must say so if asked to. '
     + 'If the data does not contain the answer, say you could not find it in the data. Never guess or invent names, dates or numbers. Currency is PHP. Be concise. '
     + 'Today is ' + today + '.\n\n'
     + 'SUMMARY (exact counts and totals; use these for "how many" and "total" questions):\n' + summary + '\n\n'
-    + 'RECORDS (only the rows most relevant to this question, not the full list):\n' + pickRecords(recs, question).join('\n');
+    + 'RECORDS (only the rows most relevant to this question, not the full list):\n' + pickRecords(recs, question, budget).join('\n');
   return [{ role: 'system', content: sys }]
-    .concat(history.slice(-4).map(m => ({ role: m.role, content: m.content.slice(0, 600) })))
+    .concat(history.slice(-2).map(m => ({ role: m.role, content: m.content.slice(0, 400) })))
     .concat([{ role: 'user', content: question }]);
 }
 
 /* ---- UI ---- */
-(function () {
-  if (typeof document === 'undefined' || !document.getElementById('cbGo')) return;
+(function boot() {
+  if (typeof document === 'undefined') return;
+  if (!document.getElementById('cbGo')) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+    else console.warn('chatbot.js: #cbGo not found, chat UI not on this page');
+    return;
+  }
   const $ = id => document.getElementById(id);
   let wl = null, engine = null, loadedId = '', recs = [], summary = '', history = [], busy = false;
 
@@ -106,7 +111,7 @@ function buildMessages(question, history, recs, summary) {
 
   /* ----- read-only data ----- */
   async function loadData() {
-    if (!CONFIG.portfolio || !CONFIG.portfolio.endpoint) { $('cbData').textContent = "Sync isn't set up yet."; return; }
+    if (typeof CONFIG === 'undefined' || typeof jsonp === 'undefined' || !CONFIG.portfolio || !CONFIG.portfolio.endpoint) { $('cbData').textContent = "Sync isn't set up yet."; return; }
     $('cbData').textContent = 'Reading backend\u2026';
     const out = {};
     const results = await Promise.allSettled(READ_ONLY.map(a => jsonp(readUrl(a)).then(d => { if (d && d.ok) out[a] = d; else throw new Error(a); })));
@@ -117,11 +122,16 @@ function buildMessages(question, history, recs, summary) {
   }
 
   /* ----- model ----- */
-  async function modelId(size) {
-    let f16 = false;
-    try { const a = await navigator.gpu.requestAdapter(); f16 = !!a && a.features.has('shader-f16'); } catch (_) {}
-    return 'Llama-3.2-' + size + '-Instruct-q4f' + (f16 ? '16' : '32') + '_1-MLC';
+  let f16Cache = null;
+  async function hasF16() {
+    if (f16Cache !== null) return f16Cache;
+    for (let i = 0; i < 4; i++) {   // the adapter can come back empty for a moment, so ask a few times
+      try { const a = await navigator.gpu.requestAdapter(); if (a) return (f16Cache = a.features.has('shader-f16')); } catch (_) {}
+      await new Promise(r => setTimeout(r, 350));
+    }
+    return false;
   }
+  async function modelId(size) { size = (String(size).match(/[\d.]+/) || ['3'])[0] + 'B'; return 'Llama-3.2-' + size + '-Instruct-q4f' + (await hasF16() ? '16' : '32') + '_1-MLC'; }
   async function refreshButton() {
     if (!wl) return;
     try {
@@ -133,35 +143,52 @@ function buildMessages(question, history, recs, summary) {
   }
   function enableChat(on) { $('cbInput').disabled = !on; $('cbSend').disabled = !on; if (on) $('cbInput').focus(); }
 
-  /* ----- sequential download ----- */
-  // WebLLM fetches many model files at once, and on some connections several of them drop (ERR_FAILED / Cache.add network error).
-  // This saves the files one at a time, retrying each, into the same browser cache WebLLM reads from; WebLLM then finds them already there.
+  /* ----- gentle downloader -----
+     WebLLM fetches every shard at once. Hugging Face answers with HTTP 429 (rate limit), and because that reply
+     has no CORS header the browser reports it as a CORS error. Here the shards are saved one at a time with backoff
+     into the same cache WebLLM reads from, so WebLLM then finds them already downloaded. */
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  async function fetchRetry(url, tries = 5) {
-    let last;
-    for (let a = 1; a <= tries; a++) {
-      try { const r = await fetch(url); if (r.ok) return r; last = new Error('HTTP ' + r.status); } catch (e) { last = e; }
-      await sleep(1500 * a);
+  async function getWithBackoff(url, label) {
+    let lastErr;
+    for (let i = 0; i < 6; i++) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) return res;
+        lastErr = new Error('HTTP ' + res.status);
+        if (res.status === 429) await sleep((+res.headers.get('retry-after') || 0) * 1000 || 8000 * (i + 1));
+        else await sleep(1500 * (i + 1));
+      } catch (e) {   // a 429 without CORS headers also lands here
+        lastErr = e;
+        setState((label || 'Downloading') + ': server is slow or rate limiting, waiting before retry ' + (i + 1) + ' of 6\u2026');
+        await sleep(8000 * (i + 1));
+      }
     }
-    throw last;
+    throw new Error('Hugging Face keeps refusing the download (' + (lastErr && lastErr.message || lastErr) + '). Wait about 15 minutes, turn off any VPN, and press the button again. Files already saved are kept.');
   }
-  async function prefetchModel(id, onStep) {
+  async function prefetchModel(id) {
+    if (typeof caches === 'undefined') return;
     const rec = wl.prebuiltAppConfig.model_list.find(m => m.model_id === id);
-    let base = String(rec.model); if (!base.endsWith('/')) base += '/'; if (!/\/resolve\//.test(base)) base += 'resolve/main/';
+    if (!rec) return;
+    const base = rec.model.replace(/\/+$/, '') + '/resolve/main/';
     const cache = await caches.open('webllm/model');
-    const idxUrl = new URL('ndarray-cache.json', base).href;
-    let res = await cache.match(idxUrl);
-    if (!res) { res = await fetchRetry(idxUrl); await cache.put(idxUrl, res.clone()); }
-    const files = [...new Set(((await res.json()).records || []).map(r => r.dataPath))];
+    const manUrl = base + 'ndarray-cache.json';
+    let man;
+    const hit = await cache.match(manUrl);
+    if (hit) man = await hit.clone().json();
+    else { const r = await getWithBackoff(manUrl, 'Reading model list'); await cache.put(manUrl, r.clone()); man = await r.json(); }
+    const files = man.records || [];
+    const total = files.reduce((a, f) => a + (f.nbytes || 0), 0) || 1;
+    let done = 0;
     for (let i = 0; i < files.length; i++) {
-      const url = new URL(files[i], base).href;
-      onStep(i, files.length);
-      if (await cache.match(url)) continue;
-      let r;
-      try { r = await fetchRetry(url); } catch (e) { throw new Error('could not download ' + files[i] + ' (' + (e && e.message || e) + ')'); }
-      await cache.put(url, r);
+      const f = files[i], url = base + f.dataPath;
+      if (!(await cache.match(url))) {
+        const r = await getWithBackoff(url, 'Part ' + (i + 1) + ' of ' + files.length);
+        await cache.put(url, r);
+        await sleep(400);
+      }
+      done += f.nbytes || 0;
+      setBar(done / total * 0.95); setState(Math.round(done / total * 95) + '% \u00b7 downloaded part ' + (i + 1) + ' of ' + files.length);
     }
-    onStep(files.length, files.length);
   }
 
   async function startModel() {
@@ -172,28 +199,28 @@ function buildMessages(question, history, recs, summary) {
       const id = await modelId($('cbModel').value);
       if (!wl.prebuiltAppConfig.model_list.some(m => m.model_id === id)) throw new Error('Model ' + id + ' is not in this WebLLM build');
       if (engine && loadedId === id) return;
-      if (engine) { enableChat(false); try { await engine.unload(); } catch (_) {} engine = null; }
-      try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (_) {}
+      if (engine) { enableChat(false); try { await engine.unload(); } catch (_) {} engine = null; await new Promise(r => setTimeout(r, 300)); }
+      try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (_) {}
       setBar(0); setState('Starting\u2026');
-      try {
-        await prefetchModel(id, (i, n) => { setBar(i / n * 0.9); setState('Downloading model file ' + Math.min(i + 1, n) + ' of ' + n + '\u2026 (one at a time, so a weak connection can finish)'); });
-        if (!(await wl.hasModelInCache(id))) console.warn('Prefetched files were not recognised by WebLLM; it will download them itself.');
-      } catch (e) { console.warn('Sequential download failed, falling back to WebLLM\'s own download:', e); setState('Sequential download hit a problem (' + (e && e.message || e) + '). Trying the standard download\u2026'); }
       // The model comes in many files. If the connection drops, files already saved are kept, so trying again carries on from there.
-      let lastErr = null;
+      let lastErr = null, useId = id;
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
-          engine = await wl.CreateMLCEngine(id, { initProgressCallback: r => { setBar(r.progress); setState((Math.round(r.progress * 100)) + '% \u00b7 ' + (r.text || '')); } });
+          try { await prefetchModel(useId); } catch (pe) { pe.noRetry = true; throw pe; }
+          engine = await wl.CreateMLCEngine(useId, { initProgressCallback: r => { setBar(r.progress); setState((Math.round(r.progress * 100)) + '% \u00b7 ' + (r.text || '')); } });
           lastErr = null; break;
         } catch (err) {
           lastErr = err; engine = null;
-          if (attempt === 4 || !/network|fetch|cache\.add|failed to/i.test(String(err && err.message || err))) break;
+          if (/shader-f16|f16|ShaderModule|GPUPipelineError/i.test(String(err && err.message || err)) && useId.includes('q4f16')) { useId = useId.replace('q4f16', 'q4f32'); continue; }
+          if (/no available adapters|unable to find a compatible gpu/i.test(String(err && err.message || err)) && attempt < 3) { await new Promise(r => setTimeout(r, 800)); continue; }
+          if (err && err.noRetry) break;
+          if (attempt === 3 || !/network|fetch|cache\.add|cache\.put|failed to/i.test(String(err && err.message || err))) break;
           setState('Connection hiccup, retrying (' + attempt + ' of 3). Parts already downloaded are kept\u2026');
-          await new Promise(r => setTimeout(r, 2000 * attempt));
+          await new Promise(r => setTimeout(r, 10000 * attempt));
         }
       }
       if (lastErr) throw lastErr;
-      loadedId = id; setBar(1, false); setState('Ready. Ask anything about your data.'); enableChat(true);
+      loadedId = id; setBar(1, false); console.log('Loaded model', useId); setState('Ready. Ask anything about your data.'); enableChat(true);
     } catch (err) {
       console.warn(err); engine = null; setBar(0, false);
       const msg = String(err && err.message || err);
@@ -209,7 +236,10 @@ function buildMessages(question, history, recs, summary) {
     addMsg('user', q); const bubble = addMsg('bot', '\u2026');
     try {
       if (!recs.length) await loadData();
-      const stream = await engine.chat.completions.create({ messages: buildMessages(q, history, recs, summary), stream: true, temperature: 0.2, max_tokens: 512 });
+      const run = budget => engine.chat.completions.create({ messages: buildMessages(q, history, recs, summary, budget), stream: true, temperature: 0.2, max_tokens: 400 });
+      let stream;
+      try { stream = await run(2400); }
+      catch (e) { if (/context|exceed|token/i.test(String(e && e.message || e))) stream = await run(900); else throw e; }
       let txt = '';
       for await (const ch of stream) { const d = ch.choices[0] && ch.choices[0].delta && ch.choices[0].delta.content; if (d) { txt += d; bubble.textContent = txt; bubble.scrollIntoView({ block: 'end' }); } }
       bubble.textContent = txt || '(no answer)';
