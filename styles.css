@@ -488,3 +488,15 @@ body.home-body{padding-top:0}
 .cn-thumb.none{display:inline-block}
 .chk .cn-thumb{width:40px;height:40px}
 .card-name{padding-top:2px;padding-bottom:2px}
+
+/* ---------- v1.3.2: caption block with its copy button ---------- */
+.cr-cap{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.cr-cap .cr-notes{width:100%}
+
+/* ---------- v1.3.3: planned date label, created / accomplished lines, icon buttons ---------- */
+.cr-date-wrap{display:flex;flex-direction:column;gap:2px;flex:none}
+.cr-date-wrap small{font:600 9px Poppins,sans-serif;letter-spacing:.3px;text-transform:uppercase;color:var(--mut)}
+.cr-meta{margin:0;font-size:11px;line-height:1.5;color:var(--mut)}
+.cr-meta .cr-took{color:#1c6b2e;font-weight:600}
+.cr-acts .icon-btn.ok{color:#1c8a3a}
+.cr-pc .icon-btn.ok{color:#1c8a3a}

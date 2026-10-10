@@ -1103,8 +1103,11 @@ function writeCreativeRow_(sh, idx, row) {
   if (at > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), at - sh.getMaxRows());
   sh.getRange(at, 1, 1, CREATIVE_HEADERS.length).setNumberFormat('@').setValues([row]);
 }
+function nowStamp_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'); }
+function stampCell_(v) { return v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(v || ''); }
+// Created (col L) is the task-created timestamp, 'yyyy-MM-dd HH:mm' (older rows hold the date only)
 function blankCreative_(id, kind, key) {
-  return [id, kind, key || '', '', '', 'todo', '', '', '', '', '', todayStr_(), '', ''];
+  return [id, kind, key || '', '', '', 'todo', '', '', '', '', '', nowStamp_(), '', ''];
 }
 
 // A vlog task made automatically from a purchase / trade receipt.
@@ -1149,7 +1152,7 @@ function cardGroupId_(c) {
 function creativeObj_(r) {
   return { id: String(r[0]), kind: String(r[1]), receiptKey: String(r[2] || ''), title: String(r[3] || ''), date: fmtDateCell_(r[4]),
     status: r[5] === 'done' ? 'done' : r[5] === 'posted' ? 'posted' : 'todo', platforms: parsePlatforms_(r[6]), notes: String(r[7] || ''), caption: String(r[8] || ''),
-    edited: pipeIds_(r[9]), auto: r[10] === 'auto', doneDate: fmtDateCell_(r[12]), cardIds: pipeIds_(r[13]) };
+    edited: pipeIds_(r[9]), auto: r[10] === 'auto', titled: r[10] === 'titled', created: stampCell_(r[11]), doneDate: fmtDateCell_(r[12]), cardIds: pipeIds_(r[13]) };
 }
 
 function getCreatives_() {
@@ -1180,16 +1183,17 @@ function getCreatives_() {
     if (CREATIVES_POSTS_FROM && (!date || date < CREATIVES_POSTS_FROM)) return;
     const id = cardGroupId_(c);
     if (!groups[id]) {
-      groups[id] = { id, receiptKey: key, type: rc ? rc.type : 'purchase', label: rc ? rc.description : ('Purchase from ' + (c[2] || '\u2014')), date, cards: [] };
+      groups[id] = { id, receiptKey: key, type: rc ? rc.type : 'purchase', created: rc ? (rc.date + (rc.time ? ' ' + rc.time : '')) : fmtDateCell_(c[1]), label: rc ? rc.description : ('Purchase from ' + (c[2] || '\u2014')), date, cards: [] };
       order.push(id);
     }
     groups[id].cards.push(cardObj(c));
   });
   const finish = (g, st) => {
+    if (st.titled && st.title) g.label = st.title;   // a receipt group the user renamed keeps its own title
     const done = {}; st.edited.forEach(x => done[x] = true);
     g.cards.forEach(c => c.edited = !!done[c.id]);
     const n = g.cards.filter(c => c.edited).length;
-    return Object.assign(g, { scheduled: st.date || g.date, platforms: st.platforms, notes: st.notes, caption: st.caption,
+    return Object.assign(g, { created: g.created || st.created, doneDate: st.doneDate, scheduled: st.date || g.date, platforms: st.platforms, notes: st.notes, caption: st.caption,
       editedCount: n, status: st.status === 'posted' ? 'posted' : (g.cards.length && n === g.cards.length ? 'edited' : 'toedit') });
   };
   const posts = order.map(id => finish(groups[id], stored[id] || creativeObj_(blankCreative_(id, 'post', groups[id].receiptKey)))).reverse();
@@ -1218,11 +1222,17 @@ function saveCreative_(p) {
     if (!found && id.indexOf('pc_') === 0) return { ok: false, error: 'not found' };
     const row = found ? found.row.slice() : blankCreative_(id, isPost ? 'post' : 'video', id.indexOf('pg_') === 0 ? id.slice(3) : '');
     if (!found && !isPost) { row[3] = String(p.title || '').trim().slice(0, 200); row[4] = cleanDate_(p.date) || todayStr_(); }
-    if ('title' in p && !(isPost && id.indexOf('pc_') !== 0 && !String(p.title).trim())) row[3] = String(p.title).trim().slice(0, 200);
+    if (id.indexOf('pg_') === 0) {
+      // receipt groups are named after their receipt unless the user renames them (renamed=1); Auto column = 'titled' marks that
+      if (p.renamed === '1') { const nt = String(p.title || '').trim().slice(0, 200); row[3] = nt; row[10] = nt ? 'titled' : ''; }
+    } else if ('title' in p && (!isPost || String(p.title).trim())) row[3] = String(p.title).trim().slice(0, 200);
     if ('date' in p) row[4] = cleanDate_(p.date);
     if ('status' in p) {
       const s = p.status === 'posted' ? 'posted' : p.status === 'done' ? 'done' : 'todo';
-      if (row[5] !== s) row[12] = s === 'todo' ? '' : todayStr_();   // keep the original done/posted date on a plain re-save
+      // DoneDate = the day the task was accomplished. Videos: first time it leaves to-do (kept when it moves done -> posted).
+      // Posts: set when every card is edited (setCreativeCards_ / completeCreatives_); 'posted' implies it.
+      if (isPost) { if (s === 'posted' && !row[12]) row[12] = todayStr_(); }
+      else if (row[5] !== s) row[12] = s === 'todo' ? '' : ((row[5] === 'todo' || !row[12]) ? todayStr_() : row[12]);
       row[5] = s;
     }
     if ('platforms' in p) row[6] = cleanPlatforms_(p.platforms);
@@ -1249,6 +1259,7 @@ function setCreativeCards_(p) {
     ids.forEach(x => { if (on) set[x] = true; else delete set[x]; });
     row[9] = Object.keys(set).join('|');
     if (!on && row[5] === 'posted') row[5] = 'todo';   // a card went back to the to-edit list: no longer posted
+    if (p.complete === '1') { if (!row[12]) row[12] = todayStr_(); } else if (p.complete === '0') row[12] = '';   // client says whether every card is now edited
     writeCreativeRow_(sh, found ? found.idx : 0, row);
     return { ok: true, edited: Object.keys(set) };
   } finally { lock.releaseLock(); }
@@ -1277,10 +1288,11 @@ function completeCreatives_(p) {
         const row = found ? found.row.slice() : blankCreative_(id, 'post', id.slice(3));
         row[9] = done ? cardIds.join('|') : '';
         if (!done && row[5] === 'posted') row[5] = 'todo';
+        if (done) { if (!row[12]) row[12] = todayStr_(); } else row[12] = '';
         writeCreativeRow_(sh, found ? found.idx : 0, row); changed++;
       } else if (found) {
         const row = found.row.slice();
-        if (done && row[5] === 'posted') { changed++; return; }   // posted already counts as done
+        if ((done && row[5] !== 'todo') || (!done && row[5] === 'todo')) { changed++; return; }   // already there (posted counts as done)
         row[5] = done ? 'done' : 'todo'; row[12] = done ? todayStr_() : '';
         writeCreativeRow_(sh, found.idx, row); changed++;
       }
@@ -1327,7 +1339,7 @@ function savePostGroup_(p) {
     const keep = {}; finalIds.forEach(x => keep[x] = true);
 
     const edited = {}, plats = {}, notes = [], caps = [], gone = [], oldIds = {};
-    let target = null, primaryDate = '', wasPosted = false;
+    let target = null, primaryDate = '', primaryDone = '', wasPosted = false;
     sources.forEach((sid, n) => {
       const found = findRow_(sh, sid);
       const ids = sid.indexOf('pc_') === 0
@@ -1344,7 +1356,7 @@ function savePostGroup_(p) {
         const c = plats[k] || (plats[k] = { on: true, date: '', link: '' });
         c.date = c.date || q.date || ''; c.link = c.link || q.link || '';
       });
-      if (n === 0) { primaryDate = fmtDateCell_(found.row[4]); wasPosted = found.row[5] === 'posted'; }
+      if (n === 0) { primaryDate = fmtDateCell_(found.row[4]); primaryDone = fmtDateCell_(found.row[12]); wasPosted = found.row[5] === 'posted'; }
       if (n === 0 && id && sid === id && sid.indexOf('pc_') === 0) target = found; else gone.push(found.idx);
     });
 
@@ -1356,7 +1368,7 @@ function savePostGroup_(p) {
     row[4] = cleanDate_(p.date) || primaryDate || todayStr_();
     const stillPosted = sources.length === 1 && wasPosted && finalIds.every(x => oldIds[x]);   // adding cards un-posts it
     row[5] = stillPosted ? 'posted' : 'todo';
-    if (!stillPosted) row[12] = '';
+    row[12] = finalIds.every(x => edited[x]) ? (primaryDone || todayStr_()) : '';   // accomplished = every card edited
     row[6] = JSON.stringify(plats);
     row[7] = notes.join('\n\n').slice(0, 1000);
     row[8] = caps.join('\n\n').slice(0, 1500);

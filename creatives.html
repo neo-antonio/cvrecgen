@@ -62,7 +62,7 @@
   <div class="sheet small wide">
     <h3 id="vHeading">Add video task</h3>
     <div class="field"><label for="vTitle">Title</label><input type="text" id="vTitle" autocomplete="off" placeholder="e.g. Vlog: Unboxing 20 packs"></div>
-    <div class="field"><label for="vDate">Scheduled date</label><input type="date" id="vDate"></div>
+    <div class="field"><label for="vDate">Planned post date</label><input type="date" id="vDate"></div>
     <div class="field"><label for="vStatus">Status</label>
       <select id="vStatus"><option value="todo">To do</option><option value="done">Done</option><option value="posted">Posted</option></select>
     </div>
@@ -84,7 +84,8 @@
 <div class="modal" id="pSheet" hidden>
   <div class="sheet small wide">
     <h3 id="pHeading">Post details</h3>
-    <div class="field"><label for="pDate">Scheduled date</label><input type="date" id="pDate"></div>
+    <div class="field"><label for="pTitle">Title</label><input type="text" id="pTitle" maxlength="200" autocomplete="off"></div>
+    <div class="field"><label for="pDate">Planned post date</label><input type="date" id="pDate"></div>
     <label class="port-chk"><input type="checkbox" id="pPosted"><span>Posted (marks every card edited; links can be added)</span></label>
     <div class="field">
       <label>Posted to</label>
@@ -105,7 +106,7 @@
   <div class="sheet small wide">
     <h3 id="mHeading">New post task</h3>
     <div class="field"><label for="mTitle">Title</label><input type="text" id="mTitle" autocomplete="off" placeholder="e.g. Weekend pickups"></div>
-    <div class="field"><label for="mDate">Scheduled date</label><input type="date" id="mDate"></div>
+    <div class="field"><label for="mDate">Planned post date</label><input type="date" id="mDate"></div>
     <div class="field" id="mMergeWrap" hidden>
       <label>Merge with other tasks <small>(adds all their cards)</small></label>
       <div id="mMerge" class="m-merge"></div>
@@ -118,6 +119,19 @@
     <div class="acts">
       <button type="button" class="go sm" id="mSave">Save</button>
       <button type="button" class="ghost" id="mCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- shown right after a task is marked posted; can be skipped -->
+<div class="modal" id="lSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Add post links</h3>
+    <p class="stub-note" style="text-align:center;margin:-6px 0 14px">Paste where it was posted. You can skip this and add the links later.</p>
+    <div id="lFields"></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="lSave">Save links</button>
+      <button type="button" class="ghost" id="lSkip">Skip for now</button>
     </div>
   </div>
 </div>

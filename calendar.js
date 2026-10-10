@@ -112,7 +112,7 @@ const visible = () => [].concat(
   filter === 'all' || filter === 'shipping' ? data.shipping : [],
   filter === 'all' || filter === 'receipts' ? data.receipts : [],
   filter === 'all' || filter === 'events' ? data.events : [],
-  filter === 'creatives' ? data.creatives : []);   // creatives get their own tab so the All view stays uncluttered
+  filter === 'all' || filter === 'creatives' ? data.creatives : []);
 const ORDER = { event: 0, shipping: 1, receipt: 2, creative: 3 };
 // kind first, then by time of day inside a kind (anything without a time goes last)
 const byKindThenTime = (a, b) => (ORDER[a.kind] - ORDER[b.kind]) || String(a.time || '99:99').localeCompare(String(b.time || '99:99'));
@@ -124,7 +124,7 @@ function renderLegend() {
   if (filter === 'all' || filter === 'receipts')
     parts.push(['purchase', 'sale', 'trade', 'transfer'].map(t => `<span>${marker('receipt', t)} ${RECEIPT_LABEL[t]}</span>`).join(''));
   if (filter === 'all' || filter === 'events') parts.push(`<span>${marker('event')} Event</span>`);
-  if (filter === 'creatives') parts.push(['video-todo|To edit video', 'video-ok|Video edited', 'pic-todo|To edit picture', 'pic-ok|Picture edited'].map(p => { const [s, l] = p.split('|'); return `<span>${marker('creative', s)} ${l}</span>`; }).join(''));
+  if (filter === 'all' || filter === 'creatives') parts.push(['video-todo|To edit video', 'video-ok|Video edited', 'pic-todo|To edit picture', 'pic-ok|Picture edited'].map(p => { const [s, l] = p.split('|'); return `<span>${marker('creative', s)} ${l}</span>`; }).join(''));
   $('calLegend').innerHTML = parts.join('');
 }
 
