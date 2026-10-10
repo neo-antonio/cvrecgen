@@ -16,6 +16,19 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
+<style>
+.set-sec{max-width:340px;margin:0 0 28px}
+.set-h{font:600 17px Inter,system-ui,sans-serif;margin:6px 0 14px}
+.set-who{margin:0 0 14px}
+.set-note{color:var(--mut);font-size:13px;margin:-6px 0 14px}
+.set-msg{font-size:13px;margin:0 0 12px;color:#c0392b}
+.set-msg.ok{color:#1e8e3e}
+.set-btns{display:grid;gap:10px}
+.set-link{display:flex;align-items:center;justify-content:center;text-decoration:none;text-align:center}
+.adm-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line)}
+.adm-row:first-child{border-top:0}
+.adm-row code{font:500 13px ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere;text-align:right}
+</style>
 <script src="shell.js"></script>
 </head>
 <body>
@@ -27,8 +40,38 @@
   </div>
 </header>
 
-<main class="stub">
-  <p class="stub-note">App preferences and data will live here. This section is coming soon.</p>
+<main class="port-wrap">
+  <section class="set-sec">
+    <h3 class="set-h">Account</h3>
+    <p class="set-who">Logged in as <b id="whoName"></b></p>
+    <div class="set-btns">
+      <a class="ghost set-link" href="https://docs.google.com/document/d/1rEC21WxgjkeYGUOKRkn-LV1kKCEmnquNZ3pCxRhABBA/edit?tab=t.0" target="_blank" rel="noopener noreferrer">Credentials list</a>
+      <button type="button" class="ghost" id="logoutBtn">Log out</button>
+    </div>
+  </section>
+
+  <section class="set-sec">
+    <h3 class="set-h">Change password</h3>
+    <div class="field"><label for="pwCur">Current password</label><input type="password" id="pwCur" autocomplete="current-password"></div>
+    <div class="field"><label for="pwNew">New password <small>(at least 6 characters)</small></label><input type="password" id="pwNew" autocomplete="new-password"></div>
+    <div class="field"><label for="pwNew2">Confirm new password</label><input type="password" id="pwNew2" autocomplete="new-password"></div>
+    <p class="set-msg" id="pwMsg" hidden></p>
+    <button type="button" class="go sm" id="pwGo">Update password</button>
+  </section>
+
+  <section class="set-sec" id="adminBox" hidden>
+    <h3 class="set-h">Team passwords</h3>
+    <p class="set-note">Only you can see this. Enter your own password to show everyone else&rsquo;s.</p>
+    <div id="admAsk">
+      <div class="field"><label for="admPass">Your password</label><input type="password" id="admPass" autocomplete="current-password"></div>
+      <p class="set-msg" id="admMsg" hidden></p>
+      <button type="button" class="go sm" id="admGo">Show passwords</button>
+    </div>
+    <div id="admList" hidden>
+      <div id="admRows"></div>
+      <button type="button" class="ghost sm" id="admHide" style="margin-top:12px">Hide</button>
+    </div>
+  </section>
 </main>
 
 <footer class="site-footer">
@@ -36,5 +79,55 @@
   <p>trackello <span class="ver">v1.1</span></p>
 </footer>
 <script src="boot.js"></script>
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const A = window.CVAuth;
+const say = (el, text, ok) => { el.textContent = text; el.className = 'set-msg' + (ok ? ' ok' : ''); el.hidden = !text; };
+
+$('whoName').textContent = A.name();
+$('logoutBtn').onclick = () => A.logout();
+['pwCur', 'pwNew', 'pwNew2', 'admPass'].forEach(id => A.attachEye($(id)));
+
+// change own password
+$('pwGo').onclick = async () => {
+  const cur = $('pwCur').value, next = $('pwNew').value, again = $('pwNew2').value, msg = $('pwMsg');
+  if (!cur || !next) return say(msg, 'Fill in your current and new password.');
+  if (next.length < 6) return say(msg, 'New password must be at least 6 characters.');
+  if (next !== again) return say(msg, 'The new passwords do not match.');
+  if (next === cur) return say(msg, 'New password must be different from the current one.');
+  $('pwGo').disabled = true; say(msg, '');
+  try {
+    await A.changePassword(cur, next);
+    ['pwCur', 'pwNew', 'pwNew2'].forEach(id => $(id).value = '');
+    say(msg, 'Password updated. Use the new one next time you log in.', true);
+  } catch (e) { say(msg, e.message); }
+  $('pwGo').disabled = false;
+};
+
+// Neo only: everyone else's password
+if (A.isAdmin()) {
+  $('adminBox').hidden = false;
+  $('admGo').onclick = async () => {
+    const pass = $('admPass').value;
+    if (!pass) return say($('admMsg'), 'Enter your password.');
+    $('admGo').disabled = true; say($('admMsg'), '');
+    try {
+      const users = await A.listUsers(pass);
+      const rows = $('admRows'); rows.innerHTML = '';
+      users.forEach(u => {
+        const row = document.createElement('div'); row.className = 'adm-row';
+        const n = document.createElement('span'); n.textContent = u.user.charAt(0).toUpperCase() + u.user.slice(1);
+        const c = document.createElement('code'); c.textContent = u.password;
+        row.append(n, c); rows.appendChild(row);
+      });
+      if (!users.length) rows.textContent = 'No other users.';
+      $('admPass').value = ''; $('admAsk').hidden = true; $('admList').hidden = false;
+    } catch (e) { say($('admMsg'), e.message); }
+    $('admGo').disabled = false;
+  };
+  $('admHide').onclick = () => { $('admRows').innerHTML = ''; $('admList').hidden = true; $('admAsk').hidden = false; };
+}
+</script>
 </body>
 </html>

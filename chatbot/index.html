@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>trackello &ndash; Assistant</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" type="image/png" sizes="32x32" href="../icons/favicon-32.png">
+<link rel="stylesheet" href="../styles.css">
+<script src="../shell.js"></script>
+<style>
+.cb-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;margin-bottom:12px}
+.cb-card h3{font:600 14px Inter,system-ui,sans-serif;margin:0 0 8px}
+.cb-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cb-row select{flex:1;min-width:0}
+.cb-bar{height:10px;border-radius:6px;background:#eee;overflow:hidden;margin:10px 0 4px}
+.cb-bar i{display:block;height:100%;width:0;background:var(--fg);transition:width .2s}
+.cb-note{color:var(--mut);font-size:12px;line-height:1.5;margin:6px 0 0}
+.cb-log{display:flex;flex-direction:column;gap:8px;margin:0 0 12px;min-height:60px}
+.cb-msg{max-width:88%;padding:9px 12px;border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.5}
+.cb-msg.user{align-self:flex-end;background:var(--fg);color:var(--bg)}
+.cb-msg.bot{align-self:flex-start;background:#f2f2f2}
+.cb-form{display:flex;gap:8px;position:sticky;bottom:0;background:var(--bg);padding:8px 0}
+.cb-form input{flex:1;min-width:0}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="hbar">
+    <a href="../index.html" class="back" aria-label="Back to home">&lsaquo;</a>
+    <h2>Assistant</h2>
+    <span class="hbar-spacer" aria-hidden="true"></span>
+  </div>
+</header>
+
+<main class="port-wrap">
+  <section class="cb-card">
+    <h3>Model</h3>
+    <div class="cb-row">
+      <select id="cbModel">
+        <option value="1B">Fast &middot; Llama 3.2 1B (about 0.9 GB)</option>
+        <option value="3B">Better &middot; Llama 3.2 3B (about 2.3 GB)</option>
+      </select>
+      <button type="button" class="go sm" id="cbGo">Download &amp; start</button>
+    </div>
+    <div class="cb-bar" id="cbBarWrap" hidden><i id="cbBar"></i></div>
+    <p class="cb-note" id="cbState">Checking this device&hellip;</p>
+    <p class="cb-note">Runs entirely on this device. The model downloads once and is kept in the browser; after that it starts without downloading again. Needs a browser with WebGPU.</p>
+    <div class="cb-row" style="margin-top:8px"><button type="button" class="ghost sm" id="cbDelete">Remove downloaded model</button></div>
+  </section>
+
+  <section class="cb-card">
+    <h3>Data <small style="font-weight:400;color:var(--mut)">(read-only)</small></h3>
+    <p class="cb-note" id="cbData" style="margin-top:0">Reading backend&hellip;</p>
+    <div class="cb-row" style="margin-top:8px"><button type="button" class="ghost sm" id="cbRefresh">Refresh data</button></div>
+  </section>
+
+  <div class="cb-log" id="cbLog"></div>
+  <form class="cb-form" id="cbForm" autocomplete="off">
+    <input type="text" id="cbInput" placeholder="Ask about cards, shipping, finance, events&hellip;" disabled>
+    <button type="submit" class="go sm" id="cbSend" disabled>Send</button>
+    <button type="button" class="ghost sm" id="cbStop" hidden>Stop</button>
+  </form>
+  <div class="cb-row"><button type="button" class="ghost sm" id="cbClear">Clear chat</button></div>
+</main>
+
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+  <p>trackello <span class="ver">v1.2</span></p>
+</footer>
+<script src="../config.js"></script>
+<script src="../net.js"></script>
+<script src="chatbot.js"></script>
+</body>
+</html>

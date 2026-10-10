@@ -25,6 +25,7 @@
  *                   hand-made / merged task (ID = pc_<id>, Cards = pipe-separated card IDs that belong to it).
  *                   Status: todo | done | posted (videos); todo | posted (posts; edited is derived from the Edited column).
  *                   Platforms is JSON {fb,ig,yt,tt: {on,date,link}}. Edited = pipe-separated card IDs already edited (posts).
+ *   Users (A-C):    Username | Password | UpdatedAt   (created automatically with the five team logins; passwords are stored as plain text so the admin can view them)
  *   Optional columns/tabs are created by the script on first use. Interest settings are kept in Script Properties.
  *
  * DEPLOY: Deploy > Manage deployments > edit your Web app > Version: New version > Deploy.
@@ -34,7 +35,7 @@
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
- *               completeCreatives, deleteCreative, savePostGroup
+ *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
 
@@ -114,6 +115,9 @@ function doGet(e) {
     if (action === 'completeCreatives') return jsonpOut_(completeCreatives_(e.parameter), cb);
     if (action === 'deleteCreative') return jsonpOut_(deleteCreative_(e.parameter.id), cb);
     if (action === 'savePostGroup') return jsonpOut_(savePostGroup_(e.parameter), cb);
+    if (action === 'login') return jsonpOut_(login_(e.parameter), cb);
+    if (action === 'changePassword') return jsonpOut_(changePassword_(e.parameter), cb);
+    if (action === 'listUsers') return jsonpOut_(listUsers_(e.parameter), cb);
     return jsonpOut_({ ok: false, error: 'unknown action' }, cb);
   } catch (err) {
     return jsonpOut_({ ok: false, error: String(err) }, cb);
@@ -1878,4 +1882,68 @@ function jsonpOut_(obj, callback) {
     return ContentService.createTextOutput(callback + '(' + JSON.stringify(obj) + ')').setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
   return json_(obj);
+}
+
+/* ---------- Team logins ---------- */
+// One row per person. The first time any login action runs, the tab is created with the five team members on the default password.
+const USERS_SHEET = 'Users';
+const SEED_USERS = ['neo', 'ariel', 'justine', 'yuki', 'lemuel'];
+const DEFAULT_PASSWORD = 'cvaug19!';
+const ADMIN_USER = 'neo';          // the only login that can list other people's passwords
+
+function usersSheet_() {
+  const ss = ss_();
+  let sh = ss.getSheetByName(USERS_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(USERS_SHEET);
+    sh.getRange('A:C').setNumberFormat('@');   // keep passwords like 123456 as text
+    const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+    sh.getRange(1, 1, 1, 3).setValues([['Username', 'Password', 'UpdatedAt']]);
+    sh.getRange(2, 1, SEED_USERS.length, 3).setValues(SEED_USERS.map(u => [u, DEFAULT_PASSWORD, now]));
+  }
+  return sh;
+}
+
+// returns { row, user, pass } when username + password match, else null
+function checkLogin_(user, pass) {
+  const name = String(user || '').trim().toLowerCase();
+  if (!name) return null;
+  const rows = usersSheet_().getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]).trim().toLowerCase() === name) {
+      return String(rows[i][1]) === String(pass || '') ? { row: i + 1, user: name, pass: String(rows[i][1]) } : null;
+    }
+  }
+  return null;
+}
+
+function login_(p) {
+  const who = checkLogin_(p.user, p.pass);
+  if (!who) { Utilities.sleep(600); return { ok: false, error: 'Wrong username or password.' }; }   // small delay slows down guessing
+  return { ok: true, user: who.user };
+}
+
+function changePassword_(p) {
+  const who = checkLogin_(p.user, p.pass);
+  if (!who) { Utilities.sleep(600); return { ok: false, error: 'Current password is wrong.' }; }
+  const next = String(p.newPass || '');
+  if (next.length < 6) return { ok: false, error: 'New password must be at least 6 characters.' };
+  if (next.length > 64) return { ok: false, error: 'New password is too long.' };
+  if (next === who.pass) return { ok: false, error: 'New password must be different from the current one.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = usersSheet_();
+    sh.getRange(who.row, 2, 1, 2).setValues([[next, Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')]]);
+  } finally { lock.releaseLock(); }
+  return { ok: true };
+}
+
+// admin only: everyone else's password
+function listUsers_(p) {
+  const who = checkLogin_(p.user, p.pass);
+  if (!who) { Utilities.sleep(600); return { ok: false, error: 'Wrong password.' }; }
+  if (who.user !== ADMIN_USER) return { ok: false, error: 'Not allowed.' };
+  const rows = usersSheet_().getDataRange().getValues().slice(1);
+  return { ok: true, users: rows.filter(r => r[0] && String(r[0]).trim().toLowerCase() !== ADMIN_USER).map(r => ({ user: String(r[0]), password: String(r[1]), updatedAt: String(r[2] || '') })) };
 }
