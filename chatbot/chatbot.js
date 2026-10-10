@@ -133,6 +133,37 @@ function buildMessages(question, history, recs, summary) {
   }
   function enableChat(on) { $('cbInput').disabled = !on; $('cbSend').disabled = !on; if (on) $('cbInput').focus(); }
 
+  /* ----- sequential download ----- */
+  // WebLLM fetches many model files at once, and on some connections several of them drop (ERR_FAILED / Cache.add network error).
+  // This saves the files one at a time, retrying each, into the same browser cache WebLLM reads from; WebLLM then finds them already there.
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  async function fetchRetry(url, tries = 5) {
+    let last;
+    for (let a = 1; a <= tries; a++) {
+      try { const r = await fetch(url); if (r.ok) return r; last = new Error('HTTP ' + r.status); } catch (e) { last = e; }
+      await sleep(1500 * a);
+    }
+    throw last;
+  }
+  async function prefetchModel(id, onStep) {
+    const rec = wl.prebuiltAppConfig.model_list.find(m => m.model_id === id);
+    let base = String(rec.model); if (!base.endsWith('/')) base += '/'; if (!/\/resolve\//.test(base)) base += 'resolve/main/';
+    const cache = await caches.open('webllm/model');
+    const idxUrl = new URL('ndarray-cache.json', base).href;
+    let res = await cache.match(idxUrl);
+    if (!res) { res = await fetchRetry(idxUrl); await cache.put(idxUrl, res.clone()); }
+    const files = [...new Set(((await res.json()).records || []).map(r => r.dataPath))];
+    for (let i = 0; i < files.length; i++) {
+      const url = new URL(files[i], base).href;
+      onStep(i, files.length);
+      if (await cache.match(url)) continue;
+      let r;
+      try { r = await fetchRetry(url); } catch (e) { throw new Error('could not download ' + files[i] + ' (' + (e && e.message || e) + ')'); }
+      await cache.put(url, r);
+    }
+    onStep(files.length, files.length);
+  }
+
   async function startModel() {
     if (!navigator.gpu) return setState('This browser does not support WebGPU, which the local model needs. Try the latest Chrome or Edge.');
     $('cbGo').disabled = $('cbModel').disabled = true;
@@ -144,6 +175,10 @@ function buildMessages(question, history, recs, summary) {
       if (engine) { enableChat(false); try { await engine.unload(); } catch (_) {} engine = null; }
       try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (_) {}
       setBar(0); setState('Starting\u2026');
+      try {
+        await prefetchModel(id, (i, n) => { setBar(i / n * 0.9); setState('Downloading model file ' + Math.min(i + 1, n) + ' of ' + n + '\u2026 (one at a time, so a weak connection can finish)'); });
+        if (!(await wl.hasModelInCache(id))) console.warn('Prefetched files were not recognised by WebLLM; it will download them itself.');
+      } catch (e) { console.warn('Sequential download failed, falling back to WebLLM\'s own download:', e); setState('Sequential download hit a problem (' + (e && e.message || e) + '). Trying the standard download\u2026'); }
       // The model comes in many files. If the connection drops, files already saved are kept, so trying again carries on from there.
       let lastErr = null;
       for (let attempt = 1; attempt <= 4; attempt++) {
