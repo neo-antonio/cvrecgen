@@ -148,42 +148,47 @@ function buildMessages(question, history, recs, summary, budget) {
      has no CORS header the browser reports it as a CORS error. Here the shards are saved one at a time with backoff
      into the same cache WebLLM reads from, so WebLLM then finds them already downloaded. */
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  async function getWithBackoff(url, label) {
+  // urls = the same file on several hosts. Try each host in turn; only wait when every host refused.
+  async function getWithBackoff(urls, label) {
+    urls = [].concat(urls);
     let lastErr;
-    for (let i = 0; i < 6; i++) {
-      try {
-        const res = await fetch(url);
-        if (res.ok) return res;
-        lastErr = new Error('HTTP ' + res.status);
-        if (res.status === 429) await sleep((+res.headers.get('retry-after') || 0) * 1000 || 8000 * (i + 1));
-        else await sleep(1500 * (i + 1));
-      } catch (e) {   // a 429 without CORS headers also lands here
-        lastErr = e;
-        setState((label || 'Downloading') + ': server is slow or rate limiting, waiting before retry ' + (i + 1) + ' of 6\u2026');
-        await sleep(8000 * (i + 1));
+    for (let round = 0; round < 4; round++) {
+      for (const url of urls) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) return res;
+          lastErr = new Error('HTTP ' + res.status + ' from ' + new URL(url).host);
+        } catch (e) { lastErr = e; }   // a 429 without CORS headers also lands here
       }
+      setState((label || 'Downloading') + ': download servers are refusing requests, waiting before retry ' + (round + 1) + ' of 4\u2026');
+      await sleep(10000 * (round + 1));
     }
-    throw new Error('Hugging Face keeps refusing the download (' + (lastErr && lastErr.message || lastErr) + '). Wait about 15 minutes, turn off any VPN, and press the button again. Files already saved are kept.');
+    throw new Error('Every download source refused the request (' + (lastErr && lastErr.message || lastErr) + '). Your IP is probably rate limited by Hugging Face. Try another network (phone hotspot) or wait a few hours, then press the button again. Files already saved are kept.');
   }
   async function prefetchModel(id) {
     if (typeof caches === 'undefined') return;
     const rec = wl.prebuiltAppConfig.model_list.find(m => m.model_id === id);
     if (!rec) return;
-    const base = rec.model.replace(/\/+$/, '') + '/resolve/main/';
+    const origin = rec.model.replace(/\/+$/, '') + '/resolve/main/';        // WebLLM looks files up under this exact URL
+    const hosts = [origin];
+    const mine = (typeof CONFIG !== 'undefined' && CONFIG.modelMirror) ? String(CONFIG.modelMirror).replace(/\/+$/, '') + '/' + id + '/' : '';
+    if (mine) hosts.unshift(mine);                                          // optional: your own copy of the files
+    hosts.push(origin.replace('https://huggingface.co/', 'https://hf-mirror.com/'));
+    const from = f => hosts.map(h => h + f);
     const cache = await caches.open('webllm/model');
-    const manUrl = base + 'ndarray-cache.json';
+    const manUrl = origin + 'ndarray-cache.json';
     let man;
     const hit = await cache.match(manUrl);
     if (hit) man = await hit.clone().json();
-    else { const r = await getWithBackoff(manUrl, 'Reading model list'); await cache.put(manUrl, r.clone()); man = await r.json(); }
+    else { const r = await getWithBackoff(from('ndarray-cache.json'), 'Reading model list'); await cache.put(manUrl, r.clone()); man = await r.json(); }
     const files = man.records || [];
     const total = files.reduce((a, f) => a + (f.nbytes || 0), 0) || 1;
     let done = 0;
     for (let i = 0; i < files.length; i++) {
-      const f = files[i], url = base + f.dataPath;
-      if (!(await cache.match(url))) {
-        const r = await getWithBackoff(url, 'Part ' + (i + 1) + ' of ' + files.length);
-        await cache.put(url, r);
+      const f = files[i], key = origin + f.dataPath;
+      if (!(await cache.match(key))) {
+        const r = await getWithBackoff(from(f.dataPath), 'Part ' + (i + 1) + ' of ' + files.length);
+        await cache.put(key, r);
         await sleep(400);
       }
       done += f.nbytes || 0;
