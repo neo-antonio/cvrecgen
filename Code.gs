@@ -15,7 +15,10 @@
  *   Receipts (A-F): ID | Type | Date | URL | Description | Time      Type: purchase, sale, trade, transfer.
  *   Balance (A-G):  UpdatedAt | Cash | Maribank | Others | Note | Reserves | Skip   (one row per save; the last row is the baseline)
  *   Events:         ID | Date | Title | Time | Notes   (created automatically)
- *   Entities (A-E): ID | Name | Contact | Aliases | Created   (sellers, buyers, trade partners; created automatically).
+ *   Entities (A-J): ID | Name | Contact | Aliases | Created | Address | Email | Facebook | Payment | Notes   (sellers, buyers, trade partners; created automatically).
+ *                   Payment is pipe-separated. Address is filled from a sale receipt's shipping address when the entity has none.
+ *   Organization (A-H): ID | Kind | Title | Role | ParentID | Apps | Body | Created   (created automatically)
+ *                   Kind: person (Title = name, ParentID = who they report to, Apps = pipe-separated app ids), process, faq.
  *                   Aliases are other spellings (pipe-separated) that resolve to this entity.
  *   Creatives (A-N): ID | Kind | ReceiptKey | Title | Date | Status | Platforms | Notes | Caption | Edited | Auto | Created | DoneDate | Cards
  *                   Kind: video (a vlog task) or post. Posts are one row per receipt group of cards (ID = pg_<receiptKey>), or a
@@ -30,7 +33,7 @@
  * GET  actions: portfolio, onhandCards, finance, shipping, receipts, syncStatus, record, unrecord, balance, saveBalance, saveInterest,
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
- *               entities, entityNames, saveEntity, mergeEntities, deleteEntity, creatives, saveCreative, setCreativeCards,
+ *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
  *               completeCreatives, deleteCreative, savePostGroup
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
@@ -95,6 +98,10 @@ function doGet(e) {
     if (action === 'updateShipping') return jsonpOut_(updateShipping_(e.parameter), cb);
     if (action === 'entities') return jsonpOut_(getEntities_(), cb);
     if (action === 'entityNames') return jsonpOut_(getEntityNames_(), cb);
+    if (action === 'entityCards') return jsonpOut_(getEntityCards_(e.parameter.entityId), cb);
+    if (action === 'organization') return jsonpOut_(getOrg_(), cb);
+    if (action === 'saveOrgItem') return jsonpOut_(saveOrgItem_(e.parameter), cb);
+    if (action === 'deleteOrgItem') return jsonpOut_(deleteOrgItem_(e.parameter.id), cb);
     if (action === 'saveEntity') return jsonpOut_(saveEntity_(e.parameter), cb);
     if (action === 'mergeEntities') return jsonpOut_(mergeEntities_(e.parameter), cb);
     if (action === 'deleteEntity') return jsonpOut_(deleteEntity_(e.parameter.entityId), cb);
@@ -183,7 +190,7 @@ function handleSell_(body) {
   ensureCardsColumns_(cards);
   const contact = String(body.shipContact || '').trim().slice(0, 60);
   const saleNotes = String(body.notes || '').trim().slice(0, 1000);
-  const buyer = resolveParty_(body.buyer, contact);   // saved entity (spelling-safe); remembers the contact number
+  const buyer = resolveParty_(body.buyer, contact, String(body.shipAddress || '').trim());   // saved entity (spelling-safe); remembers the contact number and, if it has none yet, the address
   const noShip = body.shipType === 'none';
   const address = String(body.shipAddress || '').trim().slice(0, 500);
   const packaging = Number(body.packaging) || 0;
@@ -224,7 +231,9 @@ function handleSell_(body) {
     finRows.push([newId_('f'), '', 'sale', body.date || '', 'Shipping paid by buyer: sale to ' + (buyer || '\u2014'), buyerShipping, body.pay || '', false, '', receiptUrl, 'inflow']);
   }
   appendRows_(fin, finRows);
-  return { ok: true, receipt: receiptSaved, cards: moved, finance: finRows.length };
+  let creatives = 0;
+  if (body.vlog) { try { addVlog_(body, 'Sale to ' + (buyer || '\u2014'), body.date || todayStr_(), receiptUrl); creatives = 1; } catch (err) {} }
+  return { ok: true, receipt: receiptSaved, cards: moved, finance: finRows.length, creatives };
 }
 
 // Proof of shipment for one card, or (cardIds) for every card of a grouped shipping task.
@@ -1405,10 +1414,23 @@ function entitiesSheet_(create) {
   let sh = ss.getSheetByName(ENTITIES_SHEET);
   if (!sh && create) {
     sh = ss.insertSheet(ENTITIES_SHEET);
-    sh.getRange(1, 1, 1, 5).setValues([['ID', 'Name', 'Contact', 'Aliases', 'Created']]);
-    sh.getRange('A:E').setNumberFormat('@');   // text, so a contact number keeps its leading 0
+    sh.getRange(1, 1, 1, 10).setValues([ENTITY_HEADERS]);
+    sh.getRange('A:J').setNumberFormat('@');   // text, so a contact number keeps its leading 0
+    ENT_COLS_OK_ = true;
   }
+  if (sh && !ENT_COLS_OK_) ensureEntityColumns_(sh);
   return sh;
+}
+const ENTITY_HEADERS = ['ID', 'Name', 'Contact', 'Aliases', 'Created', 'Address', 'Email', 'Facebook', 'Payment', 'Notes'];
+let ENT_COLS_OK_ = false;
+// Older Entities tabs stop at column E. Add Address..Notes (F-J) on first use.
+function ensureEntityColumns_(sh) {
+  ENT_COLS_OK_ = true;
+  if (sh.getMaxColumns() < 10) sh.insertColumnsAfter(sh.getMaxColumns(), 10 - sh.getMaxColumns());
+  if (!sh.getRange(1, 6).getValue()) {
+    sh.getRange(1, 6, 1, 5).setValues([ENTITY_HEADERS.slice(5)]);
+    sh.getRange('F:J').setNumberFormat('@');
+  }
 }
 
 function cleanParty_(s) { return String(s == null ? '' : s).replace(/\|/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); }
@@ -1420,7 +1442,9 @@ function readEntities_(sh) {
     const row = rows[r];
     if (!row[0] || !row[1]) continue;
     out.push({ idx: r + 1, id: String(row[0]), name: String(row[1]), contact: String(row[2] || ''),
-      aliases: String(row[3] || '').split('|').map(a => a.trim()).filter(Boolean) });
+      aliases: String(row[3] || '').split('|').map(a => a.trim()).filter(Boolean),
+      address: String(row[5] || ''), email: String(row[6] || ''), facebook: String(row[7] || ''),
+      payment: String(row[8] || '').split('|').map(a => a.trim()).filter(Boolean), notes: String(row[9] || '') });
   }
   return out;
 }
@@ -1435,14 +1459,18 @@ function entityMap_(list) {
 
 // Used by the receipt handlers: the canonical name for what was typed (the entity is created on first use).
 // A contact number, when given, is remembered on the entity. Never lets an entity problem block a receipt.
-function resolveParty_(raw, contact) {
+function resolveParty_(raw, contact, address) {
   const name = cleanParty_(raw);
   if (!name || name === '\u2014') return String(raw || '').trim();
   try {
     const sh = entitiesSheet_(true), e = entityMap_(readEntities_(sh))[partyKey_(name)];
-    const c = String(contact || '').trim().slice(0, 60);
-    if (e) { if (c && c !== e.contact) sh.getRange(e.idx, 3, 1, 1).setValue(c); return e.name; }
-    appendRows_(sh, [[newId_('en'), name, c, '', todayStr_()]]);
+    const c = String(contact || '').trim().slice(0, 60), a = String(address || '').trim().slice(0, 300);
+    if (e) {
+      if (c && c !== e.contact) sh.getRange(e.idx, 3, 1, 1).setValue(c);
+      if (a && !e.address) sh.getRange(e.idx, 6, 1, 1).setValue(a);   // only fills a blank: a hand-typed address is never overwritten
+      return e.name;
+    }
+    appendRows_(sh, [[newId_('en'), name, c, '', todayStr_(), a, '', '', '', '']]);
     return name;
   } catch (err) { return name; }
 }
@@ -1546,11 +1574,35 @@ function getEntities_() {
     if (to && (status === 'shipping' || status === 'shipped')) tx.push([to, 'sell', fmtDateCell_(r[10]), Number(r[12]) || 0]);
     else if (to && status === 'traded') tx.push([to, 'trade', fmtDateCell_(r[10]), Number(r[12]) || 0]);
   });
-  return { ok: true, entities: ents.map(e => ({ id: e.id, name: e.name, contact: e.contact, aliases: e.aliases })), tx };
+  return { ok: true, entities: ents.map(e => ({ id: e.id, name: e.name, contact: e.contact, aliases: e.aliases, address: e.address, email: e.email, facebook: e.facebook, payment: e.payment, notes: e.notes })), tx };
+}
+
+// Every card behind one entity, same rules as the ranking above: kind buy | sell | trade.
+function getEntityCards_(entityId) {
+  const e = readEntities_(entitiesSheet_(true)).filter(x => x.id === String(entityId))[0];
+  if (!e) return { ok: false, error: 'not found' };
+  const keys = {}; entityKeys_(e).forEach(k => keys[k] = true);
+  const rows = cardsSheet_().getDataRange().getValues(); rows.shift();
+  const cards = [];
+  rows.forEach(r => {
+    if (!r[0] || !r[4]) return;
+    const status = String(r[9] || 'onhand'), photo = toDisplayUrl_(r[7], 200);
+    if (keys[partyKey_(r[2])]) cards.push({ id: String(r[0]), name: String(r[4]), kind: (r[6] === '' || r[6] == null) ? 'trade' : 'buy', date: fmtDateCell_(r[1]), value: Number(r[5]) || 0, photo, status });
+    if (keys[partyKey_(r[11])] && (status === 'shipping' || status === 'shipped' || status === 'traded'))
+      cards.push({ id: String(r[0]), name: String(r[4]), kind: status === 'traded' ? 'trade' : 'sell', date: fmtDateCell_(r[10]), value: Number(r[12]) || 0, photo, status });
+  });
+  return { ok: true, cards };
 }
 
 // Create (no entityId) or edit (entityId): rename and/or contact. A rename keeps the old spelling as an alias and
 // rewrites it everywhere. A name another entity already uses is refused: that is what Merge is for.
+// The detail fields in column order F-J. A field the caller did not send keeps its current value.
+function entityExtras_(p, self) {
+  const txt = (k, max, cur) => p[k] === undefined ? (cur || '') : String(p[k] || '').trim().slice(0, max);
+  const pay = p.payment === undefined ? (self ? self.payment : []) : String(p.payment || '').split('|').map(x => x.replace(/\s+/g, ' ').trim().slice(0, 40)).filter(Boolean).slice(0, 12);
+  return [txt('address', 300, self && self.address), txt('email', 120, self && self.email), txt('facebook', 300, self && self.facebook), pay.join('|'), txt('notes', 1000, self && self.notes)];
+}
+
 function saveEntity_(p) {
   const name = cleanParty_(p.name);
   if (!name) return { ok: false, error: 'name cannot be empty' };
@@ -1563,7 +1615,9 @@ function saveEntity_(p) {
     if (p.entityId && !self) return { ok: false, error: 'not found' };
     const clash = ents.filter(e => (!self || e.id !== self.id) && entityKeys_(e).indexOf(key) >= 0)[0];
     if (clash) return { ok: false, error: '"' + clash.name + '" already uses that name. Use Merge instead.' };
-    if (!self) { appendRows_(sh, [[newId_('en'), name, contact, '', todayStr_()]]); return { ok: true }; }
+    const extras = entityExtras_(p, self);
+    if (!self) { appendRows_(sh, [[newId_('en'), name, contact, '', todayStr_()].concat(extras)]); return { ok: true }; }
+    sh.getRange(self.idx, 6, 1, 5).setValues([extras]);
     if (name === self.name) { sh.getRange(self.idx, 3, 1, 1).setValue(contact); return { ok: true }; }
     const oldKey = partyKey_(self.name), keys = {};
     entityKeys_(self).forEach(k => keys[k] = true);
@@ -1588,12 +1642,20 @@ function mergeEntities_(p) {
     if (!target || from.length !== ids.length) return { ok: false, error: 'not found' };
     const keys = {}, have = {};
     let aliases = target.aliases.slice(), contact = target.contact;
+    let address = target.address, email = target.email, facebook = target.facebook, notes = target.notes;
+    const pay = target.payment.slice();
     entityKeys_(target).forEach(k => { keys[k] = true; have[k] = true; });
     from.forEach(e => {
       entityKeys_(e).forEach(k => keys[k] = true);
       [e.name].concat(e.aliases).forEach(a => { const k = partyKey_(a); if (k && !have[k]) { have[k] = true; aliases.push(a); } });
       if (!contact && e.contact) contact = e.contact;
+      if (!address && e.address) address = e.address;
+      if (!email && e.email) email = e.email;
+      if (!facebook && e.facebook) facebook = e.facebook;
+      e.payment.forEach(x => { if (pay.indexOf(x) < 0) pay.push(x); });
+      if (e.notes && notes.indexOf(e.notes) < 0) notes = notes ? notes + '\n' + e.notes : e.notes;
     });
+    sh.getRange(target.idx, 6, 1, 5).setValues([[address, email, facebook, pay.join('|'), notes.slice(0, 1000)]]);
     sh.getRange(target.idx, 3, 1, 2).setValues([[contact, aliases.join('|')]]);
     deleteRowsBatch_(sh, from.map(e => e.idx));
     rewriteParties_(raw => { const n = cleanParty_(raw); return n && keys[n.toLowerCase()] && raw !== target.name ? target.name : null; }, true);
@@ -1612,6 +1674,77 @@ function deleteEntity_(entityId) {
     const found = scanParties_();
     if (entityKeys_(e).some(k => found[k])) return { ok: false, error: 'it has receipts or cards on record. Merge it into another entity instead.' };
     sh.deleteRow(e.idx);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+
+/* ---------- organization: team chart, business processes, FAQ ---------- */
+
+const ORG_SHEET = 'Organization';
+const ORG_HEADERS = ['ID', 'Kind', 'Title', 'Role', 'ParentID', 'Apps', 'Body', 'Created'];
+function orgSheet_(create) {
+  const ss = ss_();
+  let sh = ss.getSheetByName(ORG_SHEET);
+  if (!sh && create) {
+    sh = ss.insertSheet(ORG_SHEET);
+    sh.getRange(1, 1, 1, 8).setValues([ORG_HEADERS]);
+    sh.getRange('A:H').setNumberFormat('@');
+  }
+  return sh;
+}
+function getOrg_() {
+  const sh = orgSheet_(false), items = [];
+  if (sh) {
+    const rows = sh.getDataRange().getValues();
+    for (let r = 1; r < rows.length; r++) {
+      const x = rows[r];
+      if (!x[0] || !x[2]) continue;
+      items.push({ id: String(x[0]), kind: String(x[1]), title: String(x[2]), role: String(x[3] || ''), parent: String(x[4] || ''),
+        apps: String(x[5] || '').split('|').filter(Boolean), body: String(x[6] || '') });
+    }
+  }
+  return { ok: true, items };
+}
+// Create (no id) or edit (id). Kind never changes after creation. A person cannot report to themselves or to someone below them.
+function saveOrgItem_(p) {
+  const kind = String(p.kind || '');
+  if (['person', 'process', 'faq'].indexOf(kind) < 0) return { ok: false, error: 'unknown kind' };
+  const title = String(p.title || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+  if (!title) return { ok: false, error: 'title cannot be empty' };
+  const role = String(p.role || '').trim().slice(0, 120), body = String(p.body || '').trim().slice(0, 2000);
+  const apps = String(p.apps || '').split('|').filter(a => /^[a-z]{2,20}$/.test(a)).filter((a, i, all) => all.indexOf(a) === i).join('|');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = orgSheet_(true), id = String(p.id || '');
+    const found = id ? findRow_(sh, id) : null;
+    if (id && !found) return { ok: false, error: 'not found' };
+    let parent = kind === 'person' ? String(p.parent || '') : '';
+    if (parent) {
+      const rows = sh.getDataRange().getValues(), up = {};
+      for (let r = 1; r < rows.length; r++) if (rows[r][0]) up[String(rows[r][0])] = String(rows[r][4] || '');
+      if (!up.hasOwnProperty(parent)) parent = '';
+      for (let cur = parent, n = 0; cur && id && n < 200; cur = up[cur], n++) if (cur === id) return { ok: false, error: 'a person cannot report to someone who reports to them' };
+    }
+    if (found) { sh.getRange(found.idx, 3, 1, 5).setValues([[title, role, parent, apps, body]]); return { ok: true, id }; }
+    const nid = newId_('og');
+    appendRows_(sh, [[nid, kind, title, role, parent, apps, body, todayStr_()]]);
+    return { ok: true, id: nid };
+  } finally { lock.releaseLock(); }
+}
+// Deleting a person moves their direct reports up to whoever the deleted person reported to.
+function deleteOrgItem_(id) {
+  if (!id) return { ok: false, error: 'missing id' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = orgSheet_(false), found = sh && findRow_(sh, id);
+    if (!found) return { ok: false, error: 'not found' };
+    if (found.row[1] === 'person') {
+      const rows = sh.getDataRange().getValues();
+      for (let r = 1; r < rows.length; r++) if (String(rows[r][4]) === String(id)) sh.getRange(r + 1, 5, 1, 1).setValue(String(found.row[4] || ''));
+    }
+    sh.deleteRow(found.idx);
     return { ok: true };
   } finally { lock.releaseLock(); }
 }

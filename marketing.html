@@ -54,7 +54,7 @@
 
   <div id="panelEnt" hidden>
     <div class="field" style="margin-bottom:12px">
-      <input type="search" id="entSearch" placeholder="Search name, contact or other spelling" autocomplete="off">
+      <input type="search" id="entSearch" placeholder="Search name, contact, address, email or notes" autocomplete="off">
     </div>
     <button type="button" class="ghost add-task" id="entAdd">+ Add entity</button>
     <p class="rec-count" id="entCount"></p>
@@ -74,10 +74,46 @@
       <label for="entContact">Contact number <small>(optional)</small></label>
       <input type="tel" id="entContact" inputmode="tel" autocomplete="off" placeholder="09xx xxx xxxx">
     </div>
+    <div class="field">
+      <label for="entAddress">Address <small>(optional)</small></label>
+      <textarea id="entAddress" rows="3" maxlength="300" placeholder="Street, barangay, city, province, ZIP"></textarea>
+    </div>
+    <div class="field">
+      <label for="entEmail">Email <small>(optional)</small></label>
+      <input type="email" id="entEmail" inputmode="email" autocomplete="off" maxlength="120" placeholder="name@example.com">
+    </div>
+    <div class="field">
+      <label for="entFb">Facebook profile link <small>(optional)</small></label>
+      <input type="url" id="entFb" inputmode="url" autocomplete="off" maxlength="300" placeholder="https://facebook.com/...">
+    </div>
+    <div class="field">
+      <label>Payment methods <small>(tap to select, or add your own)</small></label>
+      <div class="pay-chips" id="entPayChips"></div>
+      <div class="pay-add">
+        <input type="text" id="entPayOther" maxlength="40" autocomplete="off" placeholder="Other method">
+        <button type="button" class="ghost sm" id="entPayAdd">Add</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="entNotes">Notes <small>(optional)</small></label>
+      <textarea id="entNotes" rows="3" maxlength="1000" placeholder="Anything worth remembering about this person"></textarea>
+    </div>
     <p class="stub-note" id="entHint" style="margin:-6px 0 14px;font-size:12px;text-align:center" hidden>Renaming fixes the spelling on every receipt, card and finance entry. The old spelling is remembered, so typing it again still finds this entity.</p>
     <div class="acts">
       <button type="button" class="go sm" id="entSave">Save</button>
       <button type="button" class="ghost" id="entCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="entView" hidden>
+  <div class="sheet small wide">
+    <div id="entViewBody"></div>
+    <div class="ed-cards" id="entViewCards" hidden></div>
+    <div class="acts" style="margin-top:14px">
+      <button type="button" class="ghost" id="entViewLoad">Load purchased, sold &amp; traded cards</button>
+      <button type="button" class="go sm" id="entViewEdit">Edit details</button>
+      <button type="button" class="ghost" id="entViewClose">Close</button>
     </div>
   </div>
 </div>

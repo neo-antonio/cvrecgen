@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>trackello &ndash; Organization</title>
+<meta name="theme-color" content="#f7f7f7">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="trackello">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="hbar">
+    <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
+    <h2>Organization</h2>
+    <span class="hbar-spacer" aria-hidden="true"></span>
+  </div>
+  <nav class="tabs tabs-3" role="tablist">
+    <button type="button" class="tab active" data-otab="team" role="tab">Team</button>
+    <button type="button" class="tab" data-otab="proc" role="tab">Processes</button>
+    <button type="button" class="tab" data-otab="faq" role="tab">FAQ</button>
+  </nav>
+</header>
+
+<main class="port-wrap">
+  <p class="stub-note" id="orgState">Loading&hellip;</p>
+
+  <div id="panelTeam">
+    <button type="button" class="ghost add-task" id="addPerson">+ Add person</button>
+    <div class="org-chart" id="orgChart"></div>
+  </div>
+
+  <div id="panelProc" hidden>
+    <button type="button" class="ghost add-task" id="addProc">+ Add process</button>
+    <div class="mk-list" id="procList"></div>
+  </div>
+
+  <div id="panelFaq" hidden>
+    <div class="field" style="margin-bottom:12px">
+      <input type="search" id="faqSearch" placeholder="Search questions and answers" autocomplete="off">
+    </div>
+    <button type="button" class="ghost add-task" id="addFaq">+ Add question</button>
+    <div class="mk-list" id="faqList"></div>
+  </div>
+</main>
+
+<!-- person details -->
+<div class="modal" id="orgView" hidden>
+  <div class="sheet small wide">
+    <div id="orgViewBody"></div>
+    <div class="acts" style="margin-top:14px">
+      <button type="button" class="go sm" id="orgViewEdit">Edit</button>
+      <button type="button" class="ghost" id="orgViewClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- add / edit: person, process or question -->
+<div class="modal" id="orgSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="orgHeading">Add person</h3>
+    <div class="field">
+      <label for="orgTitle" id="orgLTitle">Name</label>
+      <input type="text" id="orgTitle" maxlength="160" autocomplete="off">
+    </div>
+    <div class="field" id="orgRoleWrap">
+      <label for="orgRole" id="orgLRole">Role</label>
+      <input type="text" id="orgRole" maxlength="120" autocomplete="off">
+    </div>
+    <div class="field" id="orgParentWrap">
+      <label for="orgParent">Reports to</label>
+      <select id="orgParent"></select>
+    </div>
+    <div class="field">
+      <label for="orgBody" id="orgLBody">Description</label>
+      <textarea id="orgBody" rows="5" maxlength="1500"></textarea>
+    </div>
+    <div class="field" id="orgAppsWrap">
+      <label id="orgLApps">Apps</label>
+      <div class="org-picker" id="orgApps"></div>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="orgSave">Save</button>
+      <button type="button" class="ghost danger" id="orgDelete" hidden>Delete</button>
+      <button type="button" class="ghost" id="orgCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="orgToast" hidden></div>
+
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+  <p>trackello <span class="ver">v1.2</span></p>
+</footer>
+<script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="net.js"></script>
+<script src="organization.js"></script>
+</body>
+</html>

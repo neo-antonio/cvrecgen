@@ -99,10 +99,10 @@ function cardHtml(group, isToShip) {
   const address = (f.address || f.contact || isToShip) ? `<div class="ship-addr"><small>Ship to</small>${f.address ? escShip(f.address) : '<em>No address yet</em>'}${f.contact ? `<div class="ship-contact">Contact: ${escShip(f.contact)}</div>` : ''}</div>` : '';
   // notes written on the sale receipt, right under the address; editable with the pencil
   const notes = f.notes ? `<div class="ship-addr ship-notes"><small>Notes</small>${escShip(f.notes)}</div>` : '';
-  const proof = !isToShip && hasProof ? `<div class="port-thumb"><img src="${proofUrl}" alt="Proof of shipment" class="ship-clickphoto" data-full="${proofUrl}"></div>` : '';
+  const proof = hasProof ? `<div class="port-thumb"><img src="${proofUrl}" alt="Proof of shipment" class="ship-clickphoto" data-full="${proofUrl}"></div>` : '';
   const receiptBtn = receiptUrl ? shipIcon('doc', 'ship-receipt', 'Receipt', ids, `data-url="${escShip(receiptUrl)}"`) : '';
   const actions = isToShip
-    ? `<div class="ship-actions">${shipIcon('pencil', 'ship-edit', 'Edit method, address, notes & schedule', ids)}${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}</div>`
+    ? `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-edit', 'Edit method, address, notes & schedule', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}</div>`
     : `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-editdate', 'Edit shipped details', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${receiptBtn}${shipIcon('undo', 'ship-revert', n > 1 ? 'Revert all' : 'Revert', ids)}</div>`;
   return `<div class="ship-card ${state}" data-ids="${escShip(ids)}">
       ${key}

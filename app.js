@@ -367,7 +367,7 @@ function update() {
     $('#trToOther').hidden = $('#trTo').value !== 'Others';
   }
 
-  $('#vlogWhat').textContent = mode === 'trade' ? 'trade' : 'purchase';
+  $('#vlogWhat').textContent = mode === 'trade' ? 'trade' : mode === 'sold' ? 'sale' : 'purchase';
   $('#buyerWarn').hidden = !(mode === 'sold' && shipType() === 'buyer');
   $('#totalVal').textContent = php(grandTotal());
 }
@@ -394,9 +394,9 @@ function collect() {
     shipContact: mode === 'sold' ? $('#shipContact').value.trim() : '',
     deduct: $('#deduct').value === 'Others' ? ($('#deductOther').value.trim() || 'Others') : $('#deduct').value,
     notes: $('#notes').value.trim(),
-    vlog: (mode === 'purchase' || mode === 'trade') && ($('#vlog').checked || $('#vlogAdd').checked),   // a vlog task is added to Creatives
+    vlog: (mode === 'purchase' || mode === 'sold' || mode === 'trade') && ($('#vlog').checked || $('#vlogAdd').checked),   // a vlog task is added to Creatives
     // optional: fold this receipt into an existing open vlog task instead of making a new one (off by default)
-    vlogTaskId: (mode === 'purchase' || mode === 'trade') && $('#vlogAdd').checked ? ($('#vlogTask').value || '') : '',
+    vlogTaskId: (mode === 'purchase' || mode === 'sold' || mode === 'trade') && $('#vlogAdd').checked ? ($('#vlogTask').value || '') : '',
     // whole-receipt "record to portfolio" flag (purchase mode) — applies to every item
     portfolio: $('#globalPortfolio').checked,
     // trade-only fields
@@ -571,7 +571,7 @@ function saleBody(d, receiptPhoto) {
   if (!sold.length) return null;
   return { action: 'sell', date: d.date, time: d.time, buyer: d.party, notes: d.notes, pay: d.pay,
     shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
-    shipAddress: d.shipAddr, shipContact: d.shipContact, packaging: d.pack,
+    shipAddress: d.shipAddr, shipContact: d.shipContact, packaging: d.pack, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
     items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })), receiptPhoto };
 }
 // Items traded away become "traded"; items received become new onhand Cards only if d.receivedPortfolio is
