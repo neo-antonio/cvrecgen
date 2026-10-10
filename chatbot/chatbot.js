@@ -144,10 +144,27 @@ function buildMessages(question, history, recs, summary) {
       if (engine) { enableChat(false); try { await engine.unload(); } catch (_) {} engine = null; }
       try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (_) {}
       setBar(0); setState('Starting\u2026');
-      engine = await wl.CreateMLCEngine(id, { initProgressCallback: r => { setBar(r.progress); setState((Math.round(r.progress * 100)) + '% \u00b7 ' + (r.text || '')); } });
+      // The model comes in many files. If the connection drops, files already saved are kept, so trying again carries on from there.
+      let lastErr = null;
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          engine = await wl.CreateMLCEngine(id, { initProgressCallback: r => { setBar(r.progress); setState((Math.round(r.progress * 100)) + '% \u00b7 ' + (r.text || '')); } });
+          lastErr = null; break;
+        } catch (err) {
+          lastErr = err; engine = null;
+          if (attempt === 4 || !/network|fetch|cache\.add|failed to/i.test(String(err && err.message || err))) break;
+          setState('Connection hiccup, retrying (' + attempt + ' of 3). Parts already downloaded are kept\u2026');
+          await new Promise(r => setTimeout(r, 2000 * attempt));
+        }
+      }
+      if (lastErr) throw lastErr;
       loadedId = id; setBar(1, false); setState('Ready. Ask anything about your data.'); enableChat(true);
     } catch (err) {
-      console.warn(err); engine = null; setBar(0, false); setState('Could not start the model: ' + (err && err.message || err));
+      console.warn(err); engine = null; setBar(0, false);
+      const msg = String(err && err.message || err);
+      setState(/network|fetch|cache\.add/i.test(msg)
+        ? 'The download was interrupted (' + msg + '). Check your connection, pause any VPN, firewall or ad blocker for this site, then press the button again. It continues where it stopped. The 1B model is a smaller download if the connection is weak.'
+        : 'Could not start the model: ' + msg);
     } finally { $('cbModel').disabled = false; $('cbGo').disabled = false; refreshButton(); }
   }
 

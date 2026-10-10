@@ -12,7 +12,13 @@
      Every page loads this file, so every page asks for a login. The check is a front-end gate only. */
   var SESSION_KEY = 'cv_auth', ADMIN = 'neo';
   var cap = function (n) { n = String(n || ''); return n.charAt(0).toUpperCase() + n.slice(1).toLowerCase(); };
-  var curUser = function () { try { var s = JSON.parse(localStorage.getItem(SESSION_KEY)); return s && s.user ? String(s.user).toLowerCase() : ''; } catch (e) { return ''; } };
+  var REMEMBER_MS = 7 * 24 * 60 * 60 * 1000;
+  // "Remember me" sessions live in localStorage for 7 days; otherwise the login only lasts until the browser/tab is closed (sessionStorage)
+  var readSession = function (store, needExp) {
+    try { var s = JSON.parse(store.getItem(SESSION_KEY)); if (s && s.user && (needExp ? s.exp > Date.now() : true)) return s; } catch (e) {}
+    return null;
+  };
+  var curUser = function () { var s = readSession(sessionStorage, false) || readSession(localStorage, true); return s ? String(s.user).toLowerCase() : ''; };
   if (!curUser()) document.documentElement.classList.add('cv-locked');
 
   var EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
@@ -51,13 +57,17 @@
     user: curUser,
     name: function () { return cap(curUser()); },
     isAdmin: function () { return curUser() === ADMIN; },
-    login: function (u, p) {
+    login: function (u, p, remember) {
       return call('login', { user: String(u || '').trim().toLowerCase(), pass: p }).then(check).then(function (d) {
-        try { localStorage.setItem(SESSION_KEY, JSON.stringify({ user: d.user, at: Date.now() })); } catch (e) {}
+        try {
+          localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY);
+          if (remember) localStorage.setItem(SESSION_KEY, JSON.stringify({ user: d.user, at: Date.now(), exp: Date.now() + REMEMBER_MS }));
+          else sessionStorage.setItem(SESSION_KEY, JSON.stringify({ user: d.user, at: Date.now() }));
+        } catch (e) {}
         return d.user;
       });
     },
-    logout: function () { try { localStorage.removeItem(SESSION_KEY); } catch (e) {} location.reload(); },
+    logout: function () { try { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } catch (e) {} location.reload(); },
     changePassword: function (cur, next) { return call('changePassword', { user: curUser(), pass: cur, newPass: next }).then(check); },
     listUsers: function (pass) { return call('listUsers', { user: curUser(), pass: pass }).then(check).then(function (d) { return d.users || []; }); },
     // wraps a password input with a show/hide eye button
@@ -80,6 +90,7 @@
     box.innerHTML = '<div class="sheet small wide"><h3 id="cvLoginH">Please login to continue</h3>'
       + '<div class="field"><label for="cvU">Username</label><input type="text" id="cvU" autocomplete="username" autocapitalize="none" spellcheck="false"></div>'
       + '<div class="field"><label for="cvP">Password</label><input type="password" id="cvP" autocomplete="current-password"></div>'
+      + '<div class="field"><label class="port-chk"><input type="checkbox" id="cvRem"><span>Remember me for 7 days</span></label></div>'
       + '<p class="cv-err" id="cvErr" hidden></p>'
       + '<div class="acts"><button type="button" class="go sm" id="cvGo">Log in</button></div></div>';
     document.body.appendChild(box);
@@ -90,7 +101,7 @@
       if (busy) return;
       if (!u.value.trim() || !p.value) { err.textContent = 'Enter your username and password.'; err.hidden = false; return; }
       busy = true; go.disabled = true; go.textContent = 'Checking\u2026'; err.hidden = true;
-      window.CVAuth.login(u.value, p.value).then(function () { location.reload(); }).catch(function (e) {
+      window.CVAuth.login(u.value, p.value, box.querySelector('#cvRem').checked).then(function () { location.reload(); }).catch(function (e) {
         err.textContent = e && e.message || 'Could not log in.'; err.hidden = false; busy = false; go.disabled = false; go.textContent = 'Log in'; p.focus();
       });
     };
