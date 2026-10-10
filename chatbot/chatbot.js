@@ -134,6 +134,7 @@ function buildMessages(question, history, recs, summary, budget) {
   /* Model list. k = value in the dropdown, base = WebLLM model id without the quantisation suffix,
      rb = how many characters of records to send (small context windows need less). */
   const MODELS = [
+    { k: 'ollama', base: '', rb: 2400, label: 'On this PC \u00b7 Ollama app (no download in the browser, no WebGPU needed)' },
     { k: '1B',      base: 'Llama-3.2-1B-Instruct',        rb: 2400, label: 'Fast \u00b7 Llama 3.2 1B (about 0.9 GB)' },
     { k: '3B',      base: 'Llama-3.2-3B-Instruct',        rb: 2400, label: 'Better \u00b7 Llama 3.2 3B (about 2.3 GB)' },
     { k: 'qwen05',  base: 'Qwen2.5-0.5B-Instruct',        rb: 1800, label: 'Tiny \u00b7 Qwen 2.5 0.5B (about 0.4 GB, weak answers)' },
@@ -161,9 +162,10 @@ function buildMessages(question, history, recs, summary, budget) {
   function pruneModels() {
     if (!wl) return;
     const have = new Set(wl.prebuiltAppConfig.model_list.map(m => m.model_id)), sel = $('cbModel');
-    [...sel.options].forEach(o => { const m = modelOf(o.value); if (!have.has(m.base + '-q4f32_1-MLC') && !have.has(m.base + '-q4f16_1-MLC')) o.remove(); });
+    [...sel.options].forEach(o => { if (o.value === 'ollama') return; const m = modelOf(o.value); if (!have.has(m.base + '-q4f32_1-MLC') && !have.has(m.base + '-q4f16_1-MLC')) o.remove(); });
   }
   async function refreshButton() {
+    if ($('cbModel').value === 'ollama') { $('cbGo').textContent = (engine && loadedId === 'ollama') ? 'Ready' : 'Connect to Ollama'; if (!engine) setState('Uses the Ollama app running on this PC. Press Connect.'); return; }
     if (!wl) return;
     try {
       const id = await modelId($('cbModel').value);
@@ -235,7 +237,58 @@ function buildMessages(question, history, recs, summary, budget) {
     }
   }
 
+  /* ----- Ollama (runs on this PC, outside the browser) -----
+     Install Ollama, run `ollama pull llama3.2:3b`, and allow this site: set OLLAMA_ORIGINS to https://neo-antonio.github.io and restart Ollama. */
+  const OLLAMA = (typeof CONFIG !== 'undefined' && CONFIG.ollamaUrl) || 'http://localhost:11434';
+  async function connectOllama() {
+    let tags;
+    try { const r = await fetch(OLLAMA + '/api/tags'); if (!r.ok) throw new Error('HTTP ' + r.status); tags = await r.json(); }
+    catch (e) { throw new Error('Cannot reach Ollama at ' + OLLAMA + '. Is the Ollama app running, and is OLLAMA_ORIGINS set to this site (then restart Ollama)? If Chrome asks to allow access to devices on your network, choose Allow. (' + (e && e.message || e) + ')'); }
+    const names = (tags.models || []).map(m => m.name);
+    if (!names.length) throw new Error('Ollama is running but has no models. Open a terminal and run: ollama pull llama3.2:3b');
+    const saved = localStorage.getItem('cbOllamaModel');
+    const pref = ['llama3.2:3b', 'qwen2.5:3b', 'llama3.2', 'llama3.1:8b', 'qwen2.5:7b', 'phi3.5', 'gemma2:2b'];
+    const name = names.includes(saved) ? saved : (pref.find(n => names.includes(n)) || names[0]);
+    if (names.length > 1 && !names.includes(saved)) setState('Ollama models found: ' + names.join(', ') + '. Using ' + name + '. Run localStorage.setItem("cbOllamaModel","name") in the console to pick another.');
+    let ctrl = null;
+    return {
+      chat: { completions: { create: async ({ messages, temperature, max_tokens }) => {
+        ctrl = new AbortController();
+        const res = await fetch(OLLAMA + '/api/chat', { method: 'POST', signal: ctrl.signal, body: JSON.stringify({ model: name, messages, stream: true, options: { temperature, num_predict: max_tokens, num_ctx: 4096 } }) });
+        if (!res.ok) throw new Error('Ollama replied HTTP ' + res.status + ': ' + (await res.text()).slice(0, 200));
+        const reader = res.body.getReader(), dec = new TextDecoder();
+        return (async function* () {
+          let buf = '';
+          try {
+            for (;;) {
+              const { done, value } = await reader.read(); if (done) break;
+              buf += dec.decode(value, { stream: true });
+              let i; while ((i = buf.indexOf('\n')) >= 0) {
+                const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (!line) continue;
+                const j = JSON.parse(line); if (j.error) throw new Error(j.error);
+                if (j.message && j.message.content) yield { choices: [{ delta: { content: j.message.content } }] };
+              }
+            }
+          } catch (e) { if (e && e.name === 'AbortError') return; throw e; }
+        })();
+      } } },
+      interruptGenerate() { if (ctrl) ctrl.abort(); },
+      unload: async () => {},
+      modelName: name
+    };
+  }
+
   async function startModel() {
+    if ($('cbModel').value === 'ollama') {
+      $('cbGo').disabled = $('cbModel').disabled = true; setBar(0, false); setState('Connecting to Ollama\u2026');
+      try {
+        if (engine) { enableChat(false); try { await engine.unload(); } catch (_) {} engine = null; }
+        engine = await connectOllama(); loadedId = 'ollama'; loadedKey = 'ollama';
+        setState('Ready (Ollama: ' + engine.modelName + '). Ask anything about your data.'); enableChat(true);
+      } catch (err) { engine = null; setState(String(err && err.message || err)); }
+      finally { $('cbModel').disabled = false; $('cbGo').disabled = false; refreshButton(); }
+      return;
+    }
     if (!navigator.gpu) return setState('This browser does not support WebGPU, which the local model needs. Try the latest Chrome or Edge.');
     $('cbGo').disabled = $('cbModel').disabled = true;
     try {
@@ -302,6 +355,7 @@ function buildMessages(question, history, recs, summary, budget) {
   $('cbStop').onclick = () => { try { engine.interruptGenerate(); } catch (_) {} };
   $('cbForm').onsubmit = e => { e.preventDefault(); const q = $('cbInput').value.trim(); if (!q) return; $('cbInput').value = ''; ask(q); };
   $('cbDelete').onclick = async () => {
+    if ($('cbModel').value === 'ollama') return setState('Ollama keeps its own models. Remove one in a terminal with: ollama rm <name>');
     if (!confirm('Remove the downloaded model from this device? You will need to download it again to use the assistant.')) return;
     try {
       if (!wl) wl = await import(WEBLLM_URL);
@@ -312,7 +366,7 @@ function buildMessages(question, history, recs, summary, budget) {
     refreshButton();
   };
 
-  if (!navigator.gpu) setState('This browser does not support WebGPU, which the local model needs. Try the latest Chrome or Edge.');
+  if (!navigator.gpu) setState('No WebGPU in this browser. Pick the Ollama option, or use the latest Chrome or Edge.');
   loadData();
   fillModels();
   import(WEBLLM_URL).then(m => { wl = m; pruneModels(); refreshButton(); }).catch(() => setState('Could not load the WebLLM library (check your connection).'));
