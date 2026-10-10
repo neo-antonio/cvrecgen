@@ -480,3 +480,11 @@ body.home-body{padding-top:0}
 .vlog-join .port-chk{margin-bottom:6px}
 .port-info .port-held{color:#1c6b2e;font-weight:500}
 .acts a.ghost{display:flex;align-items:center;justify-content:center;text-decoration:none;text-align:center}
+
+/* ---------- v1.3.1: card photo previews in the sale / trade pickers ---------- */
+.cn-row{display:flex;align-items:center;gap:10px;min-width:0}
+.cn-txt{display:flex;flex-direction:column;min-width:0}
+.cn-thumb{width:44px;height:44px;border-radius:8px;object-fit:cover;flex:none;background:#ececec;border:1px solid var(--line)}
+.cn-thumb.none{display:inline-block}
+.chk .cn-thumb{width:40px;height:40px}
+.card-name{padding-top:2px;padding-bottom:2px}

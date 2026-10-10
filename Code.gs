@@ -1168,7 +1168,7 @@ function getCreatives_() {
 
   const rmap = receiptMap_();
   const cRows = cardsSheet_().getDataRange().getValues(); cRows.shift();
-  const cardObj = c => ({ id: String(c[0]), name: String(c[4]), photo: toDisplayUrl_(c[7], 300), full: toDisplayUrl_(c[7], 1080), cost: Number(c[5]) || 0 });
+  const cardObj = c => ({ id: String(c[0]), name: String(c[4]), photo: toDisplayUrl_(c[7], 300), full: toDisplayUrl_(c[7], 1080), cost: Number(c[5]) || 0, onhand: (c[9] || 'onhand') === 'onhand' });
   const groups = {}, order = [], byId = {};
   cRows.forEach(c => {
     if (!c[0] || !c[4]) return;

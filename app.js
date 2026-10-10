@@ -136,6 +136,9 @@ function initPicker(kind) {
   refreshPicker(kind);
 }
 
+// small photo of a card (sale / trade pickers and the picked rows); a grey box when the card has no photo
+const cardThumb = c => c.photo ? `<img class="cn-thumb" src="${escHtml(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>';
+
 function refreshPicker(kind) {
   const root = $(PICK[kind].root);
   if (!root || !root.querySelector('.pick-list')) return;
@@ -143,7 +146,7 @@ function refreshPicker(kind) {
   const ids = new Set(pickedIds(kind));
   const shown = onhandCards.filter(c => !q || String(c.name || '').toLowerCase().includes(q));
   root.querySelector('.pick-list').innerHTML = shown.length
-    ? shown.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${ids.has(String(c.id)) ? ' checked' : ''}><span>${escHtml(c.name)} <small>\u2014 bought ${php(c.cost)}</small></span></label>`).join('')
+    ? shown.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${ids.has(String(c.id)) ? ' checked' : ''}>${cardThumb(c)}<span>${escHtml(c.name)} <small>\u2014 bought ${php(c.cost)}</small></span></label>`).join('')
     : `<p class="stub-note" style="margin:10px 0 4px">${onhandCards.length ? 'No cards match.' : 'No onhand cards found.'}</p>`;
   const n = ids.size, t = root.querySelector('.ms-btn span');
   t.textContent = n ? `${n} card${n > 1 ? 's' : ''} selected` : 'Select card(s)';
@@ -159,7 +162,7 @@ function addCardRow(kind, card) {
   block.dataset.cardId = String(card.id);
   block.dataset.name = card.name || '';
   block.innerHTML = `<div class="item">
-      <div class="card-name"><b>${escHtml(card.name)}</b><small>bought ${php(card.cost)}</small></div>
+      <div class="card-name"><div class="cn-row">${cardThumb(card)}<div class="cn-txt"><b>${escHtml(card.name)}</b><small>bought ${php(card.cost)}</small></div></div></div>
       <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="${cfg.costPh}"${cfg.useCost ? ` value="${card.cost || 0}"` : ''}>
       <button type="button" class="x" aria-label="Remove item">&times;</button>
     </div>`;

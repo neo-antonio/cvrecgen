@@ -381,7 +381,8 @@ async function openPicker(id) {
   $c('mHeading').textContent = g ? 'Add / merge cards' : 'New post task';
   $c('mDate').value = g ? (g.scheduled || todayC()) : todayC();
   $c('mSearch').value = '';
-  const others = data.posts.filter(p => p.id !== mState.id && p.status !== 'posted');
+  // only tasks that still hold on-hand cards can be merged: once every card is sold or traded the task drops out of the list
+  const others = data.posts.filter(p => p.id !== mState.id && p.status !== 'posted' && p.cards.some(c => c.onhand !== false));
   $c('mMergeWrap').hidden = !others.length;
   $c('mMerge').innerHTML = others.map(p => `<label class="port-chk"><input type="checkbox" data-merge="${escC(p.id)}"><span>${escC(p.label || 'Cards')} \u00b7 ${nPlC(p.cards.length, 'card')}</span></label>`).join('');
   syncPickerTitle();
