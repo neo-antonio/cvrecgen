@@ -35,6 +35,7 @@
     <div class="filter-chips" id="vFilters">
       <button type="button" class="chip active" data-f="todo">To do</button>
       <button type="button" class="chip" data-f="done">Done</button>
+      <button type="button" class="chip" data-f="posted">Posted</button>
     </div>
     <button type="button" class="ghost add-task" id="vAdd">+ Add task</button>
     <p class="rec-count" id="vCount"></p>
@@ -44,9 +45,11 @@
 
   <div id="panelPost" hidden>
     <div class="filter-chips" id="pFilters">
-      <button type="button" class="chip active" data-f="toedit">To edit</button>
-      <button type="button" class="chip" data-f="edited">Edited</button>
+      <button type="button" class="chip active" data-f="toedit">To do</button>
+      <button type="button" class="chip" data-f="edited">Done</button>
+      <button type="button" class="chip" data-f="posted">Posted</button>
     </div>
+    <button type="button" class="ghost add-task" id="pAdd">+ New post task</button>
     <div class="rec-tools" style="margin-bottom:10px"><button type="button" class="ghost sm" id="cRefresh">Refresh</button></div>
     <p class="rec-count" id="pCount"></p>
     <p class="stub-note" id="pState" hidden></p>
@@ -60,12 +63,17 @@
     <h3 id="vHeading">Add video task</h3>
     <div class="field"><label for="vTitle">Title</label><input type="text" id="vTitle" autocomplete="off" placeholder="e.g. Vlog: Unboxing 20 packs"></div>
     <div class="field"><label for="vDate">Scheduled date</label><input type="date" id="vDate"></div>
+    <div class="field"><label for="vStatus">Status</label>
+      <select id="vStatus"><option value="todo">To do</option><option value="done">Done</option><option value="posted">Posted</option></select>
+    </div>
     <div class="field" id="vPlatWrap">
-      <label>Uploaded to</label>
+      <label>Uploaded to <small>(links can be added once Posted)</small></label>
       <div id="vPlats"></div>
     </div>
+    <div class="field"><label for="vCaption">Caption <small>(to put on the video)</small></label><textarea id="vCaption" rows="4" maxlength="1500" placeholder="Caption for Facebook / Instagram / YouTube / TikTok&hellip;"></textarea></div>
     <div class="field"><label for="vNotes">Notes <small>(optional)</small></label><textarea id="vNotes" rows="3" maxlength="1000" placeholder="Ideas, footage location, reminders&hellip;"></textarea></div>
     <div class="acts">
+      <button type="button" class="ghost" id="vCopy">Copy caption</button>
       <button type="button" class="go sm" id="vSave">Save</button>
       <button type="button" class="ghost" id="vCancel">Cancel</button>
     </div>
@@ -77,6 +85,7 @@
   <div class="sheet small wide">
     <h3 id="pHeading">Post details</h3>
     <div class="field"><label for="pDate">Scheduled date</label><input type="date" id="pDate"></div>
+    <label class="port-chk"><input type="checkbox" id="pPosted"><span>Posted (marks every card edited; links can be added)</span></label>
     <div class="field">
       <label>Posted to</label>
       <div id="pPlats"></div>
@@ -87,6 +96,28 @@
       <button type="button" class="ghost" id="pCopy">Copy caption</button>
       <button type="button" class="go sm" id="pSave">Save</button>
       <button type="button" class="ghost" id="pCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- post task: new / add cards / merge -->
+<div class="modal" id="mSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="mHeading">New post task</h3>
+    <div class="field"><label for="mTitle">Title</label><input type="text" id="mTitle" autocomplete="off" placeholder="e.g. Weekend pickups"></div>
+    <div class="field"><label for="mDate">Scheduled date</label><input type="date" id="mDate"></div>
+    <div class="field" id="mMergeWrap" hidden>
+      <label>Merge with other tasks <small>(adds all their cards)</small></label>
+      <div id="mMerge" class="m-merge"></div>
+    </div>
+    <div class="field">
+      <label>Cards <small id="mCount"></small></label>
+      <input type="search" id="mSearch" placeholder="Search cards" autocomplete="off">
+      <div id="mCards" class="m-cards"></div>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="mSave">Save</button>
+      <button type="button" class="ghost" id="mCancel">Cancel</button>
     </div>
   </div>
 </div>

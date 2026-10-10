@@ -465,3 +465,18 @@ body.home-body{padding-top:0}
 .cc-apply[hidden]{display:none}
 .cc-apply span{flex:1;font:500 12px Poppins,sans-serif}
 .cc-apply .go{width:auto;padding:10px 16px}
+
+/* ---------- v1.3: links in notes, post picker, vlog join, days held, view-full button ---------- */
+.cr-notes a{color:inherit;text-decoration:underline;overflow-wrap:anywhere}
+.cr-acts .ghost.sm{min-height:34px}
+.m-merge{display:flex;flex-direction:column;gap:2px}
+.m-cards{display:flex;flex-direction:column;gap:6px;max-height:44vh;overflow:auto;margin-top:8px}
+.m-row{display:grid;grid-template-columns:22px 52px 1fr;gap:10px;align-items:center;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--panel);cursor:pointer}
+.m-row.on{border-color:var(--fg);background:#f4f4f4}
+.m-row input{width:20px;height:20px;min-height:0;padding:0;accent-color:var(--fg)}
+.m-row .port-info b{white-space:normal;overflow-wrap:anywhere}
+.vlog-join{margin:-8px 0 18px}
+.vlog-join[hidden]{display:none}
+.vlog-join .port-chk{margin-bottom:6px}
+.port-info .port-held{color:#1c6b2e;font-weight:500}
+.acts a.ghost{display:flex;align-items:center;justify-content:center;text-decoration:none;text-align:center}

@@ -391,7 +391,9 @@ function collect() {
     shipContact: mode === 'sold' ? $('#shipContact').value.trim() : '',
     deduct: $('#deduct').value === 'Others' ? ($('#deductOther').value.trim() || 'Others') : $('#deduct').value,
     notes: $('#notes').value.trim(),
-    vlog: (mode === 'purchase' || mode === 'trade') && $('#vlog').checked,   // a vlog task is added to Creatives
+    vlog: (mode === 'purchase' || mode === 'trade') && ($('#vlog').checked || $('#vlogAdd').checked),   // a vlog task is added to Creatives
+    // optional: fold this receipt into an existing open vlog task instead of making a new one (off by default)
+    vlogTaskId: (mode === 'purchase' || mode === 'trade') && $('#vlogAdd').checked ? ($('#vlogTask').value || '') : '',
     // whole-receipt "record to portfolio" flag (purchase mode) — applies to every item
     portfolio: $('#globalPortfolio').checked,
     // trade-only fields
@@ -556,7 +558,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // portfolio-flagged items also get a new Cards row — d.portfolio is ONE checkbox for the whole receipt.
 function purchaseBody(d, receiptPhoto) {
   if (!d.items.length) return null;
-  return { action: 'purchase', date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, notes: d.notes, vlog: d.vlog,
+  return { action: 'purchase', date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, notes: d.notes, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
     items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: d.portfolio })), receiptPhoto };
 }
 // Cards sold always move to "shipping" so they show up under To ship, even with no shipping fee; the
@@ -573,7 +575,7 @@ function saleBody(d, receiptPhoto) {
 // ticked. Any cash paid/received bills to Finance as one entry.
 function tradeBody(d, receiptPhoto) {
   if (!d.tradedItems.length && !d.receivedItems.length) return null;
-  return { action: 'trade', date: d.date, time: d.time, tradedTo: d.party, tradedBy: d.people, notes: d.notes, vlog: d.vlog,
+  return { action: 'trade', date: d.date, time: d.time, tradedTo: d.party, tradedBy: d.people, notes: d.notes, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
     tradedItems: d.tradedItems.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })),
     receivedItems: d.receivedItems.map(i => ({ name: i.name, cost: i.cost, photo: i.photo })),
     receivedPortfolio: d.receivedPortfolio, cashDirection: d.cashDirection, cashAmount: d.cashAmount, cashMethod: d.cashMethod, receiptPhoto };
@@ -655,7 +657,7 @@ function plannedSteps(d) {
   else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k, 'finance task')}` }); }
   else if (d.mode === 'sold') st.push({ st: 'wait', t: `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
   else { if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio)) st.push({ st: 'wait', t: 'Updating portfolio' }); st.push({ st: 'wait', t: 'Creating finance task' }); }
-  if (d.vlog) st.push({ st: 'wait', t: 'Adding vlog task to Creatives' });
+  if (d.vlog) st.push({ st: 'wait', t: d.vlogTaskId ? 'Adding to existing vlog task' : 'Adding vlog task to Creatives' });
   return st;
 }
 function resultSteps(d, r) {
@@ -670,7 +672,7 @@ function resultSteps(d, r) {
       st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `Portfolio updated: ${r.traded || 0} traded out, ${r.received || 0} added${pf}` });
     st.push({ st: 'ok', t: 'Finance task created' });
   }
-  if (d.vlog) st.push(r.creatives ? { st: 'ok', t: 'Vlog task added to Creatives' } : { st: 'warn', t: 'Vlog task could not be added to Creatives' });
+  if (d.vlog) st.push(r.creatives ? { st: 'ok', t: d.vlogTaskId ? 'Added to existing vlog task' : 'Vlog task added to Creatives' } : { st: 'warn', t: 'Vlog task could not be added to Creatives' });
   return st;
 }
 
@@ -773,6 +775,7 @@ async function generate() {
     startSync(d, d.mode === 'purchase' ? purchaseBody(d, receiptPhoto) : d.mode === 'sold' ? saleBody(d, receiptPhoto) : d.mode === 'transfer' ? transferBody(d, receiptPhoto) : tradeBody(d, receiptPhoto)).then(loadEntities).catch(err => console.warn('Sync failed', err));   // a new name becomes a saved entity: refresh the suggestions
     resetAfterCardReceipt(d);
     $('#vlog').checked = false;   // per-receipt: never carry one vlog request over to the next receipt
+    $('#vlogAdd').checked = false; $('#vlogTask').hidden = true;
     if (skipped) toast('Logo skipped. Open the app from http://localhost or your website to include it.');
   } catch (e) {
     console.error(e);
@@ -814,6 +817,25 @@ function showPreview(blob, name) {
   $('#close').onclick = () => { if (inflight > 0 && $('#close').disabled) return; $('#modal').hidden = true; URL.revokeObjectURL(url); };
   $('#modal').hidden = false;
 }
+
+/* ---------- Optional: add this receipt to an existing (still to-do) vlog task ---------- */
+async function loadVlogTasks() {
+  const sel = $('#vlogTask');
+  sel.innerHTML = '<option value="">Loading\u2026</option>';
+  let tasks = [];
+  try {
+    const res = await jsonp(CONFIG.portfolio.endpoint + '?action=creatives&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    if (res && res.ok) tasks = (res.videos || []).filter(v => v.status === 'todo').sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
+  } catch (err) { console.warn('Could not load vlog tasks', err); }
+  if (!$('#vlogAdd').checked) return;
+  sel.innerHTML = tasks.length
+    ? tasks.map(v => `<option value="${escHtml(v.id)}">${escHtml(v.title)}${v.date ? ' \u00b7 ' + escHtml(v.date) : ''}</option>`).join('')
+    : '<option value="">No open vlog tasks \u2014 a new one will be made</option>';
+}
+$('#vlogAdd').addEventListener('change', () => {
+  $('#vlogTask').hidden = !$('#vlogAdd').checked;
+  if ($('#vlogAdd').checked) loadVlogTasks();
+});
 
 function toast(m) {
   const t = $('#toast'); t.textContent = m; t.hidden = false;

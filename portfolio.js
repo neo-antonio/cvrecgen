@@ -51,6 +51,18 @@ const ICON = {
 };
 const icon = (name, cls, label, id) => `<button type="button" class="icon-btn ${cls}" data-id="${id}" title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</svg></button>`;
 
+/* Days held: purchase date until the sale / trade date. Cards still on hand count up to today. */
+const parseDay = v => { const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+function heldLine(it) {
+  const a = parseDay(it.purchaseDate); if (!a) return '';
+  const ongoing = it.tag === 'onhand';
+  let b = ongoing ? new Date() : parseDay(it.soldDate);
+  if (!b) return '';
+  b = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  const days = Math.max(0, Math.round((b - a) / 86400000));
+  return `Held ${days} day${days === 1 ? '' : 's'}${ongoing ? ' so far' : ''}`;
+}
+
 function cardHtml(it) {
   const img = it.photo
     ? `<img src="${it.photo}" alt="${escHtml(it.name)}" loading="lazy" class="port-clickphoto" data-full="${it.photo}">`
@@ -58,6 +70,7 @@ function cardHtml(it) {
   const owned = isOwned(it);
   const dateLine = owned ? 'Bought ' + fmtCardDate(it.purchaseDate) : (it.tag === 'traded' ? 'Traded ' : 'Sold ') + fmtCardDate(it.soldDate);
   const costLine = owned ? it.purchaseCost : it.soldPrice;
+  const held = heldLine(it);
   const rcpts = receiptsFor(it);
   const renameBtn = icon('pencil', 'port-rename', 'Edit name', it.id);
   const photoBtn = icon('camera', 'port-photo', it.photo ? 'Change photo' : 'Add photo', it.id);
@@ -70,6 +83,7 @@ function cardHtml(it) {
         <div class="port-info">
           <b>${escHtml(it.name)}</b>
           <span>${dateLine}</span>
+          ${held ? `<span class="port-held">${held}</span>` : ''}
         </div>
         <div class="port-right">
           <span class="port-tag tag-${it.tag}">${TAG_LABEL[it.tag] || it.tag}</span>

@@ -81,8 +81,8 @@ function applyCalendar(sh, rc, ev, cr) {
   data.receipts = ok(rc) ? (rc.receipts || []).filter(r => r.date).map(r => ({ kind: 'receipt', status: r.type, date: String(r.date).slice(0, 10), id: r.id, url: r.url, description: r.description, time: r.time })) : (failed.push('receipts'), []);
   data.events = ok(ev) ? (ev.events || []).map(e => ({ kind: 'event', status: 'event', date: String(e.date).slice(0, 10), id: e.id, title: e.title, time: e.time, notes: e.notes })) : (failed.push('events'), []);
   // Creatives: video tasks (by scheduled date) and picture-edit groups (one per receipt)
-  data.creatives = ok(cr) ? (cr.videos || []).filter(v => v.date).map(v => ({ kind: 'creative', media: 'video', id: v.id, date: String(v.date).slice(0, 10), done: v.status === 'done', title: v.title, sub: v.auto ? 'Video \u00b7 from receipt' : 'Video' }))
-    .concat((cr.posts || []).filter(g => g.scheduled).map(g => ({ kind: 'creative', media: 'pic', id: g.id, date: String(g.scheduled).slice(0, 10), done: g.status === 'edited', title: g.label || 'Cards', sub: `Pictures \u00b7 ${g.editedCount} of ${g.cards.length} card${g.cards.length === 1 ? '' : 's'} edited` }))) : (failed.push('creatives'), []);
+  data.creatives = ok(cr) ? (cr.videos || []).filter(v => v.date).map(v => ({ kind: 'creative', media: 'video', id: v.id, date: String(v.date).slice(0, 10), done: v.status !== 'todo', title: v.title, sub: v.auto ? 'Video \u00b7 from receipt' : 'Video' }))
+    .concat((cr.posts || []).filter(g => g.scheduled).map(g => ({ kind: 'creative', media: 'pic', id: g.id, date: String(g.scheduled).slice(0, 10), done: g.status !== 'toedit', title: g.label || 'Cards', sub: `Pictures \u00b7 ${g.editedCount} of ${g.cards.length} card${g.cards.length === 1 ? '' : 's'} edited` }))) : (failed.push('creatives'), []);
   return failed;
 }
 let calFirst = true;

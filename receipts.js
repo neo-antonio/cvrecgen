@@ -94,6 +94,8 @@ $recList.addEventListener('click', e => {
   const r = receipts.find(x => String(x.id) === String(activeReceiptId));
   document.getElementById('imgViewDesc').textContent = r ? [r.description, fmtDay(r.date)].filter(Boolean).join(' \u00b7 ') : '';
   document.getElementById('imgViewDelete').hidden = !r;
+  // "View full image" opens the large version in a new tab (older Code.gs has no `full`, so it falls back to the shown image)
+  document.getElementById('imgViewFull').href = (r && (r.full || r.url)) || card.dataset.url;
   document.getElementById('imgViewImg').src = card.dataset.url;
   document.getElementById('imgView').hidden = false;
 });
