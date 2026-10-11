@@ -54,6 +54,18 @@
     <div class="acts"><button type="button" class="ghost" id="imgViewClose">Close</button></div>
   </div>
 </div>
+<div class="modal" id="lotAddSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="lotAddTitle">Add cards to lot</h3>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">Onhand cards that are not in a lot yet.</p>
+    <div class="field" style="margin-bottom:8px"><input type="search" id="lotAddSearch" placeholder="Search cards" autocomplete="off"></div>
+    <div id="lotAddList" class="lot-pick"></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="lotAddSave">Add to lot</button>
+      <button type="button" class="ghost" id="lotAddCancel">Cancel</button>
+    </div>
+  </div>
+</div>
 <div class="modal" id="rcptView" hidden>
   <div class="sheet">
     <div id="rcptViewBody"></div>

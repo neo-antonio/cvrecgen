@@ -49,6 +49,7 @@ const findCard = id => portData.cards.find(c => String(c.id) === String(id));
 const ICON = {
   pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>', camera: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.4"/>', doc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M9 12h7M9 16h7"/>', trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>', undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>'
 };
+Object.assign(ICON, { plus: '<path d="M12 5v14M5 12h14"/>', unlink: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/><path d="M4 4l16 16"/>' });
 const icon = (name, cls, label, id) => `<button type="button" class="icon-btn ${cls}" data-id="${id}" title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</svg></button>`;
 
 /* Days held: purchase date until the sale / trade date. Cards still on hand count up to today. */
@@ -63,7 +64,7 @@ function heldLine(it) {
   return `Held ${days} day${days === 1 ? '' : 's'}${ongoing ? ' so far' : ''}`;
 }
 
-function cardHtml(it) {
+function cardHtml(it, inLot) {
   const img = it.photo
     ? `<img src="${it.photo}" alt="${escHtml(it.name)}" loading="lazy" class="port-clickphoto" data-full="${it.photo}">`
     : `<div class="port-noimg">No photo</div>`;
@@ -76,6 +77,7 @@ function cardHtml(it) {
   const photoBtn = icon('camera', 'port-photo', it.photo ? 'Change photo' : 'Add photo', it.id);
   const receiptBtn = rcpts.length ? icon('doc', 'port-receipt', rcpts.length > 1 ? 'Receipts' : 'Receipt', it.id) : '';
   const revertBtn = (it.tag === 'shipping' || it.tag === 'shipped' || it.tag === 'traded') ? icon('undo', 'port-revert', 'Revert to onhand', it.id) : '';
+  const unlotBtn = inLot ? icon('unlink', 'port-unlot', 'Remove from lot', it.id) : '';
   const deleteBtn = icon('trash', 'port-delete danger', 'Delete card', it.id);
   return `<div class="port-card" data-id="${it.id}">
       <div class="port-card-main">
@@ -90,7 +92,38 @@ function cardHtml(it) {
           <div class="port-cost">${portPhp(costLine)}</div>
         </div>
       </div>
-      <div class="port-card-acts">${renameBtn}${photoBtn}${receiptBtn}${revertBtn}${deleteBtn}</div>
+      <div class="port-card-acts">${renameBtn}${photoBtn}${receiptBtn}${revertBtn}${unlotBtn}${deleteBtn}</div>
+    </div>`;
+}
+
+/* ---------- Lots: cards bought (and sold) together are shown as one group ---------- */
+const openLots = new Set();   // lots the user has expanded
+const allLotCards = id => portData.cards.filter(c => String(c.lotId) === String(id));
+function unitsOf(list) {
+  const out = [], groups = {};
+  list.forEach(c => {
+    if (!c.lotId) return out.push({ card: c });
+    let g = groups[c.lotId];
+    if (!g) { g = groups[c.lotId] = { lot: true, id: String(c.lotId), name: c.lotName || 'Lot', cards: [] }; out.push(g); }
+    g.cards.push(c);
+  });
+  return out;
+}
+function lotHtml(g) {
+  const open = openLots.has(g.id);
+  const value = g.cards.reduce((a, c) => a + (Number(isOwned(c) ? c.purchaseCost : c.soldPrice) || 0), 0);
+  const tags = {}; g.cards.forEach(c => { tags[c.tag] = (tags[c.tag] || 0) + 1; });
+  const tagTxt = Object.keys(tags).map(t => (Object.keys(tags).length > 1 ? tags[t] + ' ' : '') + (TAG_LABEL[t] || t)).join(' \u00b7 ');
+  const first = g.cards.find(c => c.photo);
+  const img = first ? `<img src="${first.photo}" alt="${escHtml(g.name)}" loading="lazy">` : '<div class="port-noimg">No photo</div>';
+  return `<div class="port-card lot-group" data-lot="${escHtml(g.id)}">
+      <div class="port-card-main lot-head" data-lot="${escHtml(g.id)}">
+        <div class="port-thumb">${img}</div>
+        <div class="port-info"><b><span class="lot-pill">LOT</span>${escHtml(g.name)}</b><span>${g.cards.length} card${g.cards.length === 1 ? '' : 's'} \u00b7 ${tagTxt}</span></div>
+        <div class="port-right"><span class="lot-chev${open ? ' open' : ''}" aria-hidden="true"></span><div class="port-cost">${portPhp(value)}</div></div>
+      </div>
+      <div class="port-card-acts">${icon('pencil', 'lot-rename', 'Rename lot', g.id)}${icon('plus', 'lot-add', 'Add cards to lot', g.id)}${icon('unlink', 'lot-ungroup', 'Ungroup lot', g.id)}</div>
+      <div class="lot-members"${open ? '' : ' hidden'}>${g.cards.map(c => cardHtml(c, true)).join('')}</div>
     </div>`;
 }
 
@@ -102,7 +135,7 @@ function renderTab() {
   $portSummaryLabel.textContent = gone ? SUMMARY_LABEL[statusFilter] : 'Onhand value';
   let list = portData.cards;
   if (statusFilter !== 'all') list = list.filter(i => i.tag === statusFilter);
-  if (searchQuery) list = list.filter(i => (i.name || '').toLowerCase().includes(searchQuery));
+  if (searchQuery) list = list.filter(i => (i.name || '').toLowerCase().includes(searchQuery) || (i.lotName || '').toLowerCase().includes(searchQuery));
   if (!list.length) {
     $portState.textContent = portData.cards.length ? 'No cards match your search/filter.' : 'No cards yet.';
     $portState.hidden = false; $portList.hidden = true;
@@ -110,7 +143,7 @@ function renderTab() {
     $portCount.textContent = '0 cards';
     return;
   }
-  $portList.innerHTML = list.map(cardHtml).join('');
+  $portList.innerHTML = unitsOf(list).map(u => u.lot ? lotHtml(u) : cardHtml(u.card)).join('');
   const total = gone
     ? list.reduce((a, i) => a + (Number(i.soldPrice) || 0), 0)
     : list.filter(isOwned).reduce((a, i) => a + (Number(i.purchaseCost) || 0), 0);
@@ -213,6 +246,72 @@ $portList.addEventListener('click', async e => {
       revertBtn.disabled = false;
       toast('Could not revert: ' + err.message);
     }
+  }
+});
+
+/* ---------- Lot actions: add cards, unmerge a card, ungroup, rename (Code.gs: setLot / clearLot) ---------- */
+async function lotCall(action, params) {
+  const url = CONFIG.portfolio.endpoint + '?action=' + action + Object.keys(params).map(k => '&' + k + '=' + encodeURIComponent(params[k])).join('') + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+  const data = await jsonp(url);
+  if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
+}
+async function lotBatches(action, ids, extra) {   // keep each request URL short
+  for (let i = 0; i < ids.length; i += 25) await lotCall(action, Object.assign({ cardIds: ids.slice(i, i + 25).join(',') }, extra || {}));
+}
+let lotAddId = null; const lotAddSel = new Set();
+function lotAddRender() {
+  const q = document.getElementById('lotAddSearch').value.trim().toLowerCase();
+  const cand = portData.cards.filter(c => c.tag === 'onhand' && !c.lotId && (!q || String(c.name || '').toLowerCase().includes(q)));
+  document.getElementById('lotAddList').innerHTML = cand.length
+    ? cand.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${lotAddSel.has(String(c.id)) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${escHtml(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${escHtml(c.name)} <small>\u2014 bought ${portPhp(c.purchaseCost)}</small></span></label>`).join('')
+    : '<p class="stub-note" style="margin:10px 0 4px">No loose onhand cards to add.</p>';
+  document.getElementById('lotAddSave').textContent = lotAddSel.size ? `Add ${lotAddSel.size} card${lotAddSel.size > 1 ? 's' : ''}` : 'Add to lot';
+}
+document.getElementById('lotAddSearch').addEventListener('input', lotAddRender);
+document.getElementById('lotAddList').addEventListener('change', e => { if (e.target.matches('input[type=checkbox]')) { e.target.checked ? lotAddSel.add(e.target.value) : lotAddSel.delete(e.target.value); lotAddRender(); } });
+const closeLotAdd = () => { document.getElementById('lotAddSheet').hidden = true; lotAddId = null; };
+document.getElementById('lotAddCancel').onclick = closeLotAdd;
+document.getElementById('lotAddSave').onclick = async () => {
+  if (!lotAddSel.size) return toast('Pick at least one card.');
+  const id = lotAddId, ids = [...lotAddSel], name = (allLotCards(id)[0] || {}).lotName || '', btn = document.getElementById('lotAddSave');
+  btn.disabled = true;
+  try { await lotBatches('setLot', ids, { lotId: id, lotName: name }); openLots.add(id); closeLotAdd(); toast(`Added ${ids.length} card${ids.length > 1 ? 's' : ''} to the lot.`); await loadPortfolio(); }
+  catch (err) { toast('Could not add: ' + err.message); }
+  btn.disabled = false;
+};
+$portList.addEventListener('click', async e => {
+  const head = e.target.closest('.lot-head');
+  if (head && !e.target.closest('button')) {
+    const id = head.dataset.lot; openLots.has(id) ? openLots.delete(id) : openLots.add(id);
+    head.nextElementSibling.nextElementSibling.hidden = !openLots.has(id);
+    head.querySelector('.lot-chev').classList.toggle('open', openLots.has(id));
+    return;
+  }
+  const add = e.target.closest('.lot-add');
+  if (add) { lotAddId = add.dataset.id; lotAddSel.clear(); document.getElementById('lotAddSearch').value = ''; lotAddRender(); document.getElementById('lotAddSheet').hidden = false; return; }
+  const ren = e.target.closest('.lot-rename');
+  if (ren) {
+    const cards = allLotCards(ren.dataset.id), cur = (cards[0] || {}).lotName || '';
+    const name = prompt('Edit lot name', cur);
+    if (name === null || !name.trim() || name.trim() === cur) return;
+    try { await lotBatches('setLot', cards.map(c => c.id), { lotId: ren.dataset.id, lotName: name.trim() }); toast('Lot renamed.'); await loadPortfolio(); }
+    catch (err) { toast('Could not rename: ' + err.message); }
+    return;
+  }
+  const ung = e.target.closest('.lot-ungroup');
+  if (ung) {
+    const cards = allLotCards(ung.dataset.id);
+    if (!confirm(`Ungroup this lot? Its ${cards.length} cards stay in your portfolio as individual cards.`)) return;
+    try { await lotBatches('clearLot', cards.map(c => c.id)); openLots.delete(ung.dataset.id); toast('Lot ungrouped.'); await loadPortfolio(); }
+    catch (err) { toast('Could not ungroup: ' + err.message); }
+    return;
+  }
+  const un = e.target.closest('.port-unlot');
+  if (un) {
+    if (!confirm('Remove this card from its lot? It stays in your portfolio as an individual card.')) return;
+    un.disabled = true;
+    try { await lotBatches('clearLot', [un.dataset.id]); toast('Removed from the lot.'); await loadPortfolio(); }
+    catch (err) { un.disabled = false; toast('Could not remove: ' + err.message); }
   }
 });
 

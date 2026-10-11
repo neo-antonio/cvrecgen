@@ -6,9 +6,10 @@
  * plus a Finance ledger of billable events and a Receipts archive of every generated receipt image.
  *
  * SHEET TABS
- *   Cards   (A-AB): ID | PurchaseDate | Seller | BoughtBy | ItemName | PurchaseCost | PurchasePayMethod | Photo | PurchaseNotes | Status |
+ *   Cards   (A-AD): ID | PurchaseDate | Seller | BoughtBy | ItemName | PurchaseCost | PurchasePayMethod | Photo | PurchaseNotes | Status |
  *                   SoldDate | SoldTo | SoldPrice | ShipType | ShippingMethod | ShippingFee | ShippingDeductedFrom | ShippingScheduledDate |
- *                   ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress | ShippedTime | ShippingContact | SaleNotes
+ *                   ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress | ShippedTime |  ShippingContact | SaleNotes | LotID | LotName
+ *                   LotID/LotName (AC-AD) group cards bought together as a lot; blank = a normal single card.
  *                   Status is one of: onhand, shipping, shipped, traded.
  *   Finance (A-N):  ID | CardID | Type | Date | Description | Amount | PayMethod | Recorded | RecordedDate | ReceiptURL | Flow | Images | Notes | Time
  *                   Type: purchase, sale, shipping, trade, transfer, manual.  Flow: inflow, outflow, none.
@@ -31,7 +32,7 @@
  * DEPLOY: Deploy > Manage deployments > edit your Web app > Version: New version > Deploy.
  *
  * POST actions: purchase, sell, trade, transfer, shipPhoto, cardPhoto, financeReceipt, saveFinance
- * GET  actions: portfolio, onhandCards, finance, shipping, receipts, syncStatus, record, unrecord, balance, saveBalance, saveInterest,
+ * GET  actions: setLot, clearLot, portfolio, onhandCards, finance, shipping, receipts, syncStatus, record, unrecord, balance, saveBalance, saveInterest,
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
@@ -90,6 +91,8 @@ function doGet(e) {
     if (action === 'deleteCard') return jsonpOut_(deleteCard_(e.parameter.cardId), cb);
     if (action === 'deleteFinance') return jsonpOut_(deleteFinance_(e.parameter.financeId), cb);
     if (action === 'renameCard') return jsonpOut_(renameCard_(e.parameter.cardId, e.parameter.name), cb);
+    if (action === 'setLot') return jsonpOut_(setLot_(e.parameter), cb);
+    if (action === 'clearLot') return jsonpOut_(clearLot_(e.parameter), cb);
     if (action === 'linkFinanceReceipt') return jsonpOut_(linkFinanceReceipt_(e.parameter), cb);
     if (action === 'unlinkFinanceReceipt') return jsonpOut_(setTaskReceipt_(e.parameter.financeId, ''), cb);
     if (action === 'clearPhoto') return jsonpOut_(clearPhoto_(e.parameter.cardId, e.parameter.which), cb);
@@ -166,6 +169,12 @@ function handlePurchase_(body) {
     if (receiptUrl) { try { appendReceipt_('purchase', body.date || todayStr_(), receiptUrl, 'Purchase from ' + (seller || '\u2014'), body.time); receiptSaved = true; } catch (err) {} }
   }
 
+  // lots: cards bought together carry the same lotId (Cards cols AC-AD); payments: one receipt paid from several sources
+  const lotted = items.some(it => it.lotId && it.portfolio);
+  if (lotted) ensureCardsColumns_(cards);
+  const pays = cleanPayments_(body.payments);
+  const payLabel = pays.length ? pays.map(p => p.method).join(' + ') : (body.pay || '');
+
   const cardRows = [], finRows = [];
   items.forEach(it => {
     let photoUrl = '';
@@ -174,17 +183,21 @@ function handlePurchase_(body) {
     if (it.portfolio) {
       cardId = newId_('c');
       cardRows.push([cardId, body.date || '', seller, body.people || '', it.name || '', it.cost || 0,
-        body.pay || '', photoUrl, body.notes || '', 'onhand', '', '', '', '', '', '', '', '', '', '', false,
-        receiptUrl, '', '']);
+        payLabel, photoUrl, body.notes || '', 'onhand', '', '', '', '', '', '', '', '', '', '', false,
+        receiptUrl, '', ''].concat(lotted ? ['', '', '', '', String(it.lotId || ''), String(it.lotName || '').slice(0, 200)] : []));
     }
     // every purchased item bills to Finance, portfolio or not
     finRows.push([newId_('f'), cardId, 'purchase', body.date || '', it.name || '(unnamed item)', it.cost || 0, body.pay || '', false, '', receiptUrl, 'outflow']);
   });
+  // shipping paid on a purchase is a real outflow too: its own Finance row under the same receipt, paid from the same source(s)
+  const shipFee = Number(body.ship) || 0;
+  if (shipFee > 0) finRows.push([newId_('f'), '', 'purchase', body.date || '', 'Shipping: purchase from ' + (seller || '\u2014'), shipFee, body.pay || '', false, '', receiptUrl, 'outflow']);
+  const finOut = splitByPayments_(finRows, pays);   // one Finance row per payment source (a row that straddles two sources is split)
   appendRows_(cards, cardRows);
-  appendRows_(fin, finRows);
+  appendRows_(fin, finOut);
   let creatives = 0;
   if (body.vlog) { try { addVlog_(body, 'Purchase from ' + (seller || '\u2014'), body.date || todayStr_(), receiptUrl); creatives = 1; } catch (err) {} }
-  return { ok: true, receipt: receiptSaved, cards: cardRows.length, finance: finRows.length, creatives, photosFailed };
+  return { ok: true, receipt: receiptSaved, cards: cardRows.length, finance: finOut.length, creatives, photosFailed };
 }
 
 function handleSell_(body) {
@@ -234,10 +247,11 @@ function handleSell_(body) {
   if (buyerShipping > 0) {
     finRows.push([newId_('f'), '', 'sale', body.date || '', 'Shipping paid by buyer: sale to ' + (buyer || '\u2014'), buyerShipping, body.pay || '', false, '', receiptUrl, 'inflow']);
   }
-  appendRows_(fin, finRows);
+  const finOut = splitByPayments_(finRows, cleanPayments_(body.payments));   // received in several accounts: one Finance row per account
+  appendRows_(fin, finOut);
   let creatives = 0;
   if (body.vlog) { try { addVlog_(body, 'Sale to ' + (buyer || '\u2014'), body.date || todayStr_(), receiptUrl); creatives = 1; } catch (err) {} }
-  return { ok: true, receipt: receiptSaved, cards: moved, finance: finRows.length, creatives };
+  return { ok: true, receipt: receiptSaved, cards: moved, finance: finOut.length, creatives };
 }
 
 // Proof of shipment for one card, or (cardIds) for every card of a grouped shipping task.
@@ -353,6 +367,28 @@ function renameCard_(cardId, name) {
   if (!found) return { ok: false, error: 'not found' };
   cards.getRange(found.idx, 5, 1, 1).setValue(name); // ItemName (col E)
   return { ok: true };
+}
+
+// Lots: cards that belong together share a LotID (Cards col AC) and LotName (AD). cardIds is a comma list.
+function setLot_(p) {
+  const ids = splitIds_(p.cardIds), lotId = String(p.lotId || '').trim().slice(0, 60), name = String(p.lotName || '').trim().slice(0, 200);
+  if (!ids.length || !lotId) return { ok: false, error: 'missing cardIds or lotId' };
+  const cards = cardsSheet_();
+  ensureCardsColumns_(cards);
+  const rowOf = rowIndex_(cards);
+  let n = 0;
+  ids.forEach(id => { const idx = rowOf[id]; if (!idx) return; cards.getRange(idx, 29, 1, 2).setNumberFormat('@').setValues([[lotId, name]]); n++; });
+  return { ok: true, updated: n };
+}
+function clearLot_(p) {
+  const ids = splitIds_(p.cardIds);
+  if (!ids.length) return { ok: false, error: 'missing cardIds' };
+  const cards = cardsSheet_();
+  ensureCardsColumns_(cards);
+  const rowOf = rowIndex_(cards);
+  let n = 0;
+  ids.forEach(id => { const idx = rowOf[id]; if (!idx) return; cards.getRange(idx, 29, 1, 2).setValues([['', '']]); n++; });
+  return { ok: true, updated: n };
 }
 
 // Attach / clear the receipt on a standalone task (Finance ReceiptURL, col J). Receipt-derived
@@ -980,7 +1016,8 @@ function getPortfolio_() {
       purchaseDate: fmtDateCell_(r[1]), purchaseCost: Number(r[5]) || 0,
       tag, soldDate: fmtDateCell_(r[10]), soldPrice: Number(r[12]) || 0,
       purchaseReceipt: r[21] || '', saleReceipt: r[22] || '',
-      receipts: receiptLinks_(r[21], r[22], rmap)
+      receipts: receiptLinks_(r[21], r[22], rmap),
+      lotId: String(r[28] || ''), lotName: String(r[29] || '')
     };
     (status === 'onhand' || status === 'shipping' ? owned : sold).push(item);
     all.push(item);
@@ -1036,7 +1073,7 @@ function getOnhandCards_() {
   const rows = cardsSheet_().getDataRange().getValues(); rows.shift();
   // newest purchase first (ties: the card added last comes first); photo + date feed the Creatives card picker
   const cards = rows.map((r, i) => ({ r, i })).filter(x => x.r[4] && x.r[9] === 'onhand')
-    .map(x => ({ id: x.r[0], name: x.r[4], cost: Number(x.r[5]) || 0, date: fmtDateCell_(x.r[1]), photo: toDisplayUrl_(x.r[7], 300), i: x.i }))
+    .map(x => ({ id: x.r[0], name: x.r[4], cost: Number(x.r[5]) || 0, date: fmtDateCell_(x.r[1]), photo: toDisplayUrl_(x.r[7], 300), lotId: String(x.r[28] || ''), lotName: String(x.r[29] || ''), i: x.i }))
     .sort((a, b) => a.date === b.date ? b.i - a.i : (a.date < b.date ? 1 : -1));
   cards.forEach(c => delete c.i);
   return { ok: true, cards };
@@ -1411,7 +1448,7 @@ function savePostGroup_(p) {
 // "KUYA RICK" (or any spelling saved as an alias) end up as the same entity and the same text in every sheet.
 // Matching ignores capitals and extra spaces. Renaming or merging rewrites the old spellings everywhere they were stored.
 const ENTITIES_SHEET = 'Entities';
-const PARTY_TEXT = /^(Purchase from |Sale to |Trade with |Packaging: sale to |Shipping paid by buyer: sale to )(.+?)( \u2014 .*)?$/;
+const PARTY_TEXT = /^(Purchase from |Sale to |Trade with |Packaging: sale to |Shipping paid by buyer: sale to |Shipping: purchase from )(.+?)( \u2014 .*)?$/;
 
 function entitiesSheet_(create) {
   const ss = ss_();
@@ -1758,12 +1795,12 @@ function deleteOrgItem_(id) {
 // "a,b,c" -> ['a','b','c'] (blank entries dropped)
 function splitIds_(v) { return String(v || '').split(',').map(s => s.trim()).filter(Boolean); }
 
-// Cards needs columns Y-AB (ShippingAddress, ShippedTime, ShippingContact, SaleNotes). Older sheets stop at X; add them on first use.
+// Cards needs columns Y-AD (ShippingAddress, ShippedTime, ShippingContact, SaleNotes, LotID, LotName). Older sheets stop at X; add them on first use.
 function ensureCardsColumns_(cards) {
-  const need = 28;
+  const need = 30;
   if (cards.getMaxColumns() < need) cards.insertColumnsAfter(cards.getMaxColumns(), need - cards.getMaxColumns());
-  const h = cards.getRange(1, 25, 1, 4).getValues()[0];
-  ['ShippingAddress', 'ShippedTime', 'ShippingContact', 'SaleNotes'].forEach((name, i) => { if (!h[i]) cards.getRange(1, 25 + i).setValue(name); });
+  const h = cards.getRange(1, 25, 1, 6).getValues()[0];
+  ['ShippingAddress', 'ShippedTime', 'ShippingContact', 'SaleNotes', 'LotID', 'LotName'].forEach((name, i) => { if (!h[i]) cards.getRange(1, 25 + i).setValue(name); });
 }
 
 // Opening the spreadsheet is the slowest single call here; do it once per request, not once per helper call.
@@ -1777,6 +1814,33 @@ function appendRows_(sheet, rows) {
   const needRows = start + rows.length - 1 - sheet.getMaxRows();
   if (needRows > 0) sheet.insertRowsAfter(sheet.getMaxRows(), needRows);
   sheet.getRange(start, 1, rows.length, width).setValues(rows);
+}
+
+// body.payments = [{method, amount}] when a receipt was paid from / received in several accounts. Fewer than two
+// usable entries means the normal single body.pay, so this returns [] and nothing changes.
+function cleanPayments_(list) {
+  if (!Array.isArray(list)) return [];
+  const out = list.map(p => ({ method: String((p && p.method) || '').trim().slice(0, 60), left: Math.round((Number(p && p.amount) || 0) * 100) }))
+    .filter(p => p.method && p.left > 0);
+  return out.length > 1 ? out : [];
+}
+// Spread Finance rows (amount = col F, PayMethod = col G) over the payment sources in order: the first source covers rows
+// until its amount is used up, a row that straddles two sources becomes two rows (one per account), and the last source
+// absorbs any rounding. Finance then moves each account's balance by exactly what was paid from it.
+function splitByPayments_(rows, pays) {
+  if (!pays.length) return rows;
+  const q = pays.map(p => ({ method: p.method, left: p.left })), out = [];
+  rows.forEach(r => {
+    let need = Math.round((Number(r[5]) || 0) * 100), first = true;
+    if (need <= 0) { out.push(r); return; }
+    while (need > 0) {
+      while (q.length > 1 && q[0].left <= 0) q.shift();
+      const src = q[0], take = q.length > 1 ? Math.min(need, src.left) : need;
+      const row = r.slice(); row[5] = take / 100; row[6] = src.method; if (!first) row[0] = newId_('f');
+      out.push(row); src.left -= take; need -= take; first = false;
+    }
+  });
+  return out;
 }
 
 // id -> 1-based row number, from a single read of the sheet.

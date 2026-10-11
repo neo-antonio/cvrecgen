@@ -681,3 +681,34 @@ html.sb-open .sb-scrim{opacity:1;pointer-events:auto}
   .site-footer{max-width:900px}
 }
 @media(min-width:640px){.top:has(+.port-wrap){max-width:900px}}
+
+/* ---------- Lots + split payments ---------- */
+.add-row{margin-bottom:6px}
+.add-row .ghost{flex:1}
+#lotCards .item{grid-template-columns:40px 1fr 96px 40px}
+.sheet .photo-btn img{height:100%;border:0;border-radius:0;margin:0}
+.lot-card{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.lot-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.lot-top>b{font:600 14px Inter,system-ui,sans-serif;white-space:nowrap}
+.lot-title{display:flex;flex-direction:column;min-width:0}
+.lot-title b{font:500 14px Inter,system-ui,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lot-title small{color:var(--mut);font-size:11px}
+.lot-thumbs{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.lot-thumbs img,.lot-thumbs span{width:34px;height:34px;border-radius:6px;object-fit:cover;background:#ececec;border:1px solid var(--line);display:block}
+.lot-thumbs em{font:600 11px Inter,system-ui,sans-serif;color:var(--mut);font-style:normal}
+.lot-acts{display:flex;gap:8px}
+.lot-pill{display:inline-block;font:700 9px Inter,system-ui,sans-serif;letter-spacing:.4px;background:var(--fg);color:#fff;border-radius:999px;padding:2px 7px;margin-right:6px;vertical-align:1px}
+.lot-head{cursor:pointer}
+.lot-chev{width:8px;height:8px;border-right:2px solid var(--mut);border-bottom:2px solid var(--mut);transform:rotate(45deg);transition:transform .15s;margin:2px 4px 0 0}
+.lot-chev.open{transform:rotate(-135deg);margin-top:6px}
+.lot-members{display:flex;flex-direction:column;gap:8px;padding-top:4px}
+.lot-members[hidden]{display:none}
+.lot-members .port-card{background:#fafafa}
+.lot-pick{max-height:46vh;overflow:auto;margin-bottom:14px}
+.pay-amt{margin-top:8px}
+.pay-row{display:grid;grid-template-columns:1fr 40px;gap:8px;margin-top:10px}
+.pay-row .money,.pay-row .pay-o{grid-column:1/-1;margin-top:0}
+.pay-x{background:none;border:1px solid var(--line);color:var(--mut);border-radius:var(--r);font-size:20px;cursor:pointer}
+.pay-add{margin-top:10px}
+.pay-hint{margin:8px 0 0;font-size:12px}
+.pay-hint.bad{color:#c0392b}

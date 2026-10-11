@@ -14,6 +14,14 @@ const SHIP_LABEL = { buyer: 'c/o buyer', us: 'c/o us', none: 'No shipping' };
 const escHtml = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let mode = 'purchase';
 
+// Split a total across n cards in whole cents so the parts always add back to the exact total
+// (100 / 3 -> 33.33, 33.33, 33.34): the leftover cents go to the last cards.
+const splitCents = (total, n) => {
+  if (!n) return [];
+  const c = Math.round((Number(total) || 0) * 100), base = Math.floor(c / n), extra = c - base * n;
+  return Array.from({ length: n }, (_, i) => (base + (i >= n - extra ? 1 : 0)) / 100);
+};
+
 // Apps Script GET responses aren't reliably CORS-readable via fetch(), so reads go through
 // JSONP (a <script> tag) instead — see portfolio.js for the same helper.
 function jsonp(url) {
@@ -70,29 +78,193 @@ function addItem() {
 }
 $('#addItem').onclick = () => { addItem(); $$('.in-name').pop().focus(); };
 $('#items').addEventListener('click', e => {
+  const le = e.target.closest('.lot-edit'); if (le) { openLot(le.closest('.lot-block').dataset.lotId); return; }
+  const ld = e.target.closest('.lot-del');
+  if (ld) { const b = ld.closest('.lot-block'), l = lots[b.dataset.lotId]; if (l) l.cards.forEach(c => delete itemPhotos[c.id]); delete lots[b.dataset.lotId]; b.remove(); update(); return; }
   if (e.target.classList.contains('x')) { const b = e.target.closest('.item-block'); delete itemPhotos[b.dataset.id]; b.remove(); if (mode === 'sold') refreshPicker('sold'); update(); }
   const pb = e.target.closest('.photo-btn'); if (pb) openPhotoSheet(pb.dataset.id);
 });
 $('#items').addEventListener('input', update);
-const items = () => $$('#items .item-block').map(b => {
-  if (mode === 'sold') {
-    return {
-      id: b.dataset.id,
-      cardId: b.dataset.cardId || '',
-      name: b.dataset.name || '',
-      cost: parseFloat(b.querySelector('.in-cost').value) || 0,
-      photo: null
-    };
+
+// One row of the list -> the cards it stands for. A single item is one card; a lot (purchase) or a picked
+// lot (sale / trade) is several cards that carry the same lotId.
+function expandPick(b) {
+  const total = parseFloat(b.querySelector('.in-cost').value) || 0;
+  if (!b.dataset.lotId) return [{ id: b.dataset.id, cardId: b.dataset.cardId || '', name: b.dataset.name || '', cost: total, photo: null }];
+  const cards = JSON.parse(b.dataset.cards || '[]'), parts = splitCents(total, cards.length);
+  return cards.map((c, k) => ({ id: b.dataset.id + '_' + k, cardId: String(c.id), name: c.name || '', cost: parts[k], photo: null, lotId: b.dataset.lotId, lotName: b.dataset.name || '' }));
+}
+function lotItems(id) {
+  const l = lots[id];
+  return l ? l.cards.map(c => ({ id: c.id, cardId: '', name: c.name, cost: c.cost, photo: itemPhotos[c.id] || null, lotId: l.id, lotName: l.name })) : [];
+}
+function blockItems(b) {
+  if (b.classList.contains('lot-block')) return lotItems(b.dataset.lotId);
+  if (mode === 'sold') return expandPick(b);
+  return [{ id: b.dataset.id, cardId: '', name: b.querySelector('.in-name').value.trim(), cost: parseFloat(b.querySelector('.in-cost').value) || 0, photo: itemPhotos[b.dataset.id] || null }];
+}
+const items = () => $$('#items .item-block').flatMap(blockItems).filter(i => i.name || i.cost);
+// what the receipt image prints: one line per single item, one line (plus the card names) per lot
+const entries = () => $$('#items .item-block').map(b => {
+  const its = blockItems(b).filter(i => i.name || i.cost);
+  if (!its.length) return null;
+  if (its[0].lotId) return { type: 'lot', name: its[0].lotName || 'Lot', names: its.map(i => i.name), total: its.reduce((a, i) => a + Math.round(i.cost * 100), 0) / 100 };
+  return { type: 'item', name: its[0].name, cost: its[0].cost };
+}).filter(Boolean);
+const subtotal = () => items().reduce((a, i) => a + Math.round(i.cost * 100), 0) / 100;
+
+/* ---------- Lots (purchase): a group of cards bought together, tracked and sold as one ---------- */
+let lots = {}, lotSeq = 0, lotEditing = null;
+const lotMode = () => $('input[name=lotMode]:checked').value;
+const lotCardRows = () => $$('#lotCards .item-block');
+const lotTotalOf = l => l.cards.reduce((a, c) => a + Math.round(c.cost * 100), 0) / 100;
+const autoLotName = n => `Lot of ${n} card${n === 1 ? '' : 's'}`;
+
+function addLotCardRow(c) {
+  c = c || {};
+  const id = c.id || 'lc' + (++itemSeq);
+  const block = document.createElement('div');
+  block.className = 'item-block'; block.dataset.id = id;
+  block.innerHTML = `<div class="item">
+      <button type="button" class="photo-btn" data-id="${id}" aria-label="Add photo">${CAMERA_ICON}</button>
+      <input class="in-name" placeholder="Card name" autocomplete="off" value="${escHtml(c.name || '')}">
+      <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Cost" value="${c.cost != null ? c.cost : ''}">
+      <button type="button" class="x" aria-label="Remove card">&times;</button>
+    </div>`;
+  $('#lotCards').append(block);
+  updateThumb(id);
+}
+function lotRefresh() {
+  const rows = lotCardRows(), m = lotMode(), t = $('#lotTotal').value;
+  $('#lotTotalWrap').hidden = m !== 'total';
+  let sum = 0;
+  if (m === 'total') {
+    const parts = splitCents(parseFloat(t) || 0, rows.length);
+    rows.forEach((r, i) => { const inp = r.querySelector('.in-cost'); inp.disabled = true; inp.value = t !== '' ? parts[i].toFixed(2) : ''; });
+    sum = Math.round((parseFloat(t) || 0) * 100) / 100;
+  } else {
+    rows.forEach(r => { const inp = r.querySelector('.in-cost'); inp.disabled = false; sum += Math.round((parseFloat(inp.value) || 0) * 100); });
+    sum /= 100;
   }
-  return {
-    id: b.dataset.id,
-    cardId: '',
-    name: b.querySelector('.in-name').value.trim(),
-    cost: parseFloat(b.querySelector('.in-cost').value) || 0,
-    photo: itemPhotos[b.dataset.id] || null
-  };
-}).filter(i => i.name || i.cost);
-const subtotal = () => items().reduce((a, i) => a + i.cost, 0);
+  $('#lotCount').textContent = rows.length;
+  $('#lotName').placeholder = 'Auto: ' + autoLotName(rows.length);
+  $('#lotSum').textContent = php(sum);
+}
+function openLot(id) {
+  lotEditing = id || null;
+  const l = id ? lots[id] : null;
+  $('#lotHeading').textContent = l ? 'Edit lot' : 'Add lot';
+  $('#lotName').value = l && !/^Lot of \d+ cards?$/.test(l.name) ? l.name : '';
+  $('input[name=lotMode][value=' + (l ? l.mode : 'total') + ']').checked = true;
+  $('#lotTotal').value = l && l.mode === 'total' ? lotTotalOf(l) : '';
+  $('#lotCards').innerHTML = '';
+  (l ? l.cards : [{}, {}]).forEach(addLotCardRow);
+  lotRefresh();
+  $('#lotSheet').hidden = false;
+}
+const closeLot = () => { $('#lotSheet').hidden = true; lotEditing = null; };
+function renderLotBlock(l) {
+  let b = $(`#items .lot-block[data-lot-id="${l.id}"]`);
+  if (!b) { b = document.createElement('div'); b.className = 'item-block lot-block'; b.dataset.lotId = l.id; b.dataset.id = l.id; $('#items').append(b); }
+  const thumbs = l.cards.slice(0, 8).map(c => itemPhotos[c.id] ? `<img src="${escHtml(itemPhotos[c.id].src)}" alt="">` : '<span></span>').join('');
+  b.innerHTML = `<div class="lot-card">
+      <div class="lot-top"><div class="lot-title"><b>${escHtml(l.name)}</b><small>${l.cards.length} cards</small></div><b>${php(lotTotalOf(l))}</b></div>
+      <div class="lot-thumbs">${thumbs}${l.cards.length > 8 ? `<em>+${l.cards.length - 8}</em>` : ''}</div>
+      <div class="lot-acts"><button type="button" class="ghost sm lot-edit">Edit</button><button type="button" class="ghost sm danger lot-del">Remove</button></div>
+    </div>`;
+}
+$('#addLot').onclick = () => openLot(null);
+$('#lotAddCard').onclick = () => { addLotCardRow(); lotRefresh(); const n = $$('#lotCards .in-name'); n[n.length - 1].focus(); };
+$('#lotCancel').onclick = closeLot;
+$('#lotSheet').addEventListener('input', lotRefresh);
+$('#lotCards').addEventListener('click', e => {
+  if (e.target.classList.contains('x')) { e.target.closest('.item-block').remove(); lotRefresh(); return; }
+  const pb = e.target.closest('.photo-btn'); if (pb) openPhotoSheet(pb.dataset.id);
+});
+$$('input[name=lotMode]').forEach(r => r.addEventListener('change', () => {
+  if (lotMode() === 'total' && $('#lotTotal').value === '') {   // switching back to a total: start from what the cards add up to
+    const sum = lotCardRows().reduce((a, row) => a + Math.round((parseFloat(row.querySelector('.in-cost').value) || 0) * 100), 0) / 100;
+    if (sum) $('#lotTotal').value = sum;
+  }
+  lotRefresh();
+}));
+$('#lotSave').onclick = () => {
+  const rows = lotCardRows();
+  if (rows.length < 2) return toast('A lot needs at least 2 cards.');
+  const names = rows.map(r => r.querySelector('.in-name').value.trim());
+  if (names.some(n => !n)) return toast('Give every card in the lot a name.');
+  const m = lotMode();
+  let costs;
+  if (m === 'total') {
+    if ($('#lotTotal').value === '') return toast('Enter the lot total.');
+    costs = splitCents(parseFloat($('#lotTotal').value) || 0, rows.length);
+  } else costs = rows.map(r => Math.round((parseFloat(r.querySelector('.in-cost').value) || 0) * 100) / 100);
+  const id = lotEditing || 'lot' + (++lotSeq);
+  const typed = $('#lotName').value.trim();
+  const lot = { id, mode: m, name: typed || autoLotName(rows.length), cards: rows.map((r, i) => ({ id: r.dataset.id, name: names[i], cost: costs[i] })) };
+  const old = lots[id];
+  if (old) old.cards.forEach(c => { if (!lot.cards.some(k => k.id === c.id)) delete itemPhotos[c.id]; });   // cards dropped while editing
+  lots[id] = lot;
+  renderLotBlock(lot);
+  closeLot(); update();
+};
+
+/* ---------- Several payment sources (purchase + sale) ----------
+   One source = the old behaviour. "+ Add another payment" splits the receipt total across sources
+   (e.g. Maribank 2,000 + Cash 1,000). One amount may stay blank: it takes whatever is left. */
+const PAY_OPTS = '<option>Cash</option><option>Maribank</option><option>Others</option>';
+const payRows = () => [{ sel: $('#pay'), oth: $('#payOther'), amt: $('#payAmt') }].concat($$('#payExtra .pay-row').map(r => ({ sel: r.querySelector('.pay-m'), oth: r.querySelector('.pay-o'), amt: r.querySelector('.pay-a') })));
+function addPayRow() {
+  const used = payRows().map(r => r.sel.value), r = document.createElement('div');
+  r.className = 'pay-row';
+  r.innerHTML = `<select class="pay-m">${PAY_OPTS}</select><button type="button" class="x pay-x" aria-label="Remove payment">&times;</button><input type="text" class="pay-o" placeholder="Specify" hidden><div class="money"><em>PHP</em><input type="number" class="pay-a" inputmode="decimal" min="0" step="0.01" placeholder="Remaining"></div>`;
+  r.querySelector('.pay-m').value = ['Cash', 'Maribank', 'Others'].find(o => !used.includes(o)) || 'Cash';
+  $('#payExtra').append(r);
+  update();
+}
+$('#addPay').onclick = addPayRow;
+$('#payExtra').addEventListener('click', e => { if (e.target.closest('.pay-x')) { e.target.closest('.pay-row').remove(); update(); } });
+$('#payExtra').addEventListener('input', update);
+function payments() {
+  const rows = payRows(), total = grandTotal(), tc = Math.round(total * 100);
+  const meth = r => r.sel.value === 'Others' ? (r.oth.value.trim() || 'Others') : r.sel.value;
+  if (rows.length === 1) return { list: [{ method: meth(rows[0]), amount: total }], split: false, ok: true, diff: 0, blank: 0 };
+  let sum = 0; const blanks = [];
+  const list = rows.map((r, i) => {
+    const v = r.amt.value.trim();
+    if (v === '') { blanks.push(i); return { method: meth(r), amount: 0 }; }
+    const c = Math.max(0, Math.round((parseFloat(v) || 0) * 100)); sum += c;
+    return { method: meth(r), amount: c / 100 };
+  });
+  let diff = tc - sum;
+  if (blanks.length === 1 && diff >= 0) { list[blanks[0]].amount = diff / 100; diff = 0; }
+  return { list, split: true, blank: blanks.length, diff: diff / 100, ok: blanks.length <= 1 && diff === 0 };
+}
+const payMsg = p => p.blank > 1 ? 'Enter an amount for each payment (one may stay blank to take the remainder).' : p.diff > 0 ? `Payments are short by ${php(p.diff)}.` : `Payments are over by ${php(-p.diff)}.`;
+function updatePayUI() {
+  const rows = payRows(), split = rows.length > 1;
+  rows.forEach(r => { r.oth.hidden = r.sel.value !== 'Others'; });
+  $('#payAmtWrap').hidden = !split;
+  $('#addPay').hidden = rows.length >= 4;
+  const h = $('#payHint');
+  if (!split || !(mode === 'purchase' || mode === 'sold')) { h.hidden = true; return; }
+  const filled = rows.reduce((a, r) => a + (r.amt.value.trim() === '' ? 0 : Math.round((parseFloat(r.amt.value) || 0) * 100)), 0);
+  const left = Math.max(0, Math.round(grandTotal() * 100) - filled) / 100;
+  rows.forEach(r => { r.amt.placeholder = r.amt.value.trim() === '' ? left.toFixed(2) : ''; });
+  const p = payments();
+  h.hidden = false; h.classList.toggle('bad', !p.ok);
+  h.textContent = p.ok ? `Payments add up to ${php(grandTotal())}.` : payMsg(p);
+}
+function lotFields(o, i) { if (i.lotId) { o.lotId = i.lotId; o.lotName = i.lotName || ''; } return o; }
+// purchase only: which cards belong together (the server stores the lotId on each card)
+function lotsAndPay(d) {
+  const out = {}, seen = {};
+  d.items.forEach(i => { if (i.lotId) (seen[i.lotId] = seen[i.lotId] || { lotId: i.lotId, name: i.lotName, count: 0, total: 0 }), seen[i.lotId].count++, seen[i.lotId].total = Math.round((seen[i.lotId].total + i.cost) * 100) / 100; });
+  if (Object.keys(seen).length) out.lots = Object.values(seen);
+  if (d.payments.length > 1) out.payments = d.payments;
+  return out;
+}
+
 
 /* ---------- Trade items: two independent lists, plus one cash flow field ---------- */
 // Traded (given away): picked from the onhand-card checklist above the list; the value
@@ -101,12 +273,7 @@ $('#tradedItems').addEventListener('click', e => {
   if (e.target.classList.contains('x')) { e.target.closest('.item-block').remove(); refreshPicker('trade'); update(); }
 });
 $('#tradedItems').addEventListener('input', update);
-const tradedItems = () => $$('#tradedItems .item-block').map(b => ({
-  id: b.dataset.id,
-  cardId: b.dataset.cardId || '',
-  name: b.dataset.name || '',
-  cost: parseFloat(b.querySelector('.in-cost').value) || 0
-})).filter(i => i.cardId);
+const tradedItems = () => $$('#tradedItems .item-block').flatMap(expandPick).filter(i => i.cardId);
 
 /* ---------- Card checklists (sale + trade): each onhand card can be ticked once ---------- */
 const PICK = {
@@ -114,6 +281,18 @@ const PICK = {
   trade: { root: '#tradePicker', list: '#tradedItems', costPh: 'Value',      useCost: true }
 };
 const pickedIds = kind => $$(`${PICK[kind].list} .item-block`).map(b => b.dataset.cardId);
+
+// Cards that belong to a lot are offered as ONE entry ("lot:<lotId>"): a lot is sold / traded whole, never piece by piece.
+function pickEntries() {
+  const out = [], seen = {};
+  onhandCards.forEach(c => {
+    if (!c.lotId) return out.push(c);
+    let l = seen[c.lotId];
+    if (!l) { l = seen[c.lotId] = { id: 'lot:' + c.lotId, isLot: true, lotId: String(c.lotId), name: c.lotName || 'Lot', cards: [], cost: 0, photo: c.photo }; out.push(l); }
+    l.cards.push(c); l.cost += Number(c.cost) || 0; if (!l.photo) l.photo = c.photo;
+  });
+  return out;
+}
 
 function initPicker(kind) {
   const root = $(PICK[kind].root);
@@ -127,7 +306,7 @@ function initPicker(kind) {
   root.querySelector('.pick-list').addEventListener('change', e => {
     const cb = e.target;
     if (!cb.matches('input[type=checkbox]')) return;
-    const card = onhandCards.find(c => String(c.id) === cb.value);
+    const card = pickEntries().find(c => String(c.id) === cb.value);
     if (!card) return;
     if (cb.checked) addCardRow(kind, card); else removeCardRow(kind, card.id);
     refreshPicker(kind);
@@ -144,10 +323,11 @@ function refreshPicker(kind) {
   if (!root || !root.querySelector('.pick-list')) return;
   const q = root.querySelector('.pick-search').value.trim().toLowerCase();
   const ids = new Set(pickedIds(kind));
-  const shown = onhandCards.filter(c => !q || String(c.name || '').toLowerCase().includes(q));
+  const all = pickEntries();
+  const shown = all.filter(c => !q || String(c.name || '').toLowerCase().includes(q) || (c.cards || []).some(k => String(k.name || '').toLowerCase().includes(q)));
   root.querySelector('.pick-list').innerHTML = shown.length
-    ? shown.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${ids.has(String(c.id)) ? ' checked' : ''}>${cardThumb(c)}<span>${escHtml(c.name)} <small>\u2014 bought ${php(c.cost)}</small></span></label>`).join('')
-    : `<p class="stub-note" style="margin:10px 0 4px">${onhandCards.length ? 'No cards match.' : 'No onhand cards found.'}</p>`;
+    ? shown.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${ids.has(String(c.id)) ? ' checked' : ''}>${cardThumb(c)}<span>${c.isLot ? '<b class="lot-pill">LOT</b>' : ''}${escHtml(c.name)} <small>\u2014 ${c.isLot ? c.cards.length + ' cards \u00b7 ' : ''}bought ${php(c.cost)}</small></span></label>`).join('')
+    : `<p class="stub-note" style="margin:10px 0 4px">${all.length ? 'No cards match.' : 'No onhand cards found.'}</p>`;
   const n = ids.size, t = root.querySelector('.ms-btn span');
   t.textContent = n ? `${n} card${n > 1 ? 's' : ''} selected` : 'Select card(s)';
   t.className = n ? '' : 'ph';
@@ -155,15 +335,17 @@ function refreshPicker(kind) {
 
 function addCardRow(kind, card) {
   const cfg = PICK[kind];
-  if (pickedIds(kind).includes(String(card.id))) return;  // a card can only be on the list once
+  if (pickedIds(kind).includes(String(card.id))) return;  // a card (or lot) can only be on the list once
   const block = document.createElement('div');
   block.className = 'item-block';
   block.dataset.id = 'cr' + (++itemSeq);
   block.dataset.cardId = String(card.id);
   block.dataset.name = card.name || '';
+  if (card.isLot) { block.dataset.lotId = card.lotId; block.dataset.cards = JSON.stringify(card.cards.map(k => ({ id: k.id, name: k.name }))); }
+  const ph = card.isLot && !cfg.useCost ? 'Lot price' : cfg.costPh;
   block.innerHTML = `<div class="item">
-      <div class="card-name"><div class="cn-row">${cardThumb(card)}<div class="cn-txt"><b>${escHtml(card.name)}</b><small>bought ${php(card.cost)}</small></div></div></div>
-      <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="${cfg.costPh}"${cfg.useCost ? ` value="${card.cost || 0}"` : ''}>
+      <div class="card-name"><div class="cn-row">${cardThumb(card)}<div class="cn-txt"><b>${card.isLot ? '<span class="lot-pill">LOT</span>' : ''}${escHtml(card.name)}</b><small>${card.isLot ? card.cards.length + ' cards \u00b7 ' : ''}bought ${php(card.cost)}</small></div></div></div>
+      <input class="in-cost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="${ph}"${cfg.useCost ? ` value="${card.cost || 0}"` : ''}>
       <button type="button" class="x" aria-label="Remove item">&times;</button>
     </div>`;
   $(cfg.list).append(block);
@@ -319,6 +501,7 @@ async function setMode(m) {
   Object.keys(itemPhotos).forEach(k => delete itemPhotos[k]);
   $('#items').innerHTML = ''; $('#tradedItems').innerHTML = ''; $('#receivedItems').innerHTML = '';
   itemSeq = 0;
+  lots = {}; $('#payExtra').innerHTML = ''; $('#payAmt').value = '';
   if (m === 'sold' || m === 'trade') {
     const loading = '<p class="stub-note">Loading onhand cards\u2026</p>';
     if (m === 'sold') $('#items').innerHTML = loading; else $('#tradedItems').innerHTML = loading;
@@ -335,9 +518,9 @@ function update() {
   $$('[data-only]').forEach(e => { e.hidden = !e.dataset.only.split(' ').includes(mode); });
 
   if (mode === 'purchase' || mode === 'sold') {
-    const rows = $$('#items .item');
-    rows.forEach(r => r.classList.toggle('solo', mode === 'purchase' && rows.length === 1));
-    $('#subRow').hidden = rows.length < 2;
+    const blocks = $$('#items .item-block'), rows = $$('#items .item');
+    rows.forEach(r => r.classList.toggle('solo', mode === 'purchase' && blocks.length === 1));
+    $('#subRow').hidden = blocks.length < 2;
     $('#subVal').textContent = php(subtotal());
   }
   if (mode === 'sold') {
@@ -351,7 +534,7 @@ function update() {
     $('#deductRow').hidden = true;
   }
   $('#ship').disabled = mode === 'sold' && shipType() === 'none';
-  $('#payOther').hidden = $('#pay').value !== 'Others';
+  updatePayUI();
 
   if (mode === 'trade') {
     const rRows = $$('#receivedItems .item');
@@ -371,7 +554,7 @@ function update() {
   $('#buyerWarn').hidden = !(mode === 'sold' && shipType() === 'buyer');
   $('#totalVal').textContent = php(grandTotal());
 }
-['#ship', '#pack', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod', '#trFrom', '#trTo', '#trAmt', '#trFee'].forEach(s => $(s).addEventListener('input', update));
+['#ship', '#pack', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod', '#trFrom', '#trTo', '#trAmt', '#trFee', '#payAmt'].forEach(s => $(s).addEventListener('input', update));
 $$('input[name=st]').forEach(r => r.addEventListener('change', update));
 $$('input[name=cashDir]').forEach(r => r.addEventListener('change', update));
 
@@ -382,11 +565,16 @@ $('#schedClear').onclick = () => $('#sched').value = '';
 function collect() {
   const trade = mode === 'trade';
   const t = shipType();
+  const lk = {}, realId = id => mode === 'purchase' ? (lk[id] = lk[id] || 'lot_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)) : id;   // fresh lot ids per receipt
+  const its = (trade ? [] : items()).map(i => i.lotId ? Object.assign({}, i, { lotId: realId(i.lotId) }) : i);
+  const ents = trade ? [] : entries();
+  const pm = (mode === 'purchase' || mode === 'sold') ? payments() : null;
   return {
     mode, date: $('#date').value || todayStr(), time: $('#time').value,
     party: $('#party').value.trim(), people: people().join(', '),
-    pay: $('#pay').value === 'Others' ? ($('#payOther').value.trim() || 'Others') : $('#pay').value,
-    items: trade ? [] : items(), multi: trade ? false : $$('#items .item').length > 1,
+    pay: pm && pm.split ? pm.list[0].method : ($('#pay').value === 'Others' ? ($('#payOther').value.trim() || 'Others') : $('#pay').value),
+    payments: pm && pm.split ? pm.list : [],
+    items: its, entries: ents, multi: ents.length > 1,
     sub: trade ? 0 : subtotal(), ship: trade ? 0 : shipping(), pack: packaging(),
     total: grandTotal(),
     method: $('#method').value === 'Others' ? ($('#methodOther').value.trim() || 'Others') : $('#method').value,
@@ -466,7 +654,8 @@ function draw(x, d, s, dry, logo) {
   } else {
     row(sold ? 'Buyer' : 'Seller', d.party);
     row(sold ? 'Sold by' : 'Bought by', d.people);
-    row(sold ? 'Received in' : 'Purchased using', d.pay);
+    if (d.payments && d.payments.length > 1) d.payments.forEach((p, k) => row(k ? '' : (sold ? 'Received in' : 'Purchased using'), `${p.method} \u2014 ${php(p.amount)}`));
+    else row(sold ? 'Received in' : 'Purchased using', d.pay);
   }
   y += 8 * s; rule(y); y += 22 * s;
 
@@ -509,11 +698,21 @@ function draw(x, d, s, dry, logo) {
     y += 66 * s;
   } else {
     sec('Items');
-    d.items.forEach(i => {
+    d.entries.forEach(e => {
       set(600, 28);
-      const lines = wrap(i.name || '(unnamed)', 600);
+      if (e.type === 'lot') {
+        const lines = wrap(`${e.name} (${e.names.length} cards)`, 600);
+        lines.forEach((t, k) => txt(t, P, y + k * lh, '#fff'));
+        txt(php(e.total), R, y, '#fff', 'right');
+        y += lines.length * lh + 2 * s;
+        set(400, 22);
+        wrap(e.names.join(', '), R - P - 40).forEach(t => { txt(t, P + 16, y, '#9a9a9a'); y += 30 * s; });
+        y += 8 * s;
+        return;
+      }
+      const lines = wrap(e.name || '(unnamed)', 600);
       lines.forEach((t, k) => txt(t, P, y + k * lh, '#fff'));
-      txt(php(i.cost), R, y, '#fff', 'right');
+      txt(php(e.cost), R, y, '#fff', 'right');
       y += lines.length * lh + 8 * s;
     });
     if (d.multi) { y += 4 * s; row('Item subtotal', php(d.sub)); }
@@ -561,8 +760,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // portfolio-flagged items also get a new Cards row — d.portfolio is ONE checkbox for the whole receipt.
 function purchaseBody(d, receiptPhoto) {
   if (!d.items.length) return null;
-  return { action: 'purchase', date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, notes: d.notes, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
-    items: d.items.map(i => ({ name: i.name, cost: i.cost, photo: i.photo, portfolio: d.portfolio })), receiptPhoto };
+  return { action: 'purchase', date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, ship: d.ship, notes: d.notes, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
+    items: d.items.map(i => lotFields({ name: i.name, cost: i.cost, photo: i.photo, portfolio: d.portfolio }, i)), ...lotsAndPay(d), receiptPhoto };
 }
 // Cards sold always move to "shipping" so they show up under To ship, even with no shipping fee; the
 // sale amount bills to Finance right away, the shipping-fee entry is created once the batch ships.
@@ -572,7 +771,7 @@ function saleBody(d, receiptPhoto) {
   return { action: 'sell', date: d.date, time: d.time, buyer: d.party, notes: d.notes, pay: d.pay,
     shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
     shipAddress: d.shipAddr, shipContact: d.shipContact, packaging: d.pack, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
-    items: sold.map(i => ({ cardId: i.cardId, name: i.name, cost: i.cost })), receiptPhoto };
+    items: sold.map(i => lotFields({ cardId: i.cardId, name: i.name, cost: i.cost }, i)), ...(d.payments.length > 1 ? { payments: d.payments } : {}), receiptPhoto };
 }
 // Items traded away become "traded"; items received become new onhand Cards only if d.receivedPortfolio is
 // ticked. Any cash paid/received bills to Finance as one entry.
@@ -657,7 +856,7 @@ function plannedSteps(d) {
   const k = d.mode === 'purchase' ? d.items.length : d.mode === 'sold' ? d.items.filter(i => i.cardId).length : 0;
   const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'run', t: 'Uploading to server\u2026' }, { st: 'wait', t: 'Saving receipt to archive' }];
   if (d.mode === 'transfer') st.push({ st: 'wait', t: `Creating ${d.fee > 0 ? 3 : 2} finance tasks` });
-  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k, 'finance task')}` }); }
+  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k + (d.ship > 0 ? 1 : 0), 'finance task')}` }); }
   else if (d.mode === 'sold') st.push({ st: 'wait', t: `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
   else { if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio)) st.push({ st: 'wait', t: 'Updating portfolio' }); st.push({ st: 'wait', t: 'Creating finance task' }); }
   if (d.vlog) st.push({ st: 'wait', t: d.vlogTaskId ? 'Adding to existing vlog task' : 'Adding vlog task to Creatives' });
@@ -756,6 +955,8 @@ async function generate() {
   } else {
     if (!d.items.length) return toast(d.mode === 'sold' ? 'Select at least one card to sell.' : 'Add at least one item.');
     if (d.mode === 'sold' && d.items.some(i => !i.cardId)) return toast('Select a card for every item before generating.');
+    const pm = payments();
+    if (pm.split && !pm.ok) return toast(payMsg(pm));
   }
   $('#gen').disabled = true;
   try {
@@ -795,6 +996,7 @@ function resetAfterCardReceipt(d) {
     const used = new Set(d.items.map(i => String(i.cardId)));
     onhandCards = onhandCards.filter(c => !used.has(String(c.id)));
     $('#items').innerHTML = ''; refreshPicker('sold');
+    $('#payExtra').innerHTML = ''; $('#payAmt').value = '';   // split amounts belonged to that sale's total
     $('#pack').value = ''; $('#shipAddr').value = ''; $('#shipContact').value = '';   // per-sale fields: never carry one buyer's over to the next sale
   } else if (d.mode === 'transfer') {
     $('#trAmt').value = ''; $('#trFee').value = '';   // per-transfer: never carry one amount over to the next

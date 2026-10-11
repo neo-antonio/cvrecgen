@@ -92,13 +92,20 @@
     <label id="lPay">Purchased using</label>
     <select id="pay"><option>Cash</option><option>Maribank</option><option>Others</option></select>
     <input type="text" id="payOther" placeholder="Specify" hidden>
+    <div class="money pay-amt" id="payAmtWrap" hidden><em>PHP</em><input type="number" id="payAmt" inputmode="decimal" min="0" step="0.01" placeholder="Amount"></div>
+    <div id="payExtra"></div>
+    <button type="button" class="ghost sm pay-add" id="addPay">+ Add another payment</button>
+    <p class="stub-note pay-hint" id="payHint" hidden></p>
   </div>
 
   <div class="field" data-only="purchase sold" hidden>
     <label>Items</label>
     <div class="ms pick" id="soldPicker" data-only="sold" hidden></div>
     <div id="items"></div>
-    <button type="button" class="ghost" id="addItem" data-only="purchase" hidden>+ Add item</button>
+    <div class="row add-row" data-only="purchase" hidden>
+      <button type="button" class="ghost" id="addItem">+ Add item</button>
+      <button type="button" class="ghost" id="addLot">+ Add lot</button>
+    </div>
     <label class="port-chk" id="globalPortfolioWrap" data-only="purchase" hidden><input type="checkbox" id="globalPortfolio" checked><span>Record to portfolio</span></label>
   </div>
 
@@ -198,6 +205,35 @@
 
 <input type="file" accept="image/*" id="fileCamera" capture="environment" hidden>
 <input type="file" accept="image/*" id="fileUpload" hidden>
+
+<div class="modal" id="lotSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="lotHeading">Add lot</h3>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">A lot is a group of cards that is tracked, and later sold, together.</p>
+    <div class="field">
+      <label for="lotName">Lot name <small>(optional)</small></label>
+      <input type="text" id="lotName" autocomplete="off" placeholder="e.g. Prizm base lot">
+    </div>
+    <div class="field">
+      <label>Cost</label>
+      <div class="radios two">
+        <label class="rad"><input type="radio" name="lotMode" value="total" checked><span>Lot total, split evenly</span></label>
+        <label class="rad"><input type="radio" name="lotMode" value="each"><span>Cost per card</span></label>
+      </div>
+      <div class="money" id="lotTotalWrap"><em>PHP</em><input type="number" id="lotTotal" inputmode="decimal" min="0" step="0.01" placeholder="Lot total"></div>
+    </div>
+    <div class="field">
+      <label>Cards <small id="lotCount">0</small></label>
+      <div id="lotCards"></div>
+      <button type="button" class="ghost" id="lotAddCard">+ Add card</button>
+    </div>
+    <div class="sum"><span>Lot total</span><b id="lotSum">PHP 0.00</b></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="lotSave">Save lot</button>
+      <button type="button" class="ghost" id="lotCancel">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal" id="photoSheet" hidden>
   <div class="sheet small">
