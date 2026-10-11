@@ -890,6 +890,7 @@ async function runEntry(entry, d) {
   setBar(1, false); setClose(false, 'Close');
   if (out.state === 'done') {
     await outbox.del(entry.id);
+    try { localStorage.setItem('cv:finRebase:' + String((window.CVAuth && CVAuth.user()) || '').trim().toLowerCase(), '1'); } catch (_) {}
     drawSteps(resultSteps(d, out.result));
     const bad = !out.result.receipt || out.result.photosFailed;
     $('#syncMsg').textContent = bad ? 'Saved, with the warning above. The cards and finance tasks are in place.' : (out.result.duplicate ? 'Already saved earlier \u2014 nothing was added twice.' : 'All saved.');

@@ -712,3 +712,26 @@ html.sb-open .sb-scrim{opacity:1;pointer-events:auto}
 .pay-add{margin-top:10px}
 .pay-hint{margin:8px 0 0;font-size:12px}
 .pay-hint.bad{color:#c0392b}
+
+/* ---------- Account notifications (Home) ---------- */
+.nt-list{display:flex;flex-direction:column;gap:8px;margin:0 0 14px}
+.nt{display:flex;align-items:stretch;border-radius:12px;color:#fff;overflow:hidden}
+.nt-orange{background:#e8832a}
+.nt-red{background:#c0392b}
+.nt-green{background:#2e8b57}
+.nt-body{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:11px 6px 11px 14px;color:inherit;text-decoration:none;font:500 13px/1.35 Inter,system-ui,sans-serif}
+.nt-body svg{width:20px;height:20px;flex:none}
+.nt-x{flex:none;width:42px;border:0;background:none;color:inherit;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.9}
+.nt-x svg{width:16px;height:16px}
+.nt-x:active{background:rgba(0,0,0,.12)}
+.nt-grp{margin:0 0 12px}
+.nt-grp>b{display:block;font:600 11px/1.3 Inter,system-ui,sans-serif;letter-spacing:.3px;text-transform:uppercase;color:var(--mut);margin-bottom:4px}
+.nt-grp small{display:block;color:var(--mut);font-size:11px}
+
+/* checkbox rows inside .field: .field>label was forcing display:block and dropping the text under the box */
+.field>label.port-chk{display:flex;align-items:center;gap:8px;margin:0 0 12px 2px;font:400 12px/1.4 Inter,system-ui,sans-serif;color:var(--mut)}
+.field>label.port-chk:last-child{margin-bottom:0}
+.field>label.port-chk input{margin:0}
+/* the add-another-payment button is a flex box: center its label */
+.pay-add{align-items:center;justify-content:center}
+.back svg{width:20px;height:20px;display:block}

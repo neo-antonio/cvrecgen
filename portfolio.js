@@ -10,7 +10,7 @@ const $portCount = document.getElementById('portCount');
 const $portRefresh = document.getElementById('portRefresh');
 const $portSearch = document.getElementById('portSearch');
 
-let statusFilter = 'all';
+let statusFilter = 'onhand';
 let searchQuery = '';
 let portData = { cards: [] };
 
@@ -61,7 +61,7 @@ function heldLine(it) {
   if (!b) return '';
   b = new Date(b.getFullYear(), b.getMonth(), b.getDate());
   const days = Math.max(0, Math.round((b - a) / 86400000));
-  return `Held ${days} day${days === 1 ? '' : 's'}${ongoing ? ' so far' : ''}`;
+  return ongoing ? `${days} day${days === 1 ? '' : 's'}` : `Held ${days} day${days === 1 ? '' : 's'}`;
 }
 
 function cardHtml(it, inLot) {

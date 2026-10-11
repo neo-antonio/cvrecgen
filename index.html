@@ -66,6 +66,7 @@
       <button type="button" class="ghost sm" id="homeRefresh">Refresh</button>
     </div>
   </div>
+  <div class="nt-list" id="ntList" hidden></div>
   <div class="hs-grid">
     <a class="hs-card" id="cntOnhand" href="portfolio.html"><span class="hs-l">Cards on hand</span><b class="hs-n" id="sumOnhand">&hellip;</b><span class="hs-s" hidden></span></a>
     <a class="hs-card" id="cntShip" href="shipping.html"><span class="hs-l">Shipping today</span><b class="hs-n" id="sumShipToday">&hellip;</b><span class="hs-s" hidden></span></a>
@@ -184,6 +185,7 @@
 <script src="boot.js"></script>
 <script src="config.js"></script>
 <script src="net.js"></script>
+<script src="notifs.js"></script>
 <script>
 // Charts is a link out to another page. Set CONFIG.chartsUrl in config.js; until then the tile just says so.
 document.getElementById('chartsTile').addEventListener('click', e => {
@@ -285,7 +287,7 @@ document.getElementById('chartsTile').addEventListener('click', e => {
     return out;
   }
 
-  const S = { ship: null, cr: null, ev: null, bal: null, fin: null, port: null, cfg: normInterest(null) };
+  const S = { ship: null, cr: null, ev: null, bal: null, fin: null, rc: null, port: null, freshFin: false, freshRc: false, cfg: normInterest(null) };
   const cg = k => { try { return typeof cacheGet === 'function' ? cacheGet(k) : null; } catch (_) { return null; } };
   const cs = (k, v) => { try { if (typeof cacheSet === 'function') cacheSet(k, v); } catch (_) {} };
   const set = (id, v) => { $(id).textContent = v; };
@@ -298,6 +300,7 @@ document.getElementById('chartsTile').addEventListener('click', e => {
   };
 
   function render() {
+    try { if (window.CVNotifs) CVNotifs.render($('ntList'), CVNotifs.evaluate(S, who, CVNotifs.keysFor(who))); } catch (e) { console.warn('Notices failed', e); }
     if (S.port) {
       const on = S.port.filter(c => c.tag === 'onhand');
       set('sumOnhand', on.length);
@@ -332,7 +335,7 @@ document.getElementById('chartsTile').addEventListener('click', e => {
   const cp = cg('portfolio'); if (cp && cp.cards) S.port = cp.cards;
   S.ship = cg('shipping'); S.cr = cg('creatives');
   const cal = cg('calendar'); if (cal && cal.ev) S.ev = cal.ev;
-  S.bal = cg('balance'); S.fin = cg('finance'); if (cg('interest')) S.cfg = normInterest(cg('interest'));
+  S.rc = cg('receipts'); S.bal = cg('balance'); S.fin = cg('finance'); if (cg('interest')) S.cfg = normInterest(cg('interest'));
   render();
 
   if (typeof CONFIG === 'undefined' || !CONFIG.portfolio || !CONFIG.portfolio.endpoint || typeof jsonp !== 'function') { $('homeRefresh').hidden = true; return; }
@@ -343,9 +346,11 @@ document.getElementById('chartsTile').addEventListener('click', e => {
   load('shipping', d => { S.ship = { toShip: d.toShip || [], shipped: d.shipped || [] }; cs('shipping', S.ship); }),
   load('creatives', d => { S.cr = { videos: d.videos || [], posts: d.posts || [] }; cs('creatives', S.cr); }),
   load('events', d => { S.ev = d; }),
-  load('finance', d => { S.fin = { toRecord: d.toRecord || [], recorded: d.recorded || [] }; cs('finance', S.fin); }),
+  load('finance', d => { S.fin = { toRecord: d.toRecord || [], recorded: d.recorded || [] }; S.freshFin = true; cs('finance', S.fin); }),
+  load('receipts', d => { S.rc = { receipts: (d.receipts || []).map(r => ({ id: r.id })) }; S.freshRc = true; cs('receipts', S.rc); }),
   load('balance', d => { S.bal = d.balance || null; if (S.bal) cs('balance', S.bal); if (d.interest) { S.cfg = normInterest(d.interest); cs('interest', S.cfg); } })
   ]);
+  if (window.CVNotifs) CVNotifs.load().then(render);
   refresh();
   $('homeRefresh').onclick = async () => {
     const b = $('homeRefresh'); b.disabled = true; b.textContent = 'Refreshing\u2026';

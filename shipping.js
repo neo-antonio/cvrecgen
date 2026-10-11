@@ -343,6 +343,7 @@ document.getElementById('shipDateSave').onclick = async () => {
   try {
     const url = CONFIG.portfolio.endpoint + '?action=' + (edit ? 'updateShipped' : 'markShipped') + '&cardId=' + encodeURIComponent(shipDateIds.join(','))
       + '&date=' + encodeURIComponent(date) + '&time=' + encodeURIComponent(time)
+      + (edit ? '' : '&by=' + encodeURIComponent((window.CVAuth && CVAuth.user()) || ''))
       + (edit ? '&method=' + encodeURIComponent(getMethodFields('shipDateMethod', 'shipDateMethodOther')) + '&notes=' + encodeURIComponent(document.getElementById('shipDateNotes').value.trim()) : '') + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));

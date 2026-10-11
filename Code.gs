@@ -8,7 +8,7 @@
  * SHEET TABS
  *   Cards   (A-AD): ID | PurchaseDate | Seller | BoughtBy | ItemName | PurchaseCost | PurchasePayMethod | Photo | PurchaseNotes | Status |
  *                   SoldDate | SoldTo | SoldPrice | ShipType | ShippingMethod | ShippingFee | ShippingDeductedFrom | ShippingScheduledDate |
- *                   ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress | ShippedTime |  ShippingContact | SaleNotes | LotID | LotName
+ *                   ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress | ShippedTime |  ShippingContact | SaleNotes | LotID | LotName | ShippedBy
  *                   LotID/LotName (AC-AD) group cards bought together as a lot; blank = a normal single card.
  *                   Status is one of: onhand, shipping, shipped, traded.
  *   Finance (A-N):  ID | CardID | Type | Date | Description | Amount | PayMethod | Recorded | RecordedDate | ReceiptURL | Flow | Images | Notes | Time
@@ -18,8 +18,8 @@
  *   Events:         ID | Date | Title | Time | Notes   (created automatically)
  *   Entities (A-J): ID | Name | Contact | Aliases | Created | Address | Email | Facebook | Payment | Notes   (sellers, buyers, trade partners; created automatically).
  *                   Payment is pipe-separated. Address is filled from a sale receipt's shipping address when the entity has none.
- *   Organization (A-H): ID | Kind | Title | Role | ParentID | Apps | Body | Created   (created automatically)
- *                   Kind: person (Title = name, ParentID = who they report to, Apps = pipe-separated app ids), process, faq.
+ *   Organization (A-I): ID | Kind | Title | Role | ParentID | Apps | Body | Created | Notifs   (created automatically)
+ *                   Kind: person (Title = name, ParentID = who they report to, Apps = pipe-separated app ids, Notifs = pipe-separated Home alert keys), process, faq.
  *                   Aliases are other spellings (pipe-separated) that resolve to this entity.
  *   Creatives (A-N): ID | Kind | ReceiptKey | Title | Date | Status | Platforms | Notes | Caption | Edited | Auto | Created | DoneDate | Cards
  *                   Kind: video (a vlog task) or post. Posts are one row per receipt group of cards (ID = pg_<receiptKey>), or a
@@ -84,7 +84,7 @@ function doGet(e) {
     if (action === 'saveBalance') return jsonpOut_(saveBalance_(e.parameter), cb);
     if (action === 'saveInterest') return jsonpOut_(saveInterest_(e.parameter.json), cb);
     if (action === 'unrecord') return jsonpOut_(unrecordFinance_(e.parameter.financeId), cb);
-    if (action === 'markShipped') return jsonpOut_(markShipped_(e.parameter.cardId, e.parameter.date, e.parameter.time), cb);
+    if (action === 'markShipped') return jsonpOut_(markShipped_(e.parameter.cardId, e.parameter.date, e.parameter.time, e.parameter.by), cb);
     if (action === 'updateShipped') return jsonpOut_(updateShipped_(e.parameter), cb);
     if (action === 'unmarkShipped') return jsonpOut_(unmarkShipped_(e.parameter.cardId), cb);
     if (action === 'revertToOnhand') return jsonpOut_(revertToOnhand_(e.parameter.cardId), cb);
@@ -679,7 +679,7 @@ function setShippingRecordedFlag_(cardOrBatchId, type, value) {
 
 // cardId may hold several comma-separated IDs (a grouped shipping task). Every card is validated
 // first, then all are marked, and each batch's Finance entry is created once at the end.
-function markShipped_(cardId, dateIn, timeIn) {
+function markShipped_(cardId, dateIn, timeIn, byIn) {
   const ids = splitIds_(cardId);
   if (!ids.length) return { ok: false, error: 'missing cardId' };
   const cards = cardsSheet_();
@@ -691,10 +691,12 @@ function markShipped_(cardId, dateIn, timeIn) {
   if (t && !/^\d{1,2}:\d{2}$/.test(t)) return { ok: false, error: 'invalid time' };
   // no date given = shipped right now; a date given (backdated) keeps only the time that was typed
   const today = d || todayStr_(), now = d ? t : (t || nowTimeStr_()), batches = {};
+  const by = String(byIn || '').trim().toLowerCase().slice(0, 40);   // who marked it shipped (Home alert: shipped by someone else)
   founds.forEach(f => {
     cards.getRange(f.idx, 10, 1, 1).setValue('shipped');
     cards.getRange(f.idx, 19, 1, 1).setValue(today);
     cards.getRange(f.idx, 26, 1, 1).setNumberFormat('@').setValue(now); // ShippedTime (col Z)
+    cards.getRange(f.idx, 31, 1, 1).setValue(by);                      // ShippedBy (col AE)
     if (f.row[23]) batches[String(f.row[23])] = true;
   });
   Object.keys(batches).forEach(b => maybeCreateBatchFinance_(b, today, now));
@@ -717,6 +719,7 @@ function unmarkShipped_(cardId) {
     cards.getRange(f.idx, 21, 1, 1).setValue(false);                                // ShippingRecorded
     cards.getRange(f.idx, 19, 1, 1).setValue('');
     if (cards.getMaxColumns() >= 26) cards.getRange(f.idx, 26, 1, 1).setValue(''); // ShippedTime
+    if (cards.getMaxColumns() >= 31) cards.getRange(f.idx, 31, 1, 1).setValue(''); // ShippedBy
   });
   // batch is no longer complete, drop the not-yet-recorded entry (bottom-up so row numbers stay valid)
   finRows.map(f => f.idx).sort((a, b) => b - a).forEach(i => fin.deleteRow(i));
@@ -1091,7 +1094,7 @@ function getShipping_() {
       soldTo: r[11], soldPrice: Number(r[12]) || 0,
       shipType: r[13], shipMethod: r[14], shipFee: Number(r[15]) || 0,
       deductedFrom: r[16], scheduledDate: fmtDateCell_(r[17]),
-      shippedDate: fmtDateCell_(r[18]), shippedTime: fmtTimeCell_(r[25]), proofPhoto: toDisplayUrl_(r[19]),
+      shippedDate: fmtDateCell_(r[18]), shippedTime: fmtTimeCell_(r[25]), shippedBy: String(r[30] || ''), proofPhoto: toDisplayUrl_(r[19]),
       saleReceipt: r[22] || '',
       address: r[24] || '',
       contact: String(r[26] || ''),
@@ -1722,15 +1725,17 @@ function deleteEntity_(entityId) {
 /* ---------- organization: team chart, business processes, FAQ ---------- */
 
 const ORG_SHEET = 'Organization';
-const ORG_HEADERS = ['ID', 'Kind', 'Title', 'Role', 'ParentID', 'Apps', 'Body', 'Created'];
+const ORG_HEADERS = ['ID', 'Kind', 'Title', 'Role', 'ParentID', 'Apps', 'Body', 'Created', 'Notifs'];
 function orgSheet_(create) {
   const ss = ss_();
   let sh = ss.getSheetByName(ORG_SHEET);
   if (!sh && create) {
     sh = ss.insertSheet(ORG_SHEET);
-    sh.getRange(1, 1, 1, 8).setValues([ORG_HEADERS]);
-    sh.getRange('A:H').setNumberFormat('@');
+    sh.getRange(1, 1, 1, 9).setValues([ORG_HEADERS]);
+    sh.getRange('A:I').setNumberFormat('@');
   }
+  // older sheets stop at column H: add Notifs (Home alerts assigned to a person, pipe-separated keys)
+  if (sh && !sh.getRange(1, 9).getValue()) { sh.getRange(1, 9).setValue('Notifs'); sh.getRange('I:I').setNumberFormat('@'); }
   return sh;
 }
 function getOrg_() {
@@ -1741,7 +1746,7 @@ function getOrg_() {
       const x = rows[r];
       if (!x[0] || !x[2]) continue;
       items.push({ id: String(x[0]), kind: String(x[1]), title: String(x[2]), role: String(x[3] || ''), parent: String(x[4] || ''),
-        apps: String(x[5] || '').split('|').filter(Boolean), body: String(x[6] || '') });
+        apps: String(x[5] || '').split('|').filter(Boolean), body: String(x[6] || ''), notifs: String(x[8] || '').split('|').filter(Boolean) });
     }
   }
   return { ok: true, items };
@@ -1754,6 +1759,7 @@ function saveOrgItem_(p) {
   if (!title) return { ok: false, error: 'title cannot be empty' };
   const role = String(p.role || '').trim().slice(0, 120), body = String(p.body || '').trim().slice(0, 2000);
   const apps = String(p.apps || '').split('|').filter(a => /^[a-z]{2,20}$/.test(a)).filter((a, i, all) => all.indexOf(a) === i).join('|');
+  const notifs = kind === 'person' ? String(p.notifs || '').split('|').filter(a => /^[a-z_]{2,20}$/.test(a)).filter((a, i, all) => all.indexOf(a) === i).join('|') : '';
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -1767,9 +1773,9 @@ function saveOrgItem_(p) {
       if (!up.hasOwnProperty(parent)) parent = '';
       for (let cur = parent, n = 0; cur && id && n < 200; cur = up[cur], n++) if (cur === id) return { ok: false, error: 'a person cannot report to someone who reports to them' };
     }
-    if (found) { sh.getRange(found.idx, 3, 1, 5).setValues([[title, role, parent, apps, body]]); return { ok: true, id }; }
+    if (found) { sh.getRange(found.idx, 3, 1, 5).setValues([[title, role, parent, apps, body]]); sh.getRange(found.idx, 9).setValue(notifs); return { ok: true, id }; }
     const nid = newId_('og');
-    appendRows_(sh, [[nid, kind, title, role, parent, apps, body, todayStr_()]]);
+    appendRows_(sh, [[nid, kind, title, role, parent, apps, body, todayStr_(), notifs]]);
     return { ok: true, id: nid };
   } finally { lock.releaseLock(); }
 }
@@ -1795,12 +1801,12 @@ function deleteOrgItem_(id) {
 // "a,b,c" -> ['a','b','c'] (blank entries dropped)
 function splitIds_(v) { return String(v || '').split(',').map(s => s.trim()).filter(Boolean); }
 
-// Cards needs columns Y-AD (ShippingAddress, ShippedTime, ShippingContact, SaleNotes, LotID, LotName). Older sheets stop at X; add them on first use.
+// Cards needs columns Y-AE (ShippingAddress, ShippedTime, ShippingContact, SaleNotes, LotID, LotName, ShippedBy). Older sheets stop at X; add them on first use.
 function ensureCardsColumns_(cards) {
-  const need = 30;
+  const need = 31;
   if (cards.getMaxColumns() < need) cards.insertColumnsAfter(cards.getMaxColumns(), need - cards.getMaxColumns());
-  const h = cards.getRange(1, 25, 1, 6).getValues()[0];
-  ['ShippingAddress', 'ShippedTime', 'ShippingContact', 'SaleNotes', 'LotID', 'LotName'].forEach((name, i) => { if (!h[i]) cards.getRange(1, 25 + i).setValue(name); });
+  const h = cards.getRange(1, 25, 1, 7).getValues()[0];
+  ['ShippingAddress', 'ShippedTime', 'ShippingContact', 'SaleNotes', 'LotID', 'LotName', 'ShippedBy'].forEach((name, i) => { if (!h[i]) cards.getRange(1, 25 + i).setValue(name); });
 }
 
 // Opening the spreadsheet is the slowest single call here; do it once per request, not once per helper call.

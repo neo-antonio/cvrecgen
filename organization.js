@@ -107,7 +107,7 @@ async function loadData() {
   try {
     const res = await jsonp(api('organization'), 60000);
     if (!res.ok) throw new Error(res.error || 'Unknown error');
-    items = (res.items || []).map(i => Object.assign({ apps: [], parent: '', role: '', body: '' }, i));
+    items = (res.items || []).map(i => Object.assign({ apps: [], notifs: [], parent: '', role: '', body: '' }, i));
     cacheSet('org', items);
     renderAll();
   } catch (err) {
@@ -133,12 +133,13 @@ function openView(id) {
   const p = findItem(id); if (!p) return;
   viewId = id;
   const boss = findItem(p.parent), team = people().filter(x => x.parent === p.id);
-  const apps = p.apps.map(i => APP[i]).filter(Boolean);
+  const apps = p.apps.map(i => APP[i]).filter(Boolean), nts = (p.notifs || []).map(k => NOTIF_LABEL[k]).filter(Boolean);
   $o('orgViewBody').innerHTML = `<div class="org-vhead"><span class="org-av big">${escOrg(initials(p.title))}</span><div><b>${escOrg(p.title)}</b>${p.role ? `<span>${escOrg(p.role)}</span>` : ''}</div></div>
     ${boss ? `<div class="ed-row"><small>Reports to</small><span>${escOrg(boss.title)}</span></div>` : ''}
     ${team.length ? `<div class="ed-row"><small>Direct reports</small><span>${team.map(t => escOrg(t.title)).join(', ')}</span></div>` : ''}
     <div class="ed-row"><small>Description</small><span class="org-text">${p.body ? escOrg(p.body) : '<em class="ed-none">Not set</em>'}</span></div>
-    <div class="ed-row"><small>Apps</small>${apps.length ? `<div class="org-applist">${apps.map(a => `<a class="org-app" href="${a.href}"><i>${appSvg(a)}</i><span><b>${escOrg(a.label)}</b>${escOrg(a.desc)}</span></a>`).join('')}</div>` : '<span><em class="ed-none">No apps assigned</em></span>'}</div>`;
+    <div class="ed-row"><small>Apps</small>${apps.length ? `<div class="org-applist">${apps.map(a => `<a class="org-app" href="${a.href}"><i>${appSvg(a)}</i><span><b>${escOrg(a.label)}</b>${escOrg(a.desc)}</span></a>`).join('')}</div>` : '<span><em class="ed-none">No apps assigned</em></span>'}</div>
+    <div class="ed-row"><small>Home alerts</small><span>${nts.length ? nts.map(escOrg).join(', ') : '<em class="ed-none">None</em>'}</span></div>`;
   $o('orgView').hidden = false;
 }
 const closeView = () => { $o('orgView').hidden = true; viewId = ''; };
@@ -154,7 +155,12 @@ const FORM = {
   process: { add: 'Add process', edit: 'Edit process', title: 'Process name', role: 'Owner (optional)', body: 'Steps (one per line)', apps: 'Apps used', parent: false },
   faq:     { add: 'Add question', edit: 'Edit question', title: 'Question', role: null, body: 'Answer', apps: null, parent: false }
 };
-let editId = '', editKind = 'person', pickedApps = [];
+let editId = '', editKind = 'person', pickedApps = [], pickedNotifs = [];
+const NOTIF_LABEL = Object.fromEntries(CVNotifs.CATALOG.reduce((a, g) => a.concat(g.items.map(i => [i.key, i.label])), []));
+function renderNotifPicker() {
+  $o('orgNotifs').innerHTML = CVNotifs.CATALOG.map(g => `<div class="nt-grp"><b>${escOrg(g.group)}</b>${g.items.map(i => `<label class="port-chk"><input type="checkbox" value="${i.key}"${pickedNotifs.includes(i.key) ? ' checked' : ''}><span>${escOrg(i.label)} <small>${escOrg(i.hint)}</small></span></label>`).join('')}</div>`).join('');
+}
+$o('orgNotifs').addEventListener('change', e => { if (e.target.matches('input[type=checkbox]')) pickedNotifs = [...$o('orgNotifs').querySelectorAll('input:checked')].map(i => i.value); });
 function renderPicker() {
   $o('orgApps').innerHTML = APPS.map(a => `<button type="button" class="org-pick${pickedApps.includes(a.id) ? ' on' : ''}" data-app="${a.id}" aria-pressed="${pickedApps.includes(a.id)}">${appSvg(a)}<span>${escOrg(a.label)}</span></button>`).join('');
 }
@@ -180,6 +186,8 @@ function openEdit(kind, id) {
   $o('orgBody').value = it ? it.body : '';
   $o('orgAppsWrap').hidden = F.apps === null; if (F.apps) $o('orgLApps').textContent = F.apps;
   pickedApps = it ? it.apps.slice() : []; renderPicker();
+  $o('orgNotifWrap').hidden = kind !== 'person';
+  pickedNotifs = it && it.notifs ? it.notifs.slice() : []; renderNotifPicker();
   $o('orgParentWrap').hidden = !F.parent;
   if (F.parent) {
     const banned = it ? descendants(it.id) : new Set();
@@ -215,6 +223,7 @@ $o('orgSave').onclick = () => {
     role: F.role === null ? '' : $o('orgRole').value.trim(),
     parent: F.parent ? $o('orgParent').value : '',
     apps: F.apps === null ? '' : pickedApps.join('|'),
+    notifs: editKind === 'person' ? pickedNotifs.join('|') : '',
     body: $o('orgBody').value.trim()
   }, 'Saved.', 'Could not save: ');
 };

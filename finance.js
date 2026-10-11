@@ -428,6 +428,7 @@ $ts('taskSave').onclick = async () => {
   try {
     const confirmed = await postFinance(body);
     closeEditor();
+    try { localStorage.setItem('cv:finRebase:' + String((window.CVAuth && CVAuth.user()) || '').trim().toLowerCase(), '1'); } catch (_) {}
     if (confirmed) { toast(wasNew ? 'Task added.' : 'Task updated.'); await loadFinance(); }
     else { toast('Sent \u2014 refreshing in a moment\u2026'); await new Promise(r => setTimeout(r, 3000)); await loadFinance(); }
     if (wasNew) setFinTab('torecord');
