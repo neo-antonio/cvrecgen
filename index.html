@@ -307,9 +307,11 @@ document.getElementById('chartsTile').addEventListener('click', e => {
       set('sumPort', php(on.reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0)));
     }
     if (S.ship) {
+      // count shipping TASKS, not cards: cards from one sale receipt share a groupKey and are one task
       const q = S.ship.toShip || [];
-      set('sumShipToday', q.filter(i => d10(i.scheduledDate) === today).length);
-      flag('cntShip', q.filter(i => d10(i.scheduledDate) && d10(i.scheduledDate) < today).length);
+      const tasks = list => new Set(list.map(i => i.groupKey || ('c:' + i.id))).size;
+      set('sumShipToday', tasks(q.filter(i => d10(i.scheduledDate) === today)));
+      flag('cntShip', tasks(q.filter(i => d10(i.scheduledDate) && d10(i.scheduledDate) < today)));
     }
     if (S.cr) {
       const v = (S.cr.videos || []).filter(x => x.status === 'todo'), p = (S.cr.posts || []).filter(x => x.status === 'toedit');

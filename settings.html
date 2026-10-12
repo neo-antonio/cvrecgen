@@ -51,6 +51,12 @@
   </section>
 
   <section class="set-sec">
+    <h3 class="set-h">Appearance</h3>
+    <label class="port-chk" style="margin-left:0"><input type="checkbox" id="darkMode"><span>Dark mode</span></label>
+    <p class="set-note" style="margin:0">Saved on this device only.</p>
+  </section>
+
+  <section class="set-sec">
     <h3 class="set-h">Change password</h3>
     <div class="field"><label for="pwCur">Current password</label><input type="password" id="pwCur" autocomplete="current-password"></div>
     <div class="field"><label for="pwNew">New password <small>(at least 6 characters)</small></label><input type="password" id="pwNew" autocomplete="new-password"></div>
@@ -87,6 +93,8 @@ const say = (el, text, ok) => { el.textContent = text; el.className = 'set-msg' 
 
 $('whoName').textContent = A.name();
 $('logoutBtn').onclick = () => A.logout();
+$('darkMode').checked = A.theme() === 'dark';
+$('darkMode').onchange = e => A.setTheme(e.target.checked ? 'dark' : 'light');
 ['pwCur', 'pwNew', 'pwNew2', 'admPass'].forEach(id => A.attachEye($(id)));
 
 // change own password

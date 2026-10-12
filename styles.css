@@ -655,7 +655,7 @@ html.has-shell .top{top:calc(var(--bar) + env(safe-area-inset-top))}
 .sb-menu svg{width:18px;height:18px}
 .sb{position:fixed;top:0;bottom:0;left:0;width:min(86vw,var(--sb));z-index:40;display:flex;flex-direction:column;gap:6px;background:#fafafa;border-right:1px solid var(--line);
   padding:calc(18px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));overflow-y:auto;transform:translateX(-102%)}
-.sb>.sb-brand{padding:0 8px 8px}
+.sb-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px 8px 8px}
 @media(prefers-reduced-motion:no-preference){.sb{transition:transform .22s ease}.sb-scrim{transition:opacity .2s}}
 html.sb-open .sb{transform:none;box-shadow:0 0 40px rgba(0,0,0,.15)}
 .sb-scrim{position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.35);opacity:0;pointer-events:none}
@@ -735,3 +735,80 @@ html.sb-open .sb-scrim{opacity:1;pointer-events:auto}
 /* the add-another-payment button is a flex box: center its label */
 .pay-add{align-items:center;justify-content:center}
 .back svg{width:20px;height:20px;display:block}
+
+
+/* ---------- Sidebar: pin button, icon-only rail, number badges ---------- */
+.sb-pin{width:30px;height:30px;flex:none;display:none;align-items:center;justify-content:center;padding:0;background:none;border:1px solid transparent;border-radius:8px;color:var(--mut);cursor:pointer}
+.sb-pin svg{width:16px;height:16px;transform:rotate(45deg);transition:transform .15s}
+.sb-pin[aria-pressed=true]{color:var(--fg)}
+.sb-pin[aria-pressed=true] svg{transform:none;fill:currentColor}
+.sb-pin:hover{background:var(--soft)}
+.sb-link{position:relative}
+.sb-badge{margin-left:auto;flex:none;min-width:20px;height:20px;padding:0 6px;box-sizing:border-box;border-radius:999px;background:#c0392b;color:#fff;font:600 11px/20px Inter,system-ui,sans-serif;text-align:center;font-style:normal}
+.sb-badge[hidden]{display:none}
+@media(min-width:900px){
+  .sb-pin{display:flex}
+  html.sb-rail{--sb:68px}
+  html.sb-rail .sb{padding-left:10px;padding-right:10px;overflow-x:hidden}
+  html.sb-rail .sb-head{flex-direction:column;padding:0 0 8px;gap:10px}
+  html.sb-rail .sb-brand b,html.sb-rail .sb-search,html.sb-rail .sb-lbl,html.sb-rail .sb-link>span,html.sb-rail .sb-foot p{display:none}
+  html.sb-rail .sb-group{border-top:1px solid var(--line);margin-top:8px;padding-top:8px}
+  html.sb-rail .sb-group:first-child{border-top:0;margin-top:0;padding-top:0}
+  html.sb-rail .sb-link{justify-content:center;padding:10px 0}
+  html.sb-rail .sb-badge{position:absolute;top:1px;right:3px;min-width:16px;height:16px;padding:0 4px;font-size:10px;line-height:16px}
+}
+
+/* ---------- Dark mode (Settings). Palette sampled from the Court Vision analytics screenshot ----------
+   page #0e0e0f · sidebar #141415 · cards/inputs #161617 · border #2a292d · hover/active #232325
+   text #f3f2ec · muted #8f8c83 · secondary text #bdbab1 · alert bar #3b1018 · alert text #ff6482 */
+html[data-theme=dark]{color-scheme:dark;--bg:#0e0e0f;--fg:#f3f2ec;--ac:#8f8c83;--mut:#8f8c83;--line:#2a292d;--panel:#161617;--soft:#232325;--side:#141415}
+html[data-theme=dark] .top{background:rgba(14,14,15,.92)}
+html[data-theme=dark] .appbar,html[data-theme=dark] .sb{background:#141415}
+html[data-theme=dark] .sb-menu,html[data-theme=dark] .tile,html[data-theme=dark] .ghost,html[data-theme=dark] .sb-search input:not([type=checkbox]):not([type=radio]){background:#161617}
+html[data-theme=dark] .modal{background:rgba(14,14,15,.98)}
+html[data-theme=dark] .sheet.small{box-shadow:0 12px 40px rgba(0,0,0,.5)}
+html[data-theme=dark] input::placeholder,html[data-theme=dark] textarea::placeholder,html[data-theme=dark] .ms-btn .ph{color:#8f8c83}
+html[data-theme=dark] input:focus,html[data-theme=dark] select:focus,html[data-theme=dark] textarea:focus,html[data-theme=dark] .ms-btn:focus{border-color:#8f8c83;box-shadow:0 0 0 3px rgba(243,242,236,.08)}
+html[data-theme=dark] .tab.active{background:#f3f2ec;color:#0e0e0f;box-shadow:none}
+html[data-theme=dark] .go:hover:not(:disabled){background:#ffffff}
+html[data-theme=dark] .go:active{background:#bdbab1}
+html[data-theme=dark] .ghost.danger{border-color:#5a2530;color:#ff6482}
+html[data-theme=dark] .ghost.danger:hover:not(:disabled){background:#3b1018}
+html[data-theme=dark] .tile:hover{border-color:#3e3d3c}
+html[data-theme=dark] .tile:active,html[data-theme=dark] .hs-card:active,html[data-theme=dark] .ent-card.click:active,html[data-theme=dark] .org-node:active{background:#232325}
+html[data-theme=dark] .tile .tile-go{color:#8f8c83}
+html[data-theme=dark] .tile:hover .tile-go{color:#f3f2ec}
+/* sidebar */
+html[data-theme=dark] .sb-logo{background:#f3f2ec;color:#0e0e0f}
+html[data-theme=dark] .sb-link{color:#bdbab1}
+html[data-theme=dark] .sb-link svg,html[data-theme=dark] .sb-lbl,html[data-theme=dark] .sb-search svg{color:#8f8c83}
+html[data-theme=dark] .sb-link:hover{background:#232325;color:#f3f2ec}
+html[data-theme=dark] .sb-link.on{background:#232325;color:#f3f2ec}
+html[data-theme=dark] .sb-link.on svg{color:#f3f2ec}
+html[data-theme=dark] .sb-foot,html[data-theme=dark] .sb{border-color:#2a292d}
+html[data-theme=dark] .sb-badge{background:#ff6482;color:#0e0e0f}
+/* light grey surfaces and thumbnails */
+html[data-theme=dark] .port-summary .port-count,html[data-theme=dark] .port-thumb,html[data-theme=dark] .receipt-tile-img,html[data-theme=dark] .rs-item img,html[data-theme=dark] .img-tile,
+html[data-theme=dark] .fin-thumb,html[data-theme=dark] .mk-rank,html[data-theme=dark] .mk-bar,html[data-theme=dark] .cn-thumb,html[data-theme=dark] .ed-card img,html[data-theme=dark] .ed-card .ed-noimg,
+html[data-theme=dark] .lot-thumbs img,html[data-theme=dark] .lot-thumbs span{background:#232325}
+html[data-theme=dark] .ship-addr,html[data-theme=dark] .ship-key>div,html[data-theme=dark] .bal-grid>div,html[data-theme=dark] .ent-stats,html[data-theme=dark] .org-app i,
+html[data-theme=dark] .mg-item.on,html[data-theme=dark] .m-row.on{background:#232325}
+html[data-theme=dark] .bal-sub{background:#232325}
+html[data-theme=dark] .bal-total,html[data-theme=dark] .lot-pill{color:#0e0e0f}
+html[data-theme=dark] .fin-group-head,html[data-theme=dark] .lot-members .port-card,html[data-theme=dark] .fin-note{background:#141415}
+/* tags and status colours */
+html[data-theme=dark] .tag-onhand,html[data-theme=dark] .tag-none{background:#232325;color:#bdbab1}
+html[data-theme=dark] .tag-shipping,html[data-theme=dark] .tag-outflow{background:#3a2a12;color:#f0b95a}
+html[data-theme=dark] .tag-sold,html[data-theme=dark] .tag-inflow{background:#14301b;color:#6fd08a}
+html[data-theme=dark] .tag-traded{background:#2b1d3d;color:#c9a2ec}
+html[data-theme=dark] .warn,html[data-theme=dark] .ship-alert.mild{border-color:#6b5320;background:#2a2110;color:#f0c46a}
+html[data-theme=dark] .ship-alert{border-color:#7a2a38;background:#3b1018;color:#ff6482}
+html[data-theme=dark] .ship-key .late{background:#3b1018;box-shadow:inset 0 0 0 1px #7a2a38}
+html[data-theme=dark] .ship-key .today{background:#2e2410;box-shadow:inset 0 0 0 1px #8a6a1e}
+html[data-theme=dark] .cal-item.st-missed{background:#2a1217}
+html[data-theme=dark] .fin-line.fin-picked,html[data-theme=dark] .cr-pc.edited{background:#14231a}
+html[data-theme=dark] .cr-pc.edited{border-color:#2b5a37}
+html[data-theme=dark] .cc-row.changed{background:#2a2410}
+/* Home summary cards (their rules live in index.html) */
+html[data-theme=dark] .hs-card.hs-alert{background:#3b1018;border-color:#7a2a38}
+html[data-theme=dark] .hs-s{color:#ff6482}

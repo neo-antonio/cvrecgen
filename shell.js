@@ -4,6 +4,19 @@
    It marks the page as having a shell immediately (so nothing jumps), then builds the menu once the page is parsed. */
 (function () {
   document.documentElement.classList.add('has-shell');
+  // saved preferences, applied immediately so nothing flashes: dark mode (Settings) and unpinned/icon-only sidebar
+  var THEME_KEY = 'cv:theme', PIN_KEY = 'cv:sbPin';
+  var getPref = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  var setPref = function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} };
+  var THEME_COLOR = { light: '#ffffff', dark: '#0e0e0f' };
+  var applyTheme = function (t) {
+    t = t === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', t);
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', THEME_COLOR[t]);
+    return t;
+  };
+  applyTheme(getPref(THEME_KEY));
+  if (getPref(PIN_KEY) === '0') document.documentElement.classList.add('sb-rail');
   // folder prefix back to the site root, taken from how this script was loaded ("" on normal pages, "../" inside chatbot/)
   var BASE = (document.currentScript && document.currentScript.getAttribute('src') || 'shell.js').replace(/shell\.js.*$/, '');
 
@@ -67,6 +80,8 @@
         return d.user;
       });
     },
+    theme: function () { return getPref(THEME_KEY) === 'dark' ? 'dark' : 'light'; },
+    setTheme: function (t) { t = applyTheme(t); setPref(THEME_KEY, t); return t; },
     logout: function () { try { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); } catch (e) {} location.reload(); },
     changePassword: function (cur, next) { return call('changePassword', { user: curUser(), pass: cur, newPass: next }).then(check); },
     listUsers: function (pass) { return call('listUsers', { user: curUser(), pass: pass }).then(check).then(function (d) { return d.users || []; }); },
@@ -124,6 +139,7 @@
     backend: '<rect x="3" y="3.5" width="18" height="7" rx="2"/><rect x="3" y="13.5" width="18" height="7" rx="2"/><circle cx="7" cy="7" r=".9" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r=".9" fill="currentColor" stroke="none"/><path d="M11 7h6M11 17h6"/>',
     social: '<circle cx="18" cy="5.5" r="2.7"/><circle cx="6" cy="12" r="2.7"/><circle cx="18" cy="18.5" r="2.7"/><path d="M8.4 10.7l7.2-3.9M8.4 13.3l7.2 3.9"/>',
     assistant: '<path d="M4 5.5A2.5 2.5 0 016.5 3h11A2.5 2.5 0 0120 5.5v8a2.5 2.5 0 01-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 014 13.5z"/><circle cx="9" cy="9.5" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="9.5" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="9.5" r=".9" fill="currentColor" stroke="none"/>',
+    pin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3.5 3.5V15h-11v-2.5L10 9z"/>',
     settings: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/>'
   };
   var svg = function (k) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[k] + '</svg>'; };
@@ -145,12 +161,15 @@
   if (/\/chatbot\/[^/]*$/i.test(location.pathname)) page = 'chatbot/index.html';
 
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  // sidebar number badges: page -> badge key (filled in by loadBadges below, or by other scripts through CVShell.setBadge)
+  var BADGE = { 'shipping.html': 'shipping', 'creatives.html': 'creatives', 'finance.html': 'finance' };
   var link = function (it) {
-    var on = it[2] === page, u = it[2];
+    var on = it[2] === page, u = it[2], bk = BADGE[u];
+    var tail = '<span>' + esc(it[1]) + '</span>' + (bk ? '<i class="sb-badge" data-badge="' + bk + '" hidden></i>' : '');
     if (u === '#charts') return '<a class="sb-link" href="#" data-charts="1">' + svg(it[0]) + '<span>' + esc(it[1]) + '</span></a>';
     if (u === '#social') return '<a class="sb-link" href="#" data-social="1">' + svg(it[0]) + '<span>' + esc(it[1]) + '</span></a>';
     if (/^https?:/.test(u)) return '<a class="sb-link" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + svg(it[0]) + '<span>' + esc(it[1]) + '</span></a>';
-    return '<a class="sb-link' + (on ? ' on' : '') + '" href="' + BASE + u + '"' + (on ? ' aria-current="page"' : '') + '>' + svg(it[0]) + '<span>' + esc(it[1]) + '</span></a>';
+    return '<a class="sb-link' + (on ? ' on' : '') + '" href="' + BASE + u + '"' + (on ? ' aria-current="page"' : '') + '>' + svg(it[0]) + tail + '</a>';
   };
   var logo = '<span class="sb-logo" aria-hidden="true">t</span>';
 
@@ -166,7 +185,8 @@
     var aside = document.createElement('aside');
     aside.className = 'sb';
     aside.setAttribute('aria-label', 'Main menu');
-    aside.innerHTML = '<a class="sb-brand" href="' + BASE + 'index.html">' + logo + '<b>trackello</b></a>'
+    aside.innerHTML = '<div class="sb-head"><a class="sb-brand" href="' + BASE + 'index.html">' + logo + '<b>trackello</b></a>'
+      + '<button type="button" class="sb-pin" id="sbPin" aria-pressed="true" aria-label="Unpin sidebar" title="Unpin sidebar">' + svg('pin') + '</button></div>'
       + '<div class="sb-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input type="search" id="sbFind" placeholder="Search menu" autocomplete="off" aria-label="Search menu"></div>'
       + '<nav class="sb-nav">' + GROUPS.map(function (g) { return '<div class="sb-group"><p class="sb-lbl">' + esc(g[0]) + '</p>' + g[1].map(link).join('') + '</div>'; }).join('') + '</nav>'
       + '<div class="sb-foot">' + link(['backend', 'Backend', BACKEND_URL]) + '<a class="sb-link' + (page === 'settings.html' ? ' on' : '') + '" href="' + BASE + 'settings.html">' + svg('settings') + '<span>Settings</span></a>'
@@ -216,6 +236,60 @@
       t.className = 'toast'; t.textContent = 'Charts link is not set yet. Add chartsUrl in config.js.';
       document.body.appendChild(t); setTimeout(function () { t.remove(); }, 3200); setOpen(false);
     });
+
+    // icon-only (unpinned) mode needs a tooltip on every link
+    aside.querySelectorAll('.sb-link').forEach(function (a) { var l = a.querySelector('span'); if (l) a.title = l.textContent.trim(); });
+
+    // pin / unpin: pinned (default) = full sidebar, unpinned = narrow icon rail. Remembered on this device.
+    var pinBtn = aside.querySelector('#sbPin');
+    var paintPin = function () {
+      var pinned = !root.classList.contains('sb-rail');
+      pinBtn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+      pinBtn.setAttribute('aria-label', pinned ? 'Unpin sidebar' : 'Pin sidebar');
+      pinBtn.title = pinned ? 'Unpin sidebar' : 'Pin sidebar';
+    };
+    paintPin();
+    pinBtn.addEventListener('click', function () {
+      var rail = root.classList.toggle('sb-rail');
+      setPref(PIN_KEY, rail ? '0' : '1');
+      paintPin();
+    });
+
+    // ----- sidebar number badges -----
+    // Shipping: shipping tasks (one per sale receipt, not per card) scheduled today.  Creatives: video + post tasks still to do.
+    // Finance: set by notifs.js through CVShell.setBadge('finance', n) (transactions the assigned member has not seen yet).
+    var counts = {};
+    var paintBadges = function () {
+      aside.querySelectorAll('.sb-badge').forEach(function (b) {
+        var n = Number(counts[b.getAttribute('data-badge')]) || 0;
+        b.hidden = n < 1; b.textContent = n > 99 ? '99+' : String(n);
+        var l = b.parentNode.querySelector('span'); if (l) b.parentNode.title = l.textContent.trim() + (n > 0 ? ' (' + n + ')' : '');
+      });
+    };
+    var p2 = function (n) { return String(n).padStart(2, '0'); };
+    var todayIso = function () { var d = new Date(); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); };
+    var d10 = function (v) { return String(v || '').slice(0, 10); };
+    var BKEY = 'cv:badges';
+    var loadBadges = function () {
+      if (!curUser()) return;
+      try { var c = JSON.parse(sessionStorage.getItem(BKEY)); if (c && c.day === todayIso()) { counts.shipping = c.shipping; counts.creatives = c.creatives; paintBadges(); } } catch (e) {}
+      var save = function () { try { sessionStorage.setItem(BKEY, JSON.stringify({ day: todayIso(), shipping: counts.shipping || 0, creatives: counts.creatives || 0 })); } catch (e) {} };
+      call('shipping').then(check).then(function (d) {
+        var t = todayIso(), groups = {};
+        (d.toShip || []).forEach(function (i) { if (d10(i.scheduledDate) === t) groups[i.groupKey || ('c:' + i.id)] = 1; });
+        counts.shipping = Object.keys(groups).length; paintBadges(); save();
+      }).catch(function () {});
+      call('creatives').then(check).then(function (d) {
+        counts.creatives = (d.videos || []).filter(function (x) { return x.status === 'todo'; }).length + (d.posts || []).filter(function (x) { return x.status === 'toedit'; }).length;
+        paintBadges(); save();
+      }).catch(function () {});
+    };
+    window.CVShell = {
+      setBadge: function (key, n) { counts[key] = Number(n) || 0; paintBadges(); },
+      refreshBadges: loadBadges
+    };
+    loadBadges();
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) loadBadges(); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build); else build();
