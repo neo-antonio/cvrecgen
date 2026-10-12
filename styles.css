@@ -815,3 +815,236 @@ html[data-theme=dark] .hs-s{color:#ff6482}
 
 /* notices that cannot be dismissed have no X: give the text its normal right padding */
 .nt-lock .nt-body{padding-right:14px}
+
+/* =====================================================================
+   Motion layer (v1.4)
+   One easing family everywhere: a long, soft ease-out for entrances, a gentle spring for small
+   "confirm" moments, and short eases for hover/press. Everything animates transform/opacity only
+   (GPU friendly), and the whole layer switches off for people who ask for reduced motion.
+   ===================================================================== */
+:root{--ease:cubic-bezier(.22,1,.36,1);--ease-io:cubic-bezier(.65,0,.35,1);--spring:cubic-bezier(.34,1.56,.64,1)}
+
+@keyframes m-fade{from{opacity:0}to{opacity:1}}
+@keyframes m-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes m-item{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes m-down{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@keyframes m-right{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+@keyframes m-sheet{from{opacity:0;transform:translateY(22px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes m-toast{from{opacity:0;transform:translate(-50%,14px) scale(.96)}to{opacity:1;transform:translate(-50%,0) scale(1)}}
+@keyframes m-drop{from{opacity:0;transform:translateY(-6px) scaleY(.96)}to{opacity:1;transform:none}}
+@keyframes m-bar{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:none}}
+@keyframes m-nt{from{opacity:0;transform:translateY(-8px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes m-cell{from{opacity:0;transform:scale(.88)}to{opacity:1;transform:none}}
+@keyframes m-grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes m-pop{0%{transform:scale(.8)}55%{transform:scale(1.14)}100%{transform:scale(1)}}
+@keyframes m-sel{0%{transform:scale(.95)}60%{transform:scale(1.025)}100%{transform:scale(1)}}
+@keyframes m-ic{0%{transform:scale(.4);opacity:.4}60%{transform:scale(1.2)}100%{transform:scale(1);opacity:1}}
+@keyframes m-msg-u{from{opacity:0;transform:translate(10px,8px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes m-msg-b{from{opacity:0;transform:translate(-10px,8px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes m-slide{from{transform:translateX(0)}to{transform:translateX(185%)}}
+@keyframes m-ring{0%{box-shadow:0 0 0 0 rgba(130,130,130,.55)}100%{box-shadow:0 0 0 10px rgba(130,130,130,0)}}
+@keyframes m-vt-out{to{opacity:0}}
+@keyframes m-vt-in{from{opacity:0}}
+
+@media (prefers-reduced-motion:no-preference){
+
+/* ---- smooth page-to-page navigation (Chrome / Safari; others just navigate normally) ---- */
+@view-transition{navigation:auto}
+::view-transition-old(root){animation:m-vt-out .16s ease-in both}
+::view-transition-new(root){animation:m-vt-in .3s var(--ease) both}
+.top{view-transition-name:m-top}
+.appbar{view-transition-name:m-appbar}
+.sb{view-transition-name:m-sidebar}
+::view-transition-group(m-top),::view-transition-group(m-appbar),::view-transition-group(m-sidebar){animation-duration:.3s;animation-timing-function:var(--ease)}
+
+html{scroll-behavior:smooth}
+
+/* ---- page entrance: blocks rise in one after another ---- */
+:where(main>*:not([id^=panel],.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)),:where(main>[id^=panel]>*:not(.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)){animation:m-up .5s var(--ease) backwards}
+:where(main>*:not([id^=panel],.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(2),:where(main>[id^=panel]>*:not(.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(2){animation-delay:0.05s}
+:where(main>*:not([id^=panel],.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(3),:where(main>[id^=panel]>*:not(.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(3){animation-delay:0.10s}
+:where(main>*:not([id^=panel],.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(4),:where(main>[id^=panel]>*:not(.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(4){animation-delay:0.15s}
+:where(main>*:not([id^=panel],.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(5),:where(main>[id^=panel]>*:not(.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(5){animation-delay:0.20s}
+:where(main>*:not([id^=panel],.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(6),:where(main>[id^=panel]>*:not(.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(6){animation-delay:0.25s}
+:where(main>*:not([id^=panel],.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(7),:where(main>[id^=panel]>*:not(.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(7){animation-delay:0.30s}
+:where(main>*:not([id^=panel],.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(8),:where(main>[id^=panel]>*:not(.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(8){animation-delay:0.35s}
+:where(main>*:not([id^=panel],.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(n+9),:where(main>[id^=panel]>*:not(.port-list,.mk-list,.receipt-grid,.grid6,.hs,.org-chart)):nth-child(n+9){animation-delay:.35s}
+.hs-top,.hs-fin{animation:m-up .5s var(--ease) backwards}
+.hs-fin{animation-delay:.3s}
+.hs-grid>.hs-card{animation:m-item .5s var(--ease) backwards}
+.hs-grid>.hs-card:nth-child(1){animation-delay:0.05s}
+.hs-grid>.hs-card:nth-child(2){animation-delay:0.10s}
+.hs-grid>.hs-card:nth-child(3){animation-delay:0.15s}
+.hs-grid>.hs-card:nth-child(4){animation-delay:0.20s}
+.hs-grid>.hs-card:nth-child(5){animation-delay:0.25s}
+.hs-grid>.hs-card:nth-child(6){animation-delay:0.30s}
+.grid6>.tile{animation:m-item .5s var(--ease) backwards}
+.grid6>.tile:nth-child(1){animation-delay:0.140s}
+.grid6>.tile:nth-child(2){animation-delay:0.175s}
+.grid6>.tile:nth-child(3){animation-delay:0.210s}
+.grid6>.tile:nth-child(4){animation-delay:0.245s}
+.grid6>.tile:nth-child(5){animation-delay:0.280s}
+.grid6>.tile:nth-child(6){animation-delay:0.315s}
+.grid6>.tile:nth-child(7){animation-delay:0.350s}
+.grid6>.tile:nth-child(8){animation-delay:0.385s}
+.grid6>.tile:nth-child(9){animation-delay:0.420s}
+.grid6>.tile:nth-child(10){animation-delay:0.455s}
+.grid6>.tile:nth-child(11){animation-delay:0.490s}
+.grid6>.tile:nth-child(12){animation-delay:0.525s}
+.grid6>.tile:nth-child(13){animation-delay:0.560s}
+.grid6>.tile:nth-child(14){animation-delay:0.595s}
+
+/* ---- list rows (re-rendered lists glide in with a short stagger) ---- */
+.port-list>*,.mk-list>*,.receipt-grid>*,.cr-cards>*,#dayList>*,.nt-list>*,.lot-members>*,.m-cards>*,.ed-cards>*,.org-tree li,.fin-group>*{animation:m-item .34s var(--ease) backwards}
+.port-list>*:nth-child(2),.mk-list>*:nth-child(2),.receipt-grid>*:nth-child(2),.cr-cards>*:nth-child(2),#dayList>*:nth-child(2),.nt-list>*:nth-child(2),.lot-members>*:nth-child(2),.m-cards>*:nth-child(2),.ed-cards>*:nth-child(2),.org-tree li:nth-child(2),.fin-group>*:nth-child(2){animation-delay:0.03s}
+.port-list>*:nth-child(3),.mk-list>*:nth-child(3),.receipt-grid>*:nth-child(3),.cr-cards>*:nth-child(3),#dayList>*:nth-child(3),.nt-list>*:nth-child(3),.lot-members>*:nth-child(3),.m-cards>*:nth-child(3),.ed-cards>*:nth-child(3),.org-tree li:nth-child(3),.fin-group>*:nth-child(3){animation-delay:0.06s}
+.port-list>*:nth-child(4),.mk-list>*:nth-child(4),.receipt-grid>*:nth-child(4),.cr-cards>*:nth-child(4),#dayList>*:nth-child(4),.nt-list>*:nth-child(4),.lot-members>*:nth-child(4),.m-cards>*:nth-child(4),.ed-cards>*:nth-child(4),.org-tree li:nth-child(4),.fin-group>*:nth-child(4){animation-delay:0.09s}
+.port-list>*:nth-child(5),.mk-list>*:nth-child(5),.receipt-grid>*:nth-child(5),.cr-cards>*:nth-child(5),#dayList>*:nth-child(5),.nt-list>*:nth-child(5),.lot-members>*:nth-child(5),.m-cards>*:nth-child(5),.ed-cards>*:nth-child(5),.org-tree li:nth-child(5),.fin-group>*:nth-child(5){animation-delay:0.12s}
+.port-list>*:nth-child(6),.mk-list>*:nth-child(6),.receipt-grid>*:nth-child(6),.cr-cards>*:nth-child(6),#dayList>*:nth-child(6),.nt-list>*:nth-child(6),.lot-members>*:nth-child(6),.m-cards>*:nth-child(6),.ed-cards>*:nth-child(6),.org-tree li:nth-child(6),.fin-group>*:nth-child(6){animation-delay:0.15s}
+.port-list>*:nth-child(7),.mk-list>*:nth-child(7),.receipt-grid>*:nth-child(7),.cr-cards>*:nth-child(7),#dayList>*:nth-child(7),.nt-list>*:nth-child(7),.lot-members>*:nth-child(7),.m-cards>*:nth-child(7),.ed-cards>*:nth-child(7),.org-tree li:nth-child(7),.fin-group>*:nth-child(7){animation-delay:0.18s}
+.port-list>*:nth-child(8),.mk-list>*:nth-child(8),.receipt-grid>*:nth-child(8),.cr-cards>*:nth-child(8),#dayList>*:nth-child(8),.nt-list>*:nth-child(8),.lot-members>*:nth-child(8),.m-cards>*:nth-child(8),.ed-cards>*:nth-child(8),.org-tree li:nth-child(8),.fin-group>*:nth-child(8){animation-delay:0.21s}
+.port-list>*:nth-child(9),.mk-list>*:nth-child(9),.receipt-grid>*:nth-child(9),.cr-cards>*:nth-child(9),#dayList>*:nth-child(9),.nt-list>*:nth-child(9),.lot-members>*:nth-child(9),.m-cards>*:nth-child(9),.ed-cards>*:nth-child(9),.org-tree li:nth-child(9),.fin-group>*:nth-child(9){animation-delay:0.24s}
+.port-list>*:nth-child(n+10),.mk-list>*:nth-child(n+10),.receipt-grid>*:nth-child(n+10),.cr-cards>*:nth-child(n+10),#dayList>*:nth-child(n+10),.nt-list>*:nth-child(n+10),.lot-members>*:nth-child(n+10),.m-cards>*:nth-child(n+10),.ed-cards>*:nth-child(n+10),.org-tree li:nth-child(n+10),.fin-group>*:nth-child(n+10){animation-delay:.27s}
+.cal-grid>.cal-cell:not(.blank){animation:m-cell .4s var(--ease) backwards}
+.cal-grid>.cal-cell:nth-child(2){animation-delay:0.02s}
+.cal-grid>.cal-cell:nth-child(3){animation-delay:0.04s}
+.cal-grid>.cal-cell:nth-child(4){animation-delay:0.06s}
+.cal-grid>.cal-cell:nth-child(5){animation-delay:0.08s}
+.cal-grid>.cal-cell:nth-child(6){animation-delay:0.10s}
+.cal-grid>.cal-cell:nth-child(7){animation-delay:0.12s}
+.cal-grid>.cal-cell:nth-child(8){animation-delay:0.02s}
+.cal-grid>.cal-cell:nth-child(9){animation-delay:0.04s}
+.cal-grid>.cal-cell:nth-child(10){animation-delay:0.06s}
+.cal-grid>.cal-cell:nth-child(11){animation-delay:0.08s}
+.cal-grid>.cal-cell:nth-child(12){animation-delay:0.10s}
+.cal-grid>.cal-cell:nth-child(13){animation-delay:0.12s}
+.cal-grid>.cal-cell:nth-child(14){animation-delay:0.14s}
+.cal-grid>.cal-cell:nth-child(15){animation-delay:0.04s}
+.cal-grid>.cal-cell:nth-child(16){animation-delay:0.06s}
+.cal-grid>.cal-cell:nth-child(17){animation-delay:0.08s}
+.cal-grid>.cal-cell:nth-child(18){animation-delay:0.10s}
+.cal-grid>.cal-cell:nth-child(19){animation-delay:0.12s}
+.cal-grid>.cal-cell:nth-child(20){animation-delay:0.14s}
+.cal-grid>.cal-cell:nth-child(21){animation-delay:0.16s}
+.cal-grid>.cal-cell:nth-child(22){animation-delay:0.06s}
+.cal-grid>.cal-cell:nth-child(23){animation-delay:0.08s}
+.cal-grid>.cal-cell:nth-child(24){animation-delay:0.10s}
+.cal-grid>.cal-cell:nth-child(25){animation-delay:0.12s}
+.cal-grid>.cal-cell:nth-child(26){animation-delay:0.14s}
+.cal-grid>.cal-cell:nth-child(27){animation-delay:0.16s}
+.cal-grid>.cal-cell:nth-child(28){animation-delay:0.18s}
+.cal-grid>.cal-cell:nth-child(29){animation-delay:0.08s}
+.cal-grid>.cal-cell:nth-child(30){animation-delay:0.10s}
+.cal-grid>.cal-cell:nth-child(31){animation-delay:0.12s}
+.cal-grid>.cal-cell:nth-child(32){animation-delay:0.14s}
+.cal-grid>.cal-cell:nth-child(33){animation-delay:0.16s}
+.cal-grid>.cal-cell:nth-child(34){animation-delay:0.18s}
+.cal-grid>.cal-cell:nth-child(35){animation-delay:0.20s}
+.cal-grid>.cal-cell:nth-child(36){animation-delay:0.10s}
+.cal-grid>.cal-cell:nth-child(37){animation-delay:0.12s}
+.cal-grid>.cal-cell:nth-child(38){animation-delay:0.14s}
+.cal-grid>.cal-cell:nth-child(39){animation-delay:0.16s}
+.cal-grid>.cal-cell:nth-child(40){animation-delay:0.18s}
+.cal-grid>.cal-cell:nth-child(41){animation-delay:0.20s}
+.cal-grid>.cal-cell:nth-child(42){animation-delay:0.22s}
+.bal-grid>div{animation:m-item .5s var(--ease) backwards}
+.bal-grid>div:nth-child(1){animation-delay:0.05s}
+.bal-grid>div:nth-child(2){animation-delay:0.10s}
+.bal-grid>div:nth-child(3){animation-delay:0.15s}
+.bal-grid>div:nth-child(4){animation-delay:0.20s}
+.bal-grid>div:nth-child(5){animation-delay:0.25s}
+.bal-grid>div:nth-child(6){animation-delay:0.30s}
+.bal-sub,.bal-total{animation:m-up .5s var(--ease) .3s backwards}
+.mk-bar u{transform-origin:left center;animation:m-grow .8s var(--ease) .2s backwards}
+.port-thumb img,.receipt-tile-img img,.cn-thumb,.fin-thumb img,.lot-thumbs img,.ed-card img,.img-tile img,.rs-item img{animation:m-fade .5s ease-out}
+
+/* ---- buttons, chips, tabs, rows: one shared transition recipe ---- */
+.tab,.chip,.ghost,.go,.back,.icon-btn,.rad span,.sb-link,.sb-menu,.sb-pin,.org-node,.org-pick,.nt-x,.cal-cell,.cc-row,.m-row,.rs-item,.tile,html .hs-card,.ent-card,.cal-item,.fin-line,.cr-pc,.cr-card,.port-card,.ship-card,.mk-row,.lot-card,.org-card,.fin-group{
+  transition:background-color .22s var(--ease),color .22s var(--ease),border-color .22s var(--ease),box-shadow .3s var(--ease),transform .25s var(--ease),opacity .25s var(--ease)}
+input:not([type=checkbox]):not([type=radio]),select,textarea,.ms-btn,.money{transition:border-color .2s var(--ease),box-shadow .3s var(--ease),background-color .2s var(--ease)}
+.top,.appbar,.sb,.modal,.sheet.small{transition:background-color .3s var(--ease),border-color .3s var(--ease)}
+
+.tab:active,.chip:active,.ghost:active,.go:active,.back:active,.icon-btn:active,.sb-menu:active,.org-pick:active,.nt-x:active{transform:scale(.96)}
+.tile:active,html .hs-card:active,.org-node:active,.ent-card.click:active,.rs-item:active,.cc-row:active,.m-row:active{transform:scale(.985)}
+.cal-cell:not(.blank):active{transform:scale(.94)}
+
+@media (hover:hover){
+  .tile:hover{transform:translateY(-3px);box-shadow:0 12px 28px -8px rgba(0,0,0,.12)}
+  html .hs-card:hover{transform:translateY(-2px);box-shadow:0 8px 20px -8px rgba(0,0,0,.12);border-color:#bdbdbd}
+  .ent-card.click:hover,.org-node:hover,.cal-item:hover{transform:translateY(-1px);box-shadow:0 6px 16px -8px rgba(0,0,0,.14)}
+  .cal-cell:not(.blank):hover{border-color:var(--fg);transform:translateY(-1px)}
+  .rs-item:hover,.m-row:hover,.cc-row:hover{border-color:#bdbdbd}
+  .go:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 14px -6px rgba(0,0,0,.3)}
+  .go:active:not(:disabled){transform:scale(.97)}
+  .sb-link:hover svg{transform:translateX(2px)}
+  .receipt-tile:hover .receipt-tile-img img{transform:scale(1.06)}
+  .port-clickphoto:hover,.ship-clickphoto:hover,.cr-zoom:hover{transform:scale(1.07)}
+}
+html[data-theme=dark] .tile:hover,html[data-theme=dark] .hs-card:hover{box-shadow:0 12px 28px -8px rgba(0,0,0,.6);border-color:#3e3d3c}
+.tile .tile-go{transition:transform .35s var(--ease),color .2s}
+.tile:hover .tile-go{transform:translate(2px,-2px)}
+.tile .tile-ic{transition:background-color .25s,transform .35s var(--spring)}
+.tile:hover .tile-ic{transform:scale(1.07) rotate(-3deg)}
+.tile-ic svg,.sb-link svg,.receipt-tile-img img,.port-clickphoto,.ship-clickphoto,.cr-zoom{transition:transform .5s var(--ease),color .2s}
+
+/* ---- selection feedback ---- */
+.tab.active,.chip.active,.rad input:checked+span{transition-timing-function:var(--ease)}
+.rad input:checked+span{animation:m-sel .35s var(--ease)}
+.org-pick.on{animation:m-sel .35s var(--ease)}
+input[type=checkbox]:checked{animation:m-pop .3s var(--spring)}
+.mg-item.on,.m-row.on,.cc-row.changed,.fin-line.fin-picked,.cr-pc.edited{transition:background-color .3s var(--ease),border-color .3s var(--ease)}
+.cr-card{transition:opacity .35s var(--ease),border-color .22s}
+.cal-cell.today .cal-num{animation:m-ring 1.8s ease-out .8s 2}
+.lot-chev{transition:transform .3s var(--ease),margin .3s var(--ease)}
+.sb-pin svg{transition:transform .35s var(--spring)}
+
+/* ---- dropdowns / pickers ---- */
+.ms-btn i{transition:transform .35s var(--ease),margin .35s var(--ease)}
+.ms:has(.ms-panel:not([hidden])) .ms-btn i{transform:rotate(225deg);margin-top:4px}
+.ms-panel{transform-origin:top center;animation:m-drop .28s var(--ease)}
+.lot-members:not([hidden]),.img-link:not([hidden]),.pl-fields,.pay-row{animation:m-down .32s var(--ease)}
+
+/* ---- sheets, backdrops, toasts, inline notices ---- */
+.modal{animation:m-fade .24s ease-out}
+.modal>.sheet{animation:m-sheet .42s var(--ease)}
+.toast{animation:m-toast .45s var(--spring)}
+.warn,.ship-alert,.fin-note,.pay-hint,.vlog-join,.vlog-box,.sync,.fin-pending,.set-msg{animation:m-down .38s var(--ease)}
+.nt{animation:m-nt .5s var(--ease) backwards}
+.cc-apply,.fin-submit{animation:m-bar .45s var(--ease)}
+.items>*,#items>*,#receivedItems>*,#tradedItems>*,#lotCards>*,#payExtra>*,.img-tile{animation:m-down .32s var(--ease)}
+
+/* ---- sidebar / drawer ---- */
+.sb{transition:transform .42s var(--ease),width .32s var(--ease)}
+.sb-scrim{transition:opacity .35s var(--ease)}
+html.has-shell body{transition:padding-left .32s var(--ease)}
+html.sb-open .sb-link{animation:m-right .45s var(--ease) backwards}
+html.sb-open .sb-link:nth-of-type(1){animation-delay:0.080s}
+html.sb-open .sb-link:nth-of-type(2){animation-delay:0.105s}
+html.sb-open .sb-link:nth-of-type(3){animation-delay:0.130s}
+html.sb-open .sb-link:nth-of-type(4){animation-delay:0.155s}
+html.sb-open .sb-link:nth-of-type(5){animation-delay:0.180s}
+html.sb-open .sb-link:nth-of-type(6){animation-delay:0.205s}
+html.sb-open .sb-link:nth-of-type(7){animation-delay:0.230s}
+html.sb-open .sb-link:nth-of-type(8){animation-delay:0.255s}
+
+/* ---- accordions (Organization process / FAQ cards) ---- */
+.org-card[open] .org-card-body{animation:m-down .38s var(--ease)}
+@supports (interpolate-size:allow-keywords){
+  :root{interpolate-size:allow-keywords}
+  .org-card::details-content{block-size:0;overflow:clip;transition:block-size .38s var(--ease),content-visibility .38s allow-discrete}
+  .org-card[open]::details-content{block-size:auto}
+}
+
+/* ---- progress ---- */
+.sync-bar i{transition:width .5s var(--ease)}
+.sync-bar.busy i{margin-left:0;animation:m-slide 1.3s var(--ease-io) infinite alternate}
+.sync li .ic{transition:background-color .3s,border-color .3s}
+.sync li.ok .ic,.sync li.warn .ic,.sync li.err .ic{animation:m-ic .45s var(--spring)}
+html .cb-bar i{transition:width .4s var(--ease)}
+
+/* ---- assistant chat ---- */
+.cb-msg.user{transform-origin:100% 100%;animation:m-msg-u .4s var(--ease)}
+.cb-msg.bot{transform-origin:0 100%;animation:m-msg-b .4s var(--ease)}
+
+}
+
