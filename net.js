@@ -1,7 +1,17 @@
 /* ---------- Shared network + cache helpers (loaded after config.js on every data page) ---------- */
 // Apps Script cold-starts and occasionally drops a request. Reads are safe to repeat, so they retry
 // quietly (2 more tries) before the page reports a failure. Anything that changes data is never retried.
-const READ_ACTIONS = /[?&]action=(portfolio|finance|shipping|receipts|events|balance|onhandCards|receiptImpact|entities|entityNames|creatives)(&|$)/;
+const READ_ACTIONS = /[?&]action=(portfolio|finance|shipping|receipts|events|balance|onhandCards|receiptImpact|entities|entityNames|entityCards|creatives|organization)(&|$)/;
+
+// Home fires ~8 reads at once and Apps Script answers each one slowly when they pile up (then timeouts + retries pile on more).
+// So: at most MAX_PARALLEL reads run at a time, the rest wait their turn; an identical read already in flight is shared instead of
+// sent twice; and a write clears the shared reads so nothing stale is handed back right after a change.
+const MAX_PARALLEL = 4;
+let inFlight = 0;
+const waiting = [];
+const getSlot = () => new Promise(res => { const go = () => { inFlight++; res(); }; if (inFlight < MAX_PARALLEL) go(); else waiting.push(go); });
+const freeSlot = () => { inFlight--; const next = waiting.shift(); if (next) next(); };
+const pendingReads = new Map();
 
 function jsonpOnce(url, ms) {
   return new Promise((resolve, reject) => {
@@ -18,11 +28,16 @@ function jsonpOnce(url, ms) {
 }
 
 function jsonp(url, ms) {
-  const retriable = READ_ACTIONS.test(url);
-  const limit = ms || (retriable ? 20000 : 30000);
-  const attempt = n => jsonpOnce(url, limit).catch(err =>
-    (retriable && n < 2) ? new Promise(r => setTimeout(r, 700 * (n + 1))).then(() => attempt(n + 1)) : Promise.reject(err));
-  return attempt(0);
+  if (!READ_ACTIONS.test(url)) { pendingReads.clear(); return jsonpOnce(url, ms || 30000); }   // writes: never queued, never retried
+  if (pendingReads.has(url)) return pendingReads.get(url);
+  // 35 s per try: a try that is only slow keeps running on the server, so giving up early and re-asking just doubles the load
+  const limit = ms || 35000;
+  const attempt = n => getSlot()
+    .then(() => jsonpOnce(url, limit).finally(freeSlot))
+    .catch(err => n < 2 ? new Promise(r => setTimeout(r, 1500 * (n + 1))).then(() => attempt(n + 1)) : Promise.reject(err));
+  const p = attempt(0), clear = () => pendingReads.delete(url);
+  pendingReads.set(url, p); p.then(clear, clear);
+  return p;
 }
 
 // Last good answer per screen, kept on this device. Pages draw it instantly on open, then refresh
