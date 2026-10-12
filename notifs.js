@@ -53,7 +53,7 @@
   const lsGet = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
   const lsDel = k => { try { localStorage.removeItem(k); } catch (_) {} };
-  function touchFin() { lsSet(rebaseKey((window.CVAuth && CVAuth.user()) || ''), '1'); }
+  function touchFin() { lsSet(rebaseKey((window.CVAuth && CVAuth.user()) || ''), '1'); try { if (window.CVShell) CVShell.setBadge('finance', 0); } catch (_) {} }
   function newFinCount(user, S) {
     if (!S.fin || !S.rc || !S.freshFin || !S.freshRc) return null;   // only judge fresh server data, never the cached copy
     const rIds = (S.rc.receipts || []).map(r => 'r:' + r.id);
@@ -77,6 +77,18 @@
     list.forEach(x => { const d = dateOf(x); if (!d) return; const n = away(d); if (n < 0) b.missed++; else if (n === 0) b.today++; else if (n === 1) b.tomorrow++; });
     return b;
   }
+  // like bucket(), but keeps the task titles so the notice can say which tasks
+  const bucketT = (list, dateOf, titleOf) => {
+    const b = { today: [], tomorrow: [], missed: [] };
+    list.forEach(x => {
+      const d = dateOf(x); if (!d) return;
+      const n = away(d), t = String(titleOf(x) || '').trim() || 'Untitled';
+      if (n < 0) b.missed.push(t); else if (n === 0) b.today.push(t); else if (n === 1) b.tomorrow.push(t);
+    });
+    return b;
+  };
+  const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  const names = arr => { const q = arr.map(t => '\u201c' + (t.length > 40 ? t.slice(0, 39) + '\u2026' : t) + '\u201d'); return q.length > 2 ? q.slice(0, 2).join(', ') + ` +${q.length - 2} more` : q.join(', '); };
   const groupsOf = list => { const m = new Map(); (list || []).forEach(i => { const k = i.groupKey || ('c:' + i.id); if (!m.has(k)) m.set(k, []); m.get(k).push(i); }); return [...m.values()]; };
 
   function evaluate(S, user, keys) {
@@ -85,12 +97,17 @@
     const d10 = v => String(v || '').slice(0, 10);
 
     if (S.cr) {
-      [['cr_video', (S.cr.videos || []).filter(x => (x.status || 'todo') === 'todo'), x => d10(x.date), 'video task'],
-       ['cr_post', (S.cr.posts || []).filter(x => x.status === 'toedit'), x => d10(x.scheduled), 'post task']].forEach(([k, list, f, noun]) => {
+      [['cr_video', (S.cr.videos || []).filter(x => (x.status || 'todo') === 'todo'), x => d10(x.date), x => x.title, 'video task'],
+       ['cr_post', (S.cr.posts || []).filter(x => x.status === 'toedit'), x => d10(x.scheduled), x => x.label || x.title, 'post task']].forEach(([k, list, f, t, noun]) => {
         if (!on.has(k)) return;
-        const b = bucket(list, f);
-        if (b.missed) add(k + ':missed', 'red', `${pl(b.missed, noun)} missed ${b.missed === 1 ? 'its' : 'their'} due date`, 'creatives.html');
-        if (b.today || b.tomorrow) add(k + ':due', 'orange', dueText(b.today, b.tomorrow, noun), 'creatives.html');
+        const b = bucketT(list, f, t);
+        if (b.missed.length) add(k + ':missed', 'red', `${b.missed.length === 1 ? cap(noun) + ' missed its due date' : pl(b.missed.length, noun) + ' missed their due dates'}: ${names(b.missed)}`, 'creatives.html');
+        if (b.today.length || b.tomorrow.length) {
+          const parts = [];
+          if (b.today.length) parts.push(`${cap(pl(b.today.length, noun))} due today: ${names(b.today)}`);
+          if (b.tomorrow.length) parts.push(`${parts.length ? b.tomorrow.length : cap(pl(b.tomorrow.length, noun))} due tomorrow: ${names(b.tomorrow)}`);
+          add(k + ':due', 'orange', parts.join(' \u00b7 '), 'creatives.html');
+        }
       });
     }
     if (S.ship) {
@@ -124,12 +141,15 @@
   const BELL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>';
   const XICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // Only "done" notices (shipment done by someone else) and finance notices can be dismissed.
+  // Due / missed notices stay until the task is shipped, completed or rescheduled; they then vanish by themselves because they are recalculated from live data.
+  const canDismiss = n => n.tone === 'green' || n.id === 'fin_new';
   const DKEY = 'cv:notifDismissed';   // sessionStorage: gone for this session, back in the next one
   const dismissed = () => { try { return new Set(JSON.parse(sessionStorage.getItem(DKEY) || '[]')); } catch (_) { return new Set(); } };
   function dismiss(id) { const s = dismissed(); s.add(id); try { sessionStorage.setItem(DKEY, JSON.stringify([...s])); } catch (_) {} }
   function render(el, list) {
-    const hide = dismissed(), show = list.filter(n => !hide.has(n.id));
-    el.innerHTML = show.map(n => `<div class="nt nt-${n.tone}" role="status" data-id="${esc(n.id)}"><a class="nt-body" href="${esc(n.href)}">${BELL}<span>${esc(n.text)}</span></a><button type="button" class="nt-x" aria-label="Dismiss until next session">${XICON}</button></div>`).join('');
+    const hide = dismissed(), show = list.filter(n => !(canDismiss(n) && hide.has(n.id)));
+    el.innerHTML = show.map(n => `<div class="nt nt-${n.tone}${canDismiss(n) ? '' : ' nt-lock'}" role="status" data-id="${esc(n.id)}"><a class="nt-body" href="${esc(n.href)}">${BELL}<span>${esc(n.text)}</span></a>${canDismiss(n) ? `<button type="button" class="nt-x" aria-label="Dismiss until next session">${XICON}</button>` : ''}</div>`).join('');
     el.hidden = !show.length;
     el.onclick = e => { const x = e.target.closest('.nt-x'); if (!x) return; const row = x.closest('.nt'); dismiss(row.dataset.id); row.remove(); el.hidden = !el.children.length; };
   }

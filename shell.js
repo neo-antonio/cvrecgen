@@ -257,7 +257,7 @@
 
     // ----- sidebar number badges -----
     // Shipping: shipping tasks (one per sale receipt, not per card) scheduled today.  Creatives: video + post tasks still to do.
-    // Finance: set by notifs.js through CVShell.setBadge('finance', n) (transactions the assigned member has not seen yet).
+    // Finance: records (receipts / finance tasks) the member has not seen since their last transaction; only for members with the finance alert.
     var counts = {};
     var paintBadges = function () {
       aside.querySelectorAll('.sb-badge').forEach(function (b) {
@@ -270,10 +270,40 @@
     var todayIso = function () { var d = new Date(); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); };
     var d10 = function (v) { return String(v || '').slice(0, 10); };
     var BKEY = 'cv:badges';
-    var loadBadges = function () {
+    // Finance badge = same "new since your last transaction" count as the Home alert (notifs.js, key fin_new), shown only to members who have that alert assigned in Organization.
+    var norm = function (u) { return String(u || '').trim().toLowerCase(); };
+    var lsGet = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
+    var lsSet = function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} };
+    var finBadge = function (save) {
+      var u = norm(curUser());
+      call('organization').then(check).then(function (o) {
+        var mine = (o.items || []).some(function (i) {
+          if (i.kind !== 'person') return false;
+          var t = norm(i.title); return (t === u || t.split(/\s+/)[0] === u) && (i.notifs || []).indexOf('fin_new') >= 0;
+        });
+        if (!mine) { counts.finance = 0; paintBadges(); save(); return; }
+        return Promise.all([call('finance').then(check), call('receipts').then(check)]).then(function (r) {
+          var rIds = (r[1].receipts || []).map(function (x) { return 'r:' + x.id; });
+          var fIds = (r[0].toRecord || []).concat(r[0].recorded || []).map(function (x) { return 'f:' + x.id; });
+          var ids = rIds.concat(fIds), sk = 'cv:finSeen:' + u, rk = 'cv:finRebase:' + u, seen = null;
+          try { seen = JSON.parse(lsGet(sk) || 'null'); } catch (e) {}
+          if (!Array.isArray(seen) || lsGet(rk)) { lsSet(sk, JSON.stringify(ids)); try { localStorage.removeItem(rk); } catch (e) {} counts.finance = 0; }
+          else { var set = {}; seen.forEach(function (x) { set[x] = 1; }); counts.finance = ids.filter(function (x) { return !set[x]; }).length; }
+          paintBadges(); save();
+        });
+      }).catch(function () {});
+    };
+    var loadBadges = function (force) {
       if (!curUser()) return;
-      try { var c = JSON.parse(sessionStorage.getItem(BKEY)); if (c && c.day === todayIso()) { counts.shipping = c.shipping; counts.creatives = c.creatives; paintBadges(); } } catch (e) {}
-      var save = function () { try { sessionStorage.setItem(BKEY, JSON.stringify({ day: todayIso(), shipping: counts.shipping || 0, creatives: counts.creatives || 0 })); } catch (e) {} };
+      try {
+        var c = JSON.parse(sessionStorage.getItem(BKEY));
+        if (c && c.day === todayIso()) {
+          counts.shipping = c.shipping; counts.creatives = c.creatives; counts.finance = c.finance; paintBadges();
+          if (force !== true && Date.now() - (c.t || 0) < 45000) return;   // fresh enough: do not refetch on every page
+        }
+      } catch (e) {}
+      var save = function () { try { sessionStorage.setItem(BKEY, JSON.stringify({ day: todayIso(), t: Date.now(), shipping: counts.shipping || 0, creatives: counts.creatives || 0, finance: counts.finance || 0 })); } catch (e) {} };
+      finBadge(save);
       call('shipping').then(check).then(function (d) {
         var t = todayIso(), groups = {};
         (d.toShip || []).forEach(function (i) { if (d10(i.scheduledDate) === t) groups[i.groupKey || ('c:' + i.id)] = 1; });
@@ -286,7 +316,7 @@
     };
     window.CVShell = {
       setBadge: function (key, n) { counts[key] = Number(n) || 0; paintBadges(); },
-      refreshBadges: loadBadges
+      refreshBadges: function () { loadBadges(true); }
     };
     loadBadges();
     document.addEventListener('visibilitychange', function () { if (!document.hidden) loadBadges(); });

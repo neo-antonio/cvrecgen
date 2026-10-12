@@ -812,3 +812,6 @@ html[data-theme=dark] .cc-row.changed{background:#2a2410}
 /* Home summary cards (their rules live in index.html) */
 html[data-theme=dark] .hs-card.hs-alert{background:#3b1018;border-color:#7a2a38}
 html[data-theme=dark] .hs-s{color:#ff6482}
+
+/* notices that cannot be dismissed have no X: give the text its normal right padding */
+.nt-lock .nt-body{padding-right:14px}
