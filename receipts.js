@@ -54,7 +54,8 @@ function render() {
 let recFirst = true;
 async function loadReceipts() {
   if (!CONFIG.portfolio.endpoint) { $recState.textContent = "Sync isn't set up yet."; $recState.hidden = false; return; }
-  const cached = recFirst ? cacheGet('receipts') : null; recFirst = false;
+  const saved = recFirst ? cacheGet('receipts') : null; recFirst = false;
+  const cached = Array.isArray(saved) ? saved : null;   // ignore a saved copy in the wrong shape instead of crashing before the fresh load
   if (cached) { receipts = cached; render(); }
   else { $recState.textContent = 'Loading\u2026'; $recState.hidden = false; $recList.hidden = true; }
   try {

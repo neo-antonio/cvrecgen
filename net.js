@@ -42,5 +42,9 @@ function jsonp(url, ms) {
 
 // Last good answer per screen, kept on this device. Pages draw it instantly on open, then refresh
 // in the background, so a slow or failed request no longer leaves a blank "Loading…" screen.
+// One-time repair: Home used to save a stripped-down copy of the receipts (ids only) under the same key the Receipts archive uses for its own list,
+// so whichever page ran last broke the other. Home now has its own key ('homeReceipts'); this clears the mixed-up copy once.
+try { if (!localStorage.getItem('cv:fix:receiptsKey')) { localStorage.removeItem('cv:receipts'); localStorage.setItem('cv:fix:receiptsKey', '1'); } } catch (_) {}
+
 const cacheGet = key => { try { const v = JSON.parse(localStorage.getItem('cv:' + key)); return v && v.d ? v.d : null; } catch (_) { return null; } };
 const cacheSet = (key, d) => { try { localStorage.setItem('cv:' + key, JSON.stringify({ t: Date.now(), d })); } catch (_) {} };
