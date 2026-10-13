@@ -318,16 +318,6 @@ document.getElementById('chartsTile').addEventListener('click', e => {
       set('sumVideos', v.length); flag('cntVideos', v.filter(x => d10(x.date) && d10(x.date) < today).length);
       set('sumPosts', p.length); flag('cntPosts', p.filter(x => d10(x.scheduled) && d10(x.scheduled) < today).length);
     }
-    try {
-      if (window.CVShell) {
-        if (S.ship) CVShell.setBadge('shipping', new Set((S.ship.toShip || []).filter(i => d10(i.scheduledDate) === today).map(i => i.groupKey || ('c:' + i.id))).size);
-        if (S.cr) CVShell.setBadge('creatives', (S.cr.videos || []).filter(x => x.status === 'todo').length + (S.cr.posts || []).filter(x => x.status === 'toedit').length);
-        if (window.CVNotifs) {
-          if (CVNotifs.keysFor(who).indexOf('fin_new') < 0) CVShell.setBadge('finance', 0);
-          else { const c = CVNotifs.finCount(who, S); if (c) CVShell.setBadge('finance', c.r + c.f); }
-        }
-      }
-    } catch (e) { console.warn('Badges failed', e); }
     if (S.ev) {
       const n = (S.ev.events || []).filter(e => d10(e.date) === today).length;
       set('sumEvents', n); set('sumEventsLbl', n === 1 ? 'Event today' : 'Events today');
@@ -347,7 +337,7 @@ document.getElementById('chartsTile').addEventListener('click', e => {
   const cp = cg('portfolio'); if (cp && cp.cards) S.port = cp.cards;
   S.ship = cg('shipping'); S.cr = cg('creatives');
   const cal = cg('calendar'); if (cal && cal.ev) S.ev = cal.ev;
-  S.rc = cg('homeReceipts'); S.bal = cg('balance'); S.fin = cg('finance'); if (cg('interest')) S.cfg = normInterest(cg('interest'));
+  S.rc = cg('receipts'); S.bal = cg('balance'); S.fin = cg('finance'); if (cg('interest')) S.cfg = normInterest(cg('interest'));
   render();
 
   if (typeof CONFIG === 'undefined' || !CONFIG.portfolio || !CONFIG.portfolio.endpoint || typeof jsonp !== 'function') { $('homeRefresh').hidden = true; return; }
@@ -359,7 +349,7 @@ document.getElementById('chartsTile').addEventListener('click', e => {
   load('creatives', d => { S.cr = { videos: d.videos || [], posts: d.posts || [] }; cs('creatives', S.cr); }),
   load('events', d => { S.ev = d; }),
   load('finance', d => { S.fin = { toRecord: d.toRecord || [], recorded: d.recorded || [] }; S.freshFin = true; cs('finance', S.fin); }),
-  load('receipts', d => { S.rc = { receipts: (d.receipts || []).map(r => ({ id: r.id })) }; S.freshRc = true; cs('homeReceipts', S.rc); }),
+  load('receipts', d => { S.rc = { receipts: (d.receipts || []).map(r => ({ id: r.id })) }; S.freshRc = true; cs('receipts', S.rc); }),
   load('balance', d => { S.bal = d.balance || null; if (S.bal) cs('balance', S.bal); if (d.interest) { S.cfg = normInterest(d.interest); cs('interest', S.cfg); } })
   ]);
   if (window.CVNotifs) CVNotifs.load().then(render);

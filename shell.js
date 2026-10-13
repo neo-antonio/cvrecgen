@@ -47,7 +47,7 @@
   document.head.appendChild(css);
 
   // JSONP call to the Apps Script backend (net.js is not loaded on every page, so this file carries its own)
-  function callOnce(action, params) {
+  function call(action, params) {
     return new Promise(function (resolve, reject) {
       if (typeof CONFIG === 'undefined' || !CONFIG.portfolio || !CONFIG.portfolio.endpoint) return reject(new Error('Sync is not set up (config.js is not loaded on this page).'));
       var cb = 'cvAuth_' + Date.now() + '_' + Math.floor(Math.random() * 1e6), sc = document.createElement('script'), done = false, timer;
@@ -59,24 +59,6 @@
         + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret) + '&callback=' + cb;
       document.head.appendChild(sc);
     });
-  }
-  // Apps Script often fails the first call (cold start, busy, timeout). Read-only actions are retried up to 2 more times with a short wait,
-  // so the person does not have to refresh. Writes (changePassword) are never retried.
-  var READS = { shipping: 1, creatives: 1, organization: 1, finance: 1, receipts: 1, login: 1 };
-  var TRANSIENT = /too many|try again|busy|temporar|timed? ?out|quota|server error/i;
-  // when net.js is on the page its jsonp() is used for these reads: same queue, same retries, and a read the page already sent is shared, not sent twice
-  var NETREAD = { shipping: 1, creatives: 1, organization: 1, finance: 1, receipts: 1 };
-  function call(action, params, attempt) {
-    attempt = attempt || 0;
-    if (attempt === 0 && NETREAD[action] && typeof window.jsonp === 'function' && typeof CONFIG !== 'undefined' && CONFIG.portfolio && CONFIG.portfolio.endpoint) {
-      return window.jsonp(CONFIG.portfolio.endpoint + '?action=' + action + Object.keys(params || {}).map(function (k) { return '&' + k + '=' + encodeURIComponent(params[k]); }).join('')
-        + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
-    }
-    var again = function () { return new Promise(function (r) { setTimeout(r, 1200 * (attempt + 1)); }).then(function () { return call(action, params, attempt + 1); }); };
-    return callOnce(action, params).then(function (d) {
-      if (attempt < 2 && READS[action] && d && d.ok === false && TRANSIENT.test(String(d.error || ''))) return again();
-      return d;
-    }, function (err) { if (attempt < 2 && READS[action]) return again(); throw err; });
   }
   var check = function (d) {
     if (d && d.ok) return d;
@@ -275,9 +257,7 @@
 
     // ----- sidebar number badges -----
     // Shipping: shipping tasks (one per sale receipt, not per card) scheduled today.  Creatives: video + post tasks still to do.
-    // Finance: records (receipts / finance tasks) not seen since the member's last transaction; only for members with the finance alert.
-    // Kept light on purpose: painted instantly from saved numbers / the pages' own caches, refreshed over the network at most every 3 minutes,
-    // one request at a time, after the page's own data has had a head start. Home never fetches (it pushes its numbers with CVShell.setBadge).
+    // Finance: set by notifs.js through CVShell.setBadge('finance', n) (transactions the assigned member has not seen yet).
     var counts = {};
     var paintBadges = function () {
       aside.querySelectorAll('.sb-badge').forEach(function (b) {
@@ -289,70 +269,24 @@
     var p2 = function (n) { return String(n).padStart(2, '0'); };
     var todayIso = function () { var d = new Date(); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); };
     var d10 = function (v) { return String(v || '').slice(0, 10); };
-    var norm = function (u) { return String(u || '').trim().toLowerCase(); };
-    var lsGet = function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } };
-    var lsSet = function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} };
-    var pageCache = function (k) { try { return typeof cacheGet === 'function' ? cacheGet(k) : null; } catch (e) { return null; } };
-    var BKEY = 'cv:badges', TTL = 3 * 60 * 1000, running = false;
-    var shipCount = function (d) {
-      var t = todayIso(), g = {};
-      (d.toShip || []).forEach(function (i) { if (d10(i.scheduledDate) === t) g[i.groupKey || ('c:' + i.id)] = 1; });
-      return Object.keys(g).length;
-    };
-    var crCount = function (d) {
-      return (d.videos || []).filter(function (x) { return x.status === 'todo'; }).length + (d.posts || []).filter(function (x) { return x.status === 'toedit'; }).length;
-    };
-    var readSaved = function () {
-      try { var c = JSON.parse(lsGet(BKEY)); if (c && c.user === curUser() && c.day === todayIso()) return c; } catch (e) {}
-      return null;
-    };
-    var save = function (complete) {
-      var prev = readSaved();
-      lsSet(BKEY, JSON.stringify({ user: curUser(), day: todayIso(), t: complete === true ? Date.now() : (prev && prev.t) || 0, shipping: counts.shipping || 0, creatives: counts.creatives || 0, finance: counts.finance || 0 }));
-    };
-    var finBadge = function () {
-      var u = norm(curUser()), cached = pageCache('notifPeople');
-      var people = cached && cached.length ? Promise.resolve(cached) : call('organization').then(check).then(function (o) {
-        return (o.items || []).filter(function (i) { return i.kind === 'person'; }).map(function (i) { return { title: i.title, keys: i.notifs || [] }; });
-      });
-      return people.then(function (list) {
-        var mine = list.some(function (p) { var t = norm(p.title); return (t === u || t.split(/\s+/)[0] === u) && (p.keys || []).indexOf('fin_new') >= 0; });
-        if (!mine) { counts.finance = 0; paintBadges(); save(); return; }
-        return Promise.all([call('finance').then(check), call('receipts').then(check)]).then(function (r) {
-          var rIds = (r[1].receipts || []).map(function (x) { return 'r:' + x.id; });
-          var fIds = (r[0].toRecord || []).concat(r[0].recorded || []).map(function (x) { return 'f:' + x.id; });
-          var ids = rIds.concat(fIds), sk = 'cv:finSeen:' + u, rk = 'cv:finRebase:' + u, seen = null;
-          try { seen = JSON.parse(lsGet(sk) || 'null'); } catch (e) {}
-          if (!Array.isArray(seen) || lsGet(rk)) { lsSet(sk, JSON.stringify(ids)); try { localStorage.removeItem(rk); } catch (e) {} counts.finance = 0; }
-          else { var set = {}; seen.forEach(function (x) { set[x] = 1; }); counts.finance = ids.filter(function (x) { return !set[x]; }).length; }
-          paintBadges(); save();
-        });
-      });
-    };
-    var loadBadges = function (force) {
+    var BKEY = 'cv:badges';
+    var loadBadges = function () {
       if (!curUser()) return;
-      var c = readSaved();
-      if (c) { counts.shipping = c.shipping; counts.creatives = c.creatives; counts.finance = c.finance; }
-      else {
-        var sc = pageCache('shipping'), cc = pageCache('creatives');
-        if (sc && sc.toShip) counts.shipping = shipCount(sc);
-        if (cc && cc.videos) counts.creatives = crCount(cc);
-      }
-      paintBadges();
-      if (page === 'index.html' || running) return;
-      if (force !== true && c && Date.now() - (c.t || 0) < TTL) return;
-      running = true;
-      var ok = true, miss = function () { ok = false; };
-      setTimeout(function () {
-        call('shipping').then(check).then(function (d) { counts.shipping = shipCount(d); paintBadges(); save(); }).catch(miss)
-          .then(function () { return call('creatives').then(check).then(function (d) { counts.creatives = crCount(d); paintBadges(); save(); }); }).catch(miss)
-          .then(function () { return finBadge(); }).catch(miss)
-          .then(function () { save(ok); running = false; });
-      }, 1800);
+      try { var c = JSON.parse(sessionStorage.getItem(BKEY)); if (c && c.day === todayIso()) { counts.shipping = c.shipping; counts.creatives = c.creatives; paintBadges(); } } catch (e) {}
+      var save = function () { try { sessionStorage.setItem(BKEY, JSON.stringify({ day: todayIso(), shipping: counts.shipping || 0, creatives: counts.creatives || 0 })); } catch (e) {} };
+      call('shipping').then(check).then(function (d) {
+        var t = todayIso(), groups = {};
+        (d.toShip || []).forEach(function (i) { if (d10(i.scheduledDate) === t) groups[i.groupKey || ('c:' + i.id)] = 1; });
+        counts.shipping = Object.keys(groups).length; paintBadges(); save();
+      }).catch(function () {});
+      call('creatives').then(check).then(function (d) {
+        counts.creatives = (d.videos || []).filter(function (x) { return x.status === 'todo'; }).length + (d.posts || []).filter(function (x) { return x.status === 'toedit'; }).length;
+        paintBadges(); save();
+      }).catch(function () {});
     };
     window.CVShell = {
-      setBadge: function (key, n) { counts[key] = Number(n) || 0; paintBadges(); save(); },
-      refreshBadges: function () { loadBadges(true); }
+      setBadge: function (key, n) { counts[key] = Number(n) || 0; paintBadges(); },
+      refreshBadges: loadBadges
     };
     loadBadges();
     document.addEventListener('visibilitychange', function () { if (!document.hidden) loadBadges(); });
