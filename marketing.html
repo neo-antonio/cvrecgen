@@ -103,6 +103,16 @@
       <input type="text" id="entNick" autocomplete="off" maxlength="40" placeholder="e.g. Kuya Rick">
     </div>
     <div class="field">
+      <label for="entFlagC">Customer flag <small>(sold to)</small></label>
+      <select id="entFlagC"></select>
+    </div>
+    <div class="field">
+      <label for="entFlagS">Supplier flag <small>(bought from)</small></label>
+      <select id="entFlagS"></select>
+    </div>
+    <label class="port-chk bl-chk"><input type="checkbox" id="entBl"><span>Blacklist &ndash; do not transact</span></label>
+    <div class="field" id="entBlField" hidden><input type="text" id="entBlReason" maxlength="120" autocomplete="off" placeholder="Reason (optional)"></div>
+    <div class="field">
       <label for="entContact">Contact number <small>(optional)</small></label>
       <input type="tel" id="entContact" inputmode="tel" autocomplete="off" placeholder="09xx xxx xxxx">
     </div>
@@ -153,6 +163,10 @@
 <div class="modal" id="sortSheet" hidden>
   <div class="sheet small wide">
     <h3>Sort entities</h3>
+    <div class="field">
+      <label for="flagFilter">Show only</label>
+      <select id="flagFilter"></select>
+    </div>
     <div class="so-list" id="sortOpts"></div>
     <div class="field" id="sortDirField">
       <label>Order</label>
@@ -163,8 +177,17 @@
     </div>
     <div class="acts">
       <button type="button" class="go sm" id="sortDone">Done</button>
-      <button type="button" class="ghost" id="sortReset">Reset to A&ndash;Z</button>
+      <button type="button" class="ghost" id="sortReset">Reset sort &amp; filter</button>
+      <button type="button" class="ghost" id="flagInfoBtn">How flags work</button>
     </div>
+  </div>
+</div>
+
+<div class="modal" id="flagInfo" hidden>
+  <div class="sheet small wide">
+    <h3>How flags work</h3>
+    <div id="flagInfoBody" class="fi-body"></div>
+    <div class="acts"><button type="button" class="ghost" id="flagInfoClose">Close</button></div>
   </div>
 </div>
 

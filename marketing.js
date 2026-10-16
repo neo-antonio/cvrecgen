@@ -28,19 +28,23 @@ const api = (action, params = {}) => CONFIG.portfolio.endpoint + '?action=' + ac
   + Object.keys(params).map(k => '&' + k + '=' + encodeURIComponent(params[k])).join('')
   + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
 
-/* ---------- Profile extras (photo, gender, nickname) and the details toggle.
+/* ---------- Profile extras (photo, gender, nickname, manual flags, blacklist) and the details toggle.
    Front-end only: kept on this device, keyed by entity id. ---------- */
 const PROF_KEY = 'trackello.entProfiles', DET_KEY = 'trackello.entDetails';
 let prof = {};
 try { prof = JSON.parse(localStorage.getItem(PROF_KEY) || '{}') || {}; } catch (_) { prof = {}; }
 let showDetails = true;
 try { showDetails = localStorage.getItem(DET_KEY) !== '0'; } catch (_) {}
-const profOf = id => Object.assign({ g: '', pic: '', n: '' }, prof[id]);
-function setProf(id, g, pic, nick) {
+const profOf = id => Object.assign({ g: '', pic: '', n: '', fc: '', fs: '', bl: false, blr: '' }, prof[id]);
+// patch = only the fields to change; a profile with nothing left in it is dropped
+function setProf(id, patch) {
   if (!id) return true;
-  if (!g && !pic && !nick) delete prof[id]; else prof[id] = { g: g || '', pic: pic || '', n: nick || '' };
+  const p = Object.assign(profOf(id), patch);
+  if (!p.g && !p.pic && !p.n && !p.fc && !p.fs && !p.bl) delete prof[id];
+  else prof[id] = { g: p.g, pic: p.pic, n: p.n, fc: p.fc, fs: p.fs, bl: !!p.bl, blr: p.bl ? p.blr : '' };
   try { localStorage.setItem(PROF_KEY, JSON.stringify(prof)); return true; } catch (_) { return false; }
 }
+function clearProf(id) { delete prof[id]; try { localStorage.setItem(PROF_KEY, JSON.stringify(prof)); } catch (_) {} }
 
 /* Blank profile pictures: neutral, male, female. */
 const AV_SVG = {
@@ -77,6 +81,86 @@ function aggregate(lo, hi) {
 const hasSplit = a => a.n > 0 && a.nIn + a.nOut === a.n;
 const entByName = name => data.entities.find(e => e.name === name);
 
+/* ---------- Automatic flags (a manual choice on the profile always wins) ----------
+   Customers use sales only; suppliers use purchases only; trades are not counted.
+   An "order" is one day with sales (or purchases), however many cards moved that day. */
+const CF = { hero: ['Hero', 'gold'], loyal: ['Loyalist', 'green'], pot: ['Potential Loyalist', 'blue'], new: ['New', 'teal'], sleep: ['Sleeper', 'purple'], cold: ['Cold', 'grey'] };
+const SF = { goto: ['Go-to Source', 'gold'], bulk: ['Bulk Deals', 'blue'], rare: ['Rare-Find Holder', 'purple'], occ: ['Occasional', 'grey'] };
+const dayNum = s => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5) : null; };
+const todayNum = () => { const d = new Date(); return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5); };
+const pct = (arr, p) => {
+  if (!arr.length) return 0;
+  const a = arr.slice().sort((x, y) => x - y), i = (a.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
+  return a[lo] + (a[hi] - a[lo]) * (i - lo);
+};
+let flagSrc = null, flagVal = null;
+function autoFlags() {
+  if (flagSrc === data && flagVal) return flagVal;
+  const today = todayNum(), cust = {}, supp = {};
+  data.tx.forEach(([name, kind, date, value]) => {
+    if (kind !== 'sell' && kind !== 'buy') return;
+    const bag = kind === 'sell' ? cust : supp;
+    const o = bag[name] || (bag[name] = { v: 0, n: 0, days: new Set() });
+    o.v += Number(value) || 0; o.n++;
+    const d = dayNum(date); if (d !== null) o.days.add(d);
+  });
+  const C = {}, S = {};
+  const cNames = Object.keys(cust), lvs = cNames.map(n => cust[n].v);
+  const med = pct(lvs, 0.5), heroCut = pct(lvs, 0.9);
+  cNames.forEach(n => {
+    const o = cust[n], ds = Array.from(o.days).sort((a, b) => a - b), orders = ds.length;
+    if (!orders) return;
+    const first = ds[0], last = ds[orders - 1], since = today - last, age = today - first;
+    const gap = orders > 1 ? (last - first) / (orders - 1) : 0;
+    const lapsed = since > Math.max(21, 2 * gap);
+    const base = `${plural(orders, 'order')}, ${mkPhp(o.v)}, last order ${since} days ago`;
+    let key = '', why = '';
+    if (o.v > 0 && o.v >= heroCut && orders >= 2 && lapsed && since <= 180) { key = 'hero'; why = `Top 10% spender: ${base}${gap ? ` (usually orders every ~${Math.round(gap)} days)` : ''}`; }
+    else if (orders >= 3 && !lapsed) { key = 'loyal'; why = `Regular buyer: ${base}`; }
+    else if (orders <= 2 && since <= 30 && o.v >= med) { key = 'pot'; why = `Recent buyer who spent well: ${base}`; }
+    else if (age <= 30) { key = 'new'; why = `First order ${age} days ago, ${mkPhp(o.v)} so far`; }
+    else if (orders >= 2 && since > 45) { key = 'sleep'; why = `Used to buy: ${base}`; }
+    else if (orders === 1 && since > 90 && o.v < med) { key = 'cold'; why = `One small order, ${since} days ago (${mkPhp(o.v)})`; }
+    if (key) C[n] = { key, why };
+  });
+  const sNames = Object.keys(supp);
+  const spendCut = pct(sNames.map(n => supp[n].v), 0.75), unitCut = pct(sNames.map(n => supp[n].v / supp[n].n), 0.5);
+  sNames.forEach(n => {
+    const o = supp[n], orders = o.days.size, unit = o.v / o.n;
+    const hiSpend = o.v > 0 && o.v >= spendCut, hiUnit = unit >= unitCut;
+    const base = `${mkPhp(o.v)} over ${plural(orders, 'order')}, ${plural(o.n, 'card')} at about ${mkPhp(unit)} each`;
+    let key = '', why = '';
+    if (hiSpend && hiUnit && orders >= 2) { key = 'goto'; why = `High spend, premium cards, repeat supplier: ${base}`; }
+    else if (hiSpend && !hiUnit) { key = 'bulk'; why = `High spend on lower-priced cards: ${base}`; }
+    else if (hiUnit) { key = 'rare'; why = `Premium cards, low spend or a single order: ${base}`; }
+    else { key = 'occ'; why = `Small, occasional buys: ${base}`; }
+    S[n] = { key, why };
+  });
+  flagSrc = data;
+  return flagVal = { C, S, th: { nCust: cNames.length, nSupp: sNames.length, med, heroCut, spendCut, unitCut } };
+}
+// effective flag = manual choice if there is one, otherwise the automatic one
+function flagsOf(e) {
+  const A = autoFlags(), p = profOf(e.id);
+  const pick = (ov, auto, defs) => {
+    if (ov === 'none') return null;
+    if (ov && defs[ov]) return { key: ov, manual: true, why: 'Set manually. ' + (auto ? 'Automatic would be ' + defs[auto.key][0] + '.' : 'No automatic flag.') };
+    return auto ? { key: auto.key, manual: false, why: auto.why } : null;
+  };
+  return { c: pick(p.fc, A.C[e.name], CF), s: pick(p.fs, A.S[e.name], SF), bl: p.bl ? (p.blr || 'No reason given') : '' };
+}
+const flChip = (f, defs, title) => `<span class="fl fl-${defs[f.key][1]}" title="${escMk(title === undefined ? f.why : title)}">${defs[f.key][0]}</span>`;
+// which: 'c' customer only, 's' supplier only, '' neither (Blacklisted always shows)
+function flagChips(e, which) {
+  const x = flagsOf(e), out = [];
+  if (x.bl) out.push(`<span class="fl fl-red" title="${escMk(x.bl)}">Blacklisted</span>`);
+  if (which !== 's' && which !== '' && x.c) out.push(flChip(x.c, CF));
+  if (which === 's' && x.s) out.push(flChip(x.s, SF));
+  if (which === 'both') { if (x.s) out.push(flChip(x.s, SF)); }
+  return out.join('');
+}
+const flagLabels = e => { const x = flagsOf(e); return [x.c && CF[x.c.key][0], x.s && SF[x.s.key][0], x.bl && 'blacklisted blacklist'].filter(Boolean).join(' '); };
+
 /* ---------- Rankings ---------- */
 function renderRank() {
   let lo = $m('mkFrom').value, hi = $m('mkTo').value;
@@ -101,6 +185,7 @@ function renderRank() {
   $m('mkList').innerHTML = rows.map((r, i) => {
     const share = total ? Math.round(r.v / total * 100) : 0, ent = entByName(r.name);
     const nm = ent ? nameHtml(ent) : escMk(r.name);
+    const fch = ent ? flagChips(ent, mkKind === 'buy' ? 's' : mkKind === 'sell' ? 'c' : '') : '';
     const split = mkKind === 'trade' && hasSplit(r);
     const sub = split
       ? `${plural(r.n, 'card')} traded \u00b7 ${r.nOut} out \u00b7 ${r.nIn} in \u00b7 last ${fmtDay(r.last) || '\u2014'}`
@@ -108,10 +193,10 @@ function renderRank() {
     const val = split
       ? `<div class="mk-io"><span><em>Out</em>${mkPhp(r.vOut)}</span><span><em>In</em>${mkPhp(r.vIn)}</span></div>`
       : `<b class="mk-val">${mkPhp(r.v)}</b>`;
-    return `<div class="mk-row click${i === 0 ? ' first' : ''}" data-id="${ent ? escMk(ent.id) : ''}" role="button" tabindex="0" aria-label="Open profile: ${escMk(r.name)}">
+    return `<div class="mk-row click${i === 0 ? ' first' : ''}${ent && flagsOf(ent).bl ? ' bl' : ''}" data-id="${ent ? escMk(ent.id) : ''}" role="button" tabindex="0" aria-label="Open profile: ${escMk(r.name)}">
         <span class="mk-rank">${i + 1}</span>
         ${avatar(ent, 'sm')}
-        <div class="mk-main"><b>${nm}</b>
+        <div class="mk-main"><b>${nm}${fch ? ' ' + fch : ''}</b>
           <span>${sub}</span>
           <i class="mk-bar"><u style="width:${Math.max(2, Math.round(r.v / top * 100))}%"></u></i></div>
         ${val}
@@ -218,20 +303,65 @@ const SORTS = {
   vin:  { label: 'Card value in', note: 'Bought + traded in', val: a => a.buy.v + a.trade.vIn, fmt: v => mkPhp(v) + ' in' },
   vout: { label: 'Card value out', note: 'Sold + traded out', val: a => a.sell.v + a.trade.vOut, fmt: v => mkPhp(v) + ' out' }
 };
-let entSort = '', entDir = 'most';
+let entSort = '', entDir = 'most', entFlag = '';
 function renderSortOpts() {
   $m('sortOpts').innerHTML = [['', 'Name (A\u2013Z)', 'Alphabetical']].concat(Object.keys(SORTS).map(k => [k, SORTS[k].label, SORTS[k].note]))
     .map(([k, l, n]) => `<button type="button" class="so-item${k === entSort ? ' on' : ''}" data-k="${k}"><b>${l}</b><span>${n}</span></button>`).join('');
   $m('sortDirField').hidden = !entSort;
   document.querySelectorAll('input[name=sortDir]').forEach(r => r.checked = r.value === entDir);
+  const opt = (v, l) => `<option value="${v}">${l}</option>`;
+  $m('flagFilter').innerHTML = opt('', 'All entities') + opt('bl', 'Blacklisted') + opt('none', 'No flag')
+    + '<optgroup label="Customers (sold to)">' + Object.keys(CF).map(k => opt('c:' + k, CF[k][0])).join('') + '</optgroup>'
+    + '<optgroup label="Suppliers (bought from)">' + Object.keys(SF).map(k => opt('s:' + k, SF[k][0])).join('') + '</optgroup>';
+  $m('flagFilter').value = entFlag;
+}
+const flagFilterLabel = () => entFlag === 'bl' ? 'Blacklisted' : entFlag === 'none' ? 'No flag' : entFlag.startsWith('c:') ? CF[entFlag.slice(2)][0] : SF[entFlag.slice(2)][0];
+function flagMatch(e) {
+  if (!entFlag) return true;
+  const x = flagsOf(e);
+  if (entFlag === 'bl') return !!x.bl;
+  if (entFlag === 'none') return !x.c && !x.s && !x.bl;
+  const k = entFlag.slice(2);
+  return entFlag[0] === 'c' ? !!x.c && x.c.key === k : !!x.s && x.s.key === k;
 }
 $m('entFilterBtn').onclick = () => { renderSortOpts(); $m('sortSheet').hidden = false; };
 $m('sortOpts').addEventListener('click', e => { const b = e.target.closest('.so-item'); if (!b) return; entSort = b.dataset.k; renderSortOpts(); renderEntities(); });
 document.querySelectorAll('input[name=sortDir]').forEach(r => r.addEventListener('change', () => { if (r.checked) { entDir = r.value; renderEntities(); } }));
+$m('flagFilter').addEventListener('change', () => { entFlag = $m('flagFilter').value; renderEntities(); });
 $m('sortDone').onclick = () => $m('sortSheet').hidden = true;
-$m('sortReset').onclick = () => { entSort = ''; entDir = 'most'; renderSortOpts(); renderEntities(); };
+$m('sortReset').onclick = () => { entSort = ''; entDir = 'most'; entFlag = ''; renderSortOpts(); renderEntities(); };
 $m('sortSheet').addEventListener('click', e => { if (e.target.id === 'sortSheet') $m('sortSheet').hidden = true; });
-$m('entActive').addEventListener('click', e => { if (e.target.closest('button')) { entSort = ''; entDir = 'most'; renderEntities(); } });
+$m('entActive').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.clear === 'sort') { entSort = ''; entDir = 'most'; } else entFlag = '';
+  renderEntities();
+});
+
+/* the rules, with the live thresholds worked out from your own data */
+function showFlagInfo() {
+  const t = autoFlags().th;
+  const li = (name, txt) => `<div class="fi-row"><b>${name}</b><span>${txt}</span></div>`;
+  $m('flagInfoBody').innerHTML = `<p class="fi-lead">Flags are worked out automatically from your sales and purchases and refresh every time the page loads. Set a flag on a profile and your choice always wins. Blacklist is only ever set by hand. Trades are not counted.</p>
+    <h4>Customers (sold to)</h4>
+    <p class="fi-note">An order is one day with sales, however many cards. Top 10% means lifetime sales of ${mkPhp(t.heroCut)} or more across ${plural(t.nCust, 'customer')}. A good spender is at or above the middle customer (${mkPhp(t.med)}).</p>
+    ${li('Hero', 'Top 10% spender, 2+ orders, now quiet for longer than twice their usual gap (at least 3 weeks, up to 180 days).')}
+    ${li('Loyalist', '3+ orders and still active: last order within 30 days or twice their usual gap.')}
+    ${li('Potential Loyalist', '1 to 2 orders, last one within 30 days, and a good spender.')}
+    ${li('New', 'First order within the last 30 days.')}
+    ${li('Sleeper', '2+ orders but nothing for 45 days or more.')}
+    ${li('Cold', 'One order, over 90 days ago, below the middle spend.')}
+    <h4>Suppliers (bought from)</h4>
+    <p class="fi-note">High spend means lifetime purchases of ${mkPhp(t.spendCut)} or more (top 25% of ${plural(t.nSupp, 'supplier')}). Premium cards means an average cost per card of ${mkPhp(t.unitCut)} or more (the middle supplier).</p>
+    ${li('Go-to Source', 'High spend, premium cards, and bought from on 2+ days.')}
+    ${li('Bulk Deals', 'High spend, but lower-priced cards. Easy to shop around.')}
+    ${li('Rare-Find Holder', 'Premium cards with low spend or a single order. Keep them warm.')}
+    ${li('Occasional', 'Everything else.')}
+    <p class="fi-note">Anyone who fits no rule is left unflagged.</p>`;
+  $m('flagInfo').hidden = false;
+}
+$m('flagInfoBtn').onclick = showFlagInfo;
+$m('flagInfoClose').onclick = () => $m('flagInfo').hidden = true;
+$m('flagInfo').addEventListener('click', e => { if (e.target.id === 'flagInfo') $m('flagInfo').hidden = true; });
 
 // cards are dealt into columns one after another, so a short card never leaves a gap beside a tall one
 const entCols = () => window.matchMedia('(min-width:640px)').matches ? 2 : 1;
@@ -242,14 +372,18 @@ function renderEntities() {
   const q = $m('entSearch').value.trim().toLowerCase();
   const by = aggregate('', '');
   let list = data.entities.slice();
-  if (q) list = list.filter(e => [e.name, nickOf(e), e.contact, e.address, e.email, e.facebook, e.notes].concat(e.aliases, e.payment).join(' ').toLowerCase().includes(q));
+  if (q) list = list.filter(e => [e.name, nickOf(e), flagLabels(e), e.contact, e.address, e.email, e.facebook, e.notes].concat(e.aliases, e.payment).join(' ').toLowerCase().includes(q));
+  if (entFlag) list = list.filter(flagMatch);
   const S = SORTS[entSort];
   if (S) { const d = entDir === 'least' ? 1 : -1; list.sort((x, y) => d * (S.val(by[x.name]) - S.val(by[y.name])) || x.name.localeCompare(y.name)); }
   else list.sort((a, b) => a.name.localeCompare(b.name));
   $m('entCount').textContent = data.entities.length ? `${list.length} of ${plural(data.entities.length, 'entity').replace('entitys', 'entities')}` : '';
-  $m('entFilterBtn').classList.toggle('on', !!S);
-  $m('entActive').hidden = !S;
-  if (S) $m('entActive').innerHTML = `<button type="button" class="chip active" title="Clear sort">${entDir === 'least' ? 'Least' : 'Most'} \u00b7 ${S.label} &times;</button>`;
+  $m('entFilterBtn').classList.toggle('on', !!S || !!entFlag);
+  const act = [];
+  if (S) act.push(['sort', `${entDir === 'least' ? 'Least' : 'Most'} \u00b7 ${S.label}`]);
+  if (entFlag) act.push(['flag', flagFilterLabel()]);
+  $m('entActive').hidden = !act.length;
+  $m('entActive').innerHTML = act.map(([k, t]) => `<button type="button" class="chip active" data-clear="${k}" title="Clear">${t} &times;</button>`).join('');
   syncToggleLabels();
   if (!list.length) {
     $m('entState').textContent = data.entities.length ? 'No entities match your search.' : 'No entities yet. They are saved automatically from your receipts, or tap + Add entity.';
@@ -260,10 +394,12 @@ function renderEntities() {
     const a = by[e.name] || {};
     const stats = statBlocks(a), none = !stats;
     const rows = showDetails ? detailRows(e, false) : '';
-    return `<div class="ent-card pf-card click" data-id="${escMk(e.id)}">
+    const fx = flagsOf(e);
+    const chips = [fx.bl ? `<span class="fl fl-red" title="${escMk(fx.bl)}">Blacklisted</span>` : '', fx.c ? flChip(fx.c, CF) : '', fx.s ? flChip(fx.s, SF) : ''].join('');
+    return `<div class="ent-card pf-card click${fx.bl ? ' bl' : ''}" data-id="${escMk(e.id)}">
         <div class="pf-top">
           ${avatar(e, 'md')}
-          <div class="ent-name"><b>${nameHtml(e)}</b>${e.aliases.length ? `<span class="pf-alias">Also spelled: ${e.aliases.map(escMk).join(', ')}</span>` : ''}${S ? `<span class="pf-metric">${S.fmt(S.val(a))}</span>` : ''}</div>
+          <div class="ent-name"><b>${nameHtml(e)}</b>${e.aliases.length ? `<span class="pf-alias">Also spelled: ${e.aliases.map(escMk).join(', ')}</span>` : ''}${chips ? `<span class="fl-row">${chips}</span>` : ''}${S ? `<span class="pf-metric">${S.fmt(S.val(a))}</span>` : ''}</div>
           <div class="ent-acts">${entIcon('pencil', 'ent-edit', 'Edit profile', e.id)}${entIcon('merge', 'ent-merge', 'Merge into another entity', e.id)}${none ? entIcon('trash', 'danger ent-del', 'Delete', e.id) : ''}</div>
         </div>
         ${actionBtns(e, false)}
@@ -353,7 +489,7 @@ function usePicLink() {
   const v = $m('entPicUrl').value.trim();
   if (!v) return;
   if (!/^https?:\/\//i.test(v)) return toast('Paste a full link that starts with https://');
-  editPic = v; $m('entPicUrl').value = ''; $m('entPicLinkField').hidden = true; renderEditAvatar();
+  editPic = v; $m('entPicUrl').value = ''; $m('entPicLinkField').hidden = true; renderEditAvatar(); fillFlagSelects(e);
 }
 $m('entPicUse').onclick = usePicLink;
 $m('entPicUrl').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); usePicLink(); } });
@@ -382,6 +518,15 @@ $m('entPicFile').addEventListener('change', async () => {
   try { editPic = await fileToAvatar(f); renderEditAvatar(); } catch (_) { toast('Could not read that image.'); }
 });
 
+function fillFlagSelects(e) {
+  const A = autoFlags(), p = e ? profOf(e.id) : profOf('');
+  const opts = (defs, auto) => `<option value="">${auto ? 'Auto (' + defs[auto.key][0] + ')' : 'Auto (no flag yet)'}</option>`
+    + Object.keys(defs).map(k => `<option value="${k}">${defs[k][0]}</option>`).join('') + '<option value="none">No flag</option>';
+  $m('entFlagC').innerHTML = opts(CF, e && A.C[e.name]); $m('entFlagC').value = p.fc;
+  $m('entFlagS').innerHTML = opts(SF, e && A.S[e.name]); $m('entFlagS').value = p.fs;
+  $m('entBl').checked = !!p.bl; $m('entBlReason').value = p.blr || ''; $m('entBlField').hidden = !p.bl;
+}
+$m('entBl').addEventListener('change', () => { $m('entBlField').hidden = !$m('entBl').checked; if ($m('entBl').checked) $m('entBlReason').focus(); });
 function openEnt(id, fromView) {
   const e = id ? findEnt(id) : null;
   editEntId = e ? e.id : ''; reopenView = !!fromView;
@@ -420,7 +565,8 @@ $m('entSave').onclick = async () => {
     closeEnt();
     if (changed) await loadData();
     const id = wasId || (data.entities.find(x => x.name.toLowerCase() === name.toLowerCase()) || {}).id;
-    const kept = setProf(id, editGender, editPic, $m('entNick').value.replace(/\s+/g, ' ').trim().slice(0, 40));
+    const bl = $m('entBl').checked;
+    const kept = setProf(id, { g: editGender, pic: editPic, n: $m('entNick').value.replace(/\s+/g, ' ').trim().slice(0, 40), fc: $m('entFlagC').value, fs: $m('entFlagS').value, bl, blr: bl ? $m('entBlReason').value.trim().slice(0, 120) : '' });
     toast(!kept ? 'Saved, but the photo is too large to keep on this device.' : old ? 'Profile updated.' : 'Entity added.');
     renderAll();
     if (back) openView(back);
@@ -443,14 +589,19 @@ function openView(id) {
   const a = aggregate('', '')[e.name] || {};
   const stats = statBlocks(a);
   const rows = detailRows(e, true);
+  const fx = flagsOf(e);
+  const blBox = fx.bl ? `<div class="pf-bl"><b>Blacklisted \u00b7 Do not transact</b><span>${escMk(fx.bl)}</span></div>` : '';
+  const flagRows = [['Customer', fx.c, CF], ['Supplier', fx.s, SF]].filter(r => r[1])
+    .map(([l, f, defs]) => `<div class="pf-fl"><small>${l}</small>${flChip(f, defs, '')}<span>${escMk(f.why)}</span></div>`).join('');
   const when = (label, t) => t ? `<div class="ed-row"><small>${label}</small><span>${escMk(txLine(t))}</span></div>` : '';
-  $m('entViewBody').innerHTML = `<div class="pf-hero">
+  $m('entViewBody').innerHTML = `${blBox}<div class="pf-hero">
       <div class="pf-avwrap">${avatar(e, 'xl')}<button type="button" class="pf-cam" id="pfCam" aria-label="Change photo or gender" title="Change photo or gender">${pfIc('cam')}</button></div>
       <b class="pf-name">${escMk(e.name)}</b>
       ${nickOf(e) ? `<span class="pf-nick big">\u201c${escMk(nickOf(e))}\u201d</span>` : ''}
       ${e.aliases.length ? `<span class="pf-alias">Also spelled: ${e.aliases.map(escMk).join(', ')}</span>` : ''}
     </div>
     ${actionBtns(e, true)}
+    ${flagRows ? `<div class="pf-flagbox">${flagRows}</div>` : ''}
     <div class="pf-sec"><span>Details</span><button type="button" class="ghost sm" id="pfToggle">${showDetails ? 'Hide details' : 'Show details'}</button></div>
     <div id="pfDetails"${showDetails ? '' : ' hidden'}>
       ${rows ? `<div class="pf-rows full">${rows}</div>` : '<p class="pf-none">No contact details saved yet. Tap Edit details to add some.</p>'}
@@ -546,7 +697,7 @@ $m('mergeGo').onclick = async () => {
     if (!res.ok) throw new Error(res.error || 'Request failed');
     // the kept profile inherits the merged one's photo / gender when it has none of its own
     const pf = profOf(from.id), pi = profOf(into.id);
-    setProf(into.id, pi.g || pf.g, pi.pic || pf.pic, pi.n || pf.n); setProf(from.id, '', '', '');
+    setProf(into.id, { g: pi.g || pf.g, pic: pi.pic || pf.pic, n: pi.n || pf.n, bl: pi.bl || pf.bl, blr: pi.blr || pf.blr }); clearProf(from.id);
     closeMerge(); toast(`Merged into ${into.name}.`);
     await loadData();
   } catch (err) { toast('Could not merge: ' + backendErr(err)); }
@@ -565,7 +716,7 @@ $m('entList').addEventListener('click', async e => {
     try {
       const res = await jsonp(api('deleteEntity', { entityId: ent.id }), 60000);
       if (!res.ok) throw new Error(res.error || 'Request failed');
-      setProf(ent.id, '', '', '');
+      clearProf(ent.id);
       toast('Entity deleted.'); await loadData();
     } catch (err) { del.disabled = false; toast('Could not delete: ' + backendErr(err)); }
     return;

@@ -917,3 +917,38 @@ a.pf-btn:hover{background:var(--soft)}
 #entList.cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
 #entList.cols .mk-col{display:flex;flex-direction:column;gap:8px;min-width:0}
 .ent-active[hidden]{display:none}
+
+/* flags */
+.fl{--flbg:#ececec;--flfg:#555;display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--flbg);color:var(--flfg);font:600 10px/1.5 Inter,system-ui,sans-serif;white-space:nowrap;vertical-align:middle}
+.fl-gold{--flbg:#fbf0d2;--flfg:#7a5600}
+.fl-green{--flbg:#e1f1e4;--flfg:#1c6b2e}
+.fl-blue{--flbg:#e1ecf8;--flfg:#25598f}
+.fl-purple{--flbg:#ece6f6;--flfg:#5b3f8c}
+.fl-teal{--flbg:#dff1f0;--flfg:#1d6b66}
+.fl-grey{--flbg:#ececec;--flfg:#5f5f5f}
+.fl-red{--flbg:#fde8e6;--flfg:#a52a1c}
+html[data-theme=dark] .fl-gold{--flbg:#3a2f10;--flfg:#e8c46a}
+html[data-theme=dark] .fl-green{--flbg:#14301b;--flfg:#7bd18f}
+html[data-theme=dark] .fl-blue{--flbg:#14263a;--flfg:#8dbbe8}
+html[data-theme=dark] .fl-purple{--flbg:#261c38;--flfg:#b8a2e3}
+html[data-theme=dark] .fl-teal{--flbg:#11302e;--flfg:#7ccfc9}
+html[data-theme=dark] .fl-grey{--flbg:#2a2a2c;--flfg:#a5a5a8}
+html[data-theme=dark] .fl-red{--flbg:#3b1018;--flfg:#ff7a8f}
+.fl-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.mk-main b .fl{margin-left:2px}
+.pf-card.bl,.mk-row.bl{border-color:#c0392b;box-shadow:inset 3px 0 0 #c0392b}
+.pf-bl{display:flex;flex-direction:column;gap:2px;margin:0 0 14px;padding:10px 12px;border:1px solid #c0392b;background:#fde8e6;color:#8f2418;border-radius:var(--r);font-size:12px;line-height:1.5}
+.pf-bl b{font:600 13px Inter,system-ui,sans-serif}
+html[data-theme=dark] .pf-bl{background:#3b1018;border-color:#7a2a38;color:#ff9aa9}
+.pf-flagbox{display:flex;flex-direction:column;gap:8px;margin:12px 0 0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r)}
+.pf-fl{display:grid;grid-template-columns:62px auto 1fr;gap:8px;align-items:start;font-size:11px;line-height:1.5}
+.pf-fl small{font:500 11px/1.9 Inter,system-ui,sans-serif;color:var(--mut)}
+.pf-fl span:last-child{color:var(--mut);overflow-wrap:anywhere}
+.bl-chk{margin:0 0 12px}
+#entBlField{margin-top:-4px}
+.fi-body h4{margin:16px 0 4px;font:600 13px Inter,system-ui,sans-serif}
+.fi-lead,.fi-note{margin:0 0 8px;font-size:12px;line-height:1.55;color:var(--mut)}
+.fi-row{display:grid;grid-template-columns:118px 1fr;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:12px;line-height:1.5}
+.fi-row b{font-weight:600}
+.fi-row span{color:var(--mut)}
+#flagInfo .acts{margin-top:14px}
