@@ -20,7 +20,8 @@
  *   Receipts (A-F): ID | Type | Date | URL | Description | Time      Type: purchase, sale, trade, transfer.
  *   Balance (A-G):  UpdatedAt | Cash | Maribank | Others | Note | Reserves | Skip   (one row per save; the last row is the baseline)
  *   Events:         ID | Date | Title | Time | Notes   (created automatically)
- *   Entities (A-J): ID | Name | Contact | Aliases | Created | Address | Email | Facebook | Payment | Notes   (sellers, buyers, trade partners; created automatically).
+ *   Entities (A-K): ID | Name | Contact | Aliases | Created | Address | Email | Facebook | Payment | Notes | Profile   (sellers, buyers, trade partners; created automatically).
+ *                   Profile (K) is a small JSON: gender, nickname, flags, blacklist and the profile photo link. Photos are saved in PROFILE_FOLDER_ID on Drive.
  *                   Payment is pipe-separated. Address is filled from a sale receipt's shipping address when the entity has none.
  *   Organization (A-I): ID | Kind | Title | Role | ParentID | Apps | Body | Created | Notifs   (created automatically)
  *                   Kind: person (Title = name, ParentID = who they report to, Apps = pipe-separated app ids, Notifs = pipe-separated Home alert keys), process, faq.
@@ -51,6 +52,7 @@ const RECEIPTS_SHEET = 'Receipts';
 const DRIVE_FOLDER_ID = '1CYJ4iiiulbWoxY-4gn809_EFyD_XvC00';       // item/purchase photos
 const SHIP_PHOTO_FOLDER_ID = '1vYYjKr46QFs1C66ICvrGZpoMJyeYDfeC';  // proof-of-shipment photos
 const RECEIPT_FOLDER_ID = '1YDEr3rLQD5VGKXq6XdoOZnKp5V-Js3E8';     // generated receipt images
+const PROFILE_FOLDER_ID = '1OzWDe1-E8qax987mAdTWRLOrvPke9PNn';     // marketing / entity profile photos
 const SECRET = 'courtvision_$0819';
 const MAX_TASK_IMAGES = 5;
 
@@ -66,6 +68,7 @@ function doPost(e) {
     if (action === 'cardPhoto') return json_(handleCardPhoto_(body));
     if (action === 'financeReceipt') return json_(handleFinanceReceipt_(body));
     if (action === 'saveFinance') return json_(handleSaveFinance_(body));
+    if (action === 'entityPhoto') return json_(handleEntityPhoto_(body));
     return json_({ ok: false, error: 'unknown action' });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
@@ -1604,22 +1607,26 @@ function entitiesSheet_(create) {
   let sh = ss.getSheetByName(ENTITIES_SHEET);
   if (!sh && create) {
     sh = ss.insertSheet(ENTITIES_SHEET);
-    sh.getRange(1, 1, 1, 10).setValues([ENTITY_HEADERS]);
-    sh.getRange('A:J').setNumberFormat('@');   // text, so a contact number keeps its leading 0
+    sh.getRange(1, 1, 1, 11).setValues([ENTITY_HEADERS]);
+    sh.getRange('A:K').setNumberFormat('@');   // text, so a contact number keeps its leading 0
     ENT_COLS_OK_ = true;
   }
   if (sh && !ENT_COLS_OK_) ensureEntityColumns_(sh);
   return sh;
 }
-const ENTITY_HEADERS = ['ID', 'Name', 'Contact', 'Aliases', 'Created', 'Address', 'Email', 'Facebook', 'Payment', 'Notes'];
+const ENTITY_HEADERS = ['ID', 'Name', 'Contact', 'Aliases', 'Created', 'Address', 'Email', 'Facebook', 'Payment', 'Notes', 'Profile'];
 let ENT_COLS_OK_ = false;
-// Older Entities tabs stop at column E. Add Address..Notes (F-J) on first use.
+// Older Entities tabs stop at column E (or J). Add Address..Notes (F-J) and Profile (K) on first use.
 function ensureEntityColumns_(sh) {
   ENT_COLS_OK_ = true;
-  if (sh.getMaxColumns() < 10) sh.insertColumnsAfter(sh.getMaxColumns(), 10 - sh.getMaxColumns());
+  if (sh.getMaxColumns() < 11) sh.insertColumnsAfter(sh.getMaxColumns(), 11 - sh.getMaxColumns());
   if (!sh.getRange(1, 6).getValue()) {
     sh.getRange(1, 6, 1, 5).setValues([ENTITY_HEADERS.slice(5)]);
     sh.getRange('F:J').setNumberFormat('@');
+  }
+  if (!sh.getRange(1, 11).getValue()) {
+    sh.getRange(1, 11).setValue('Profile');
+    sh.getRange('K:K').setNumberFormat('@');
   }
 }
 
@@ -1634,7 +1641,8 @@ function readEntities_(sh) {
     out.push({ idx: r + 1, id: String(row[0]), name: String(row[1]), contact: String(row[2] || ''),
       aliases: String(row[3] || '').split('|').map(a => a.trim()).filter(Boolean),
       address: String(row[5] || ''), email: String(row[6] || ''), facebook: String(row[7] || ''),
-      payment: String(row[8] || '').split('|').map(a => a.trim()).filter(Boolean), notes: String(row[9] || '') });
+      payment: String(row[8] || '').split('|').map(a => a.trim()).filter(Boolean), notes: String(row[9] || ''),
+      profile: parseProfile_(row[10]) });
   }
   return out;
 }
@@ -1663,6 +1671,48 @@ function resolveParty_(raw, contact, address) {
     appendRows_(sh, [[newId_('en'), name, c, '', todayStr_(), a, '', '', '', '']]);
     return name;
   } catch (err) { return name; }
+}
+
+/* ---------- entity profiles: gender, nickname, flags, blacklist, photo (column K, JSON) ---------- */
+function parseProfile_(raw) {
+  try { return cleanProfile_(JSON.parse(String(raw || '{}'))); } catch (err) { return {}; }
+}
+// Whitelist + trim. Returns only the fields that are set, so an empty profile is {}.
+function cleanProfile_(o) {
+  o = o && typeof o === 'object' ? o : {};
+  const word = (v, max) => String(v == null ? '' : v).replace(/[^\w-]/g, '').slice(0, max);
+  const out = {};
+  const g = String(o.g || ''); if (g === 'm' || g === 'f') out.g = g;
+  const n = String(o.n || '').replace(/\s+/g, ' ').trim().slice(0, 40); if (n) out.n = n;
+  const fc = word(o.fc, 20); if (fc) out.fc = fc;
+  const fs = word(o.fs, 20); if (fs) out.fs = fs;
+  if (o.bl === true || o.bl === 'true' || o.bl === 1) { out.bl = true; const r = String(o.blr || '').trim().slice(0, 120); if (r) out.blr = r; }
+  const pic = String(o.pic || '').trim(); if (/^https?:\/\//i.test(pic) && pic.length <= 600) out.pic = pic;
+  return out;
+}
+function profileJson_(o) { const c = cleanProfile_(o); return Object.keys(c).length ? JSON.stringify(c) : ''; }
+// what the app receives: the photo as a link an <img> can show
+function profileOut_(o) {
+  const c = cleanProfile_(o);
+  if (c.pic) c.pic = toDisplayUrl_(c.pic, 256);
+  return c;
+}
+// Saves a cropped profile photo (data URL, sent by POST because it is too big for a GET) to the Drive folder
+function handleEntityPhoto_(body) {
+  const id = String(body.entityId || '');
+  if (!id) return { ok: false, error: 'missing entityId' };
+  if (!body.photo || !String(body.photo).startsWith('data:')) return { ok: false, error: 'missing photo' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = entitiesSheet_(true), e = readEntities_(sh).filter(x => x.id === id)[0];
+    if (!e) return { ok: false, error: 'not found' };
+    const url = saveImage_(body.photo, 'profile-' + e.name + '-' + newId_('p'), PROFILE_FOLDER_ID);
+    if (!url) return { ok: false, error: 'could not save the photo' };
+    const prof = Object.assign({}, e.profile, { pic: url });
+    sh.getRange(e.idx, 11).setValue(profileJson_(prof));
+    return { ok: true, pic: toDisplayUrl_(url, 256) };
+  } finally { lock.releaseLock(); }
 }
 
 function getEntityNames_() {
@@ -1765,7 +1815,7 @@ function getEntities_() {
     if (to && (status === 'shipping' || status === 'shipped') && !pendingSale_(r)) tx.push([to, 'sell', fmtDateCell_(r[10]), Number(r[12]) || 0]);
     else if (to && status === 'traded') tx.push([to, 'trade', fmtDateCell_(r[10]), Number(r[12]) || 0, 'out']);
   });
-  return { ok: true, entities: ents.map(e => ({ id: e.id, name: e.name, contact: e.contact, aliases: e.aliases, address: e.address, email: e.email, facebook: e.facebook, payment: e.payment, notes: e.notes })), tx };
+  return { ok: true, entities: ents.map(e => ({ id: e.id, name: e.name, contact: e.contact, aliases: e.aliases, address: e.address, email: e.email, facebook: e.facebook, payment: e.payment, notes: e.notes, profile: profileOut_(e.profile) })), tx };
 }
 
 // Every card behind one entity, same rules as the ranking above: kind buy | sell | trade.
@@ -1807,8 +1857,11 @@ function saveEntity_(p) {
     const clash = ents.filter(e => (!self || e.id !== self.id) && entityKeys_(e).indexOf(key) >= 0)[0];
     if (clash) return { ok: false, error: '"' + clash.name + '" already uses that name. Use Merge instead.' };
     const extras = entityExtras_(p, self);
-    if (!self) { appendRows_(sh, [[newId_('en'), name, contact, '', todayStr_()].concat(extras)]); return { ok: true }; }
+    // the profile (JSON) is replaced only when the caller sends one; a notes-only save keeps it
+    const profTxt = p.profile === undefined ? null : profileJson_(parseProfile_(p.profile));
+    if (!self) { appendRows_(sh, [[newId_('en'), name, contact, '', todayStr_()].concat(extras, [profTxt || ''])]); return { ok: true }; }
     sh.getRange(self.idx, 6, 1, 5).setValues([extras]);
+    if (profTxt !== null) sh.getRange(self.idx, 11).setValue(profTxt);
     if (name === self.name) { sh.getRange(self.idx, 3, 1, 1).setValue(contact); return { ok: true }; }
     const oldKey = partyKey_(self.name), keys = {};
     entityKeys_(self).forEach(k => keys[k] = true);
@@ -1834,6 +1887,7 @@ function mergeEntities_(p) {
     const keys = {}, have = {};
     let aliases = target.aliases.slice(), contact = target.contact;
     let address = target.address, email = target.email, facebook = target.facebook, notes = target.notes;
+    const profile = Object.assign({}, target.profile);   // the kept profile inherits photo / gender / nickname / blacklist it lacks
     const pay = target.payment.slice();
     entityKeys_(target).forEach(k => { keys[k] = true; have[k] = true; });
     from.forEach(e => {
@@ -1843,10 +1897,13 @@ function mergeEntities_(p) {
       if (!address && e.address) address = e.address;
       if (!email && e.email) email = e.email;
       if (!facebook && e.facebook) facebook = e.facebook;
+      ['g', 'pic', 'n', 'fc', 'fs'].forEach(k => { if (!profile[k] && e.profile[k]) profile[k] = e.profile[k]; });
+      if (!profile.bl && e.profile.bl) { profile.bl = true; if (e.profile.blr) profile.blr = e.profile.blr; }
       e.payment.forEach(x => { if (pay.indexOf(x) < 0) pay.push(x); });
       if (e.notes && notes.indexOf(e.notes) < 0) notes = notes ? notes + '\n' + e.notes : e.notes;
     });
     sh.getRange(target.idx, 6, 1, 5).setValues([[address, email, facebook, pay.join('|'), notes.slice(0, 1000)]]);
+    sh.getRange(target.idx, 11).setValue(profileJson_(profile));
     sh.getRange(target.idx, 3, 1, 2).setValues([[contact, aliases.join('|')]]);
     deleteRowsBatch_(sh, from.map(e => e.idx));
     rewriteParties_(raw => { const n = cleanParty_(raw); return n && keys[n.toLowerCase()] && raw !== target.name ? target.name : null; }, true);

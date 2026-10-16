@@ -11,7 +11,7 @@ const KIND = {
 let mkTab = 'rank', mkKind = 'buy';
 let data = { entities: [], tx: [] };   // tx: [entityName, kind, date, value, dir]  (dir: 'in' | 'out' on trades)
 let mkFirst = true;
-const normData = d => ({ tx: d.tx || [], entities: (d.entities || []).map(e => Object.assign({ contact: '', address: '', email: '', facebook: '', notes: '' }, e, { aliases: e.aliases || [], payment: e.payment || [] })) });
+const normData = d => ({ tx: d.tx || [], entities: (d.entities || []).map(e => Object.assign({ contact: '', address: '', email: '', facebook: '', notes: '' }, e, { aliases: e.aliases || [], payment: e.payment || [], profile: e.profile || {} })) });
 const fbUrl = v => { v = String(v || '').trim(); return !v ? '' : /^https?:\/\//i.test(v) ? v : 'https://' + v.replace(/^\/+/, ''); };
 
 function toast(m) {
@@ -29,7 +29,8 @@ const api = (action, params = {}) => CONFIG.portfolio.endpoint + '?action=' + ac
   + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
 
 /* ---------- Profile extras (photo, gender, nickname, manual flags, blacklist) and the details toggle.
-   Front-end only: kept on this device, keyed by entity id. ---------- */
+   Saved in the Entities sheet (column K) and the profile photos in the Drive folder, so every device and teammate sees the same profile.
+   This device keeps a copy (keyed by entity id) so the page still shows them offline. ---------- */
 const PROF_KEY = 'trackello.entProfiles', DET_KEY = 'trackello.entDetails';
 let prof = {};
 try { prof = JSON.parse(localStorage.getItem(PROF_KEY) || '{}') || {}; } catch (_) { prof = {}; }
@@ -45,6 +46,59 @@ function setProf(id, patch) {
   try { localStorage.setItem(PROF_KEY, JSON.stringify(prof)); return true; } catch (_) { return false; }
 }
 function clearProf(id) { delete prof[id]; try { localStorage.setItem(PROF_KEY, JSON.stringify(prof)); } catch (_) {} }
+
+// What goes to the sheet. A photo that is still a raw upload (data:) is sent separately (see uploadPhoto).
+const profPayload = p => ({ g: p.g, n: p.n, fc: p.fc, fs: p.fs, bl: !!p.bl, blr: p.bl ? p.blr : '', pic: /^data:/.test(p.pic || '') ? '' : (p.pic || '') });
+const profEmpty = p => !p || !Object.keys(p).length;
+// The sheet is the source of truth: an entity that has a saved profile there replaces this device's copy.
+function adoptServerProfiles() {
+  (data.entities || []).forEach(e => {
+    const sp = e.profile;
+    if (profEmpty(sp)) return;
+    const local = prof[e.id] || {};
+    // keep a not-yet-uploaded local photo until it reaches Drive
+    const pic = /^data:/.test(local.pic || '') && !sp.pic ? local.pic : (sp.pic || '');
+    prof[e.id] = { g: sp.g || '', pic, n: sp.n || '', fc: sp.fc || '', fs: sp.fs || '', bl: !!sp.bl, blr: sp.bl ? (sp.blr || '') : '' };
+  });
+  try { localStorage.setItem(PROF_KEY, JSON.stringify(prof)); } catch (_) {}
+}
+async function postJson(body) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 120000);
+  try {
+    const res = await fetch(CONFIG.portfolio.endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ secret: CONFIG.portfolio.secret }, body)), signal: ctl.signal });
+    return await res.json();
+  } finally { clearTimeout(timer); }
+}
+// Upload a cropped photo to the Drive folder; the sheet then holds its link.
+async function uploadPhoto(entityId, dataUrl) {
+  const res = await postJson({ action: 'entityPhoto', entityId, photo: dataUrl });
+  if (!res || !res.ok) throw new Error((res && res.error) || 'Upload failed');
+  return res.pic;
+}
+// One-time, automatic: profiles that only exist on this device (saved before this update, or when offline) are copied to the sheet / Drive.
+let migrating = false;
+async function migrateLocalProfiles() {
+  if (migrating || !CONFIG.portfolio.endpoint) return;
+  migrating = true;
+  let moved = 0;
+  try {
+    for (const e of data.entities) {
+      const p = prof[e.id]; if (!p) continue;
+      try {
+        if (profEmpty(e.profile)) {
+          const res = await jsonp(api('saveEntity', entParams(e, { profile: JSON.stringify(profPayload(p)) })), 60000);
+          if (!res.ok) throw new Error(res.error || 'Request failed');
+          e.profile = profPayload(p); moved++;
+        }
+        if (/^data:/.test(p.pic || '')) {
+          const url = await uploadPhoto(e.id, p.pic);
+          setProf(e.id, { pic: url }); e.profile = Object.assign({}, e.profile, { pic: url }); moved++;
+        }
+      } catch (err) { console.warn('Profile sync failed for', e.name, err); }
+    }
+  } finally { migrating = false; }
+  if (moved) { cacheSet('entities', data); renderAll(); toast('Profiles saved to your Drive and sheet.'); }
+}
 
 /* Blank profile pictures: neutral, male, female. */
 const AV_SVG = {
@@ -236,7 +290,7 @@ function socialInfo(v) {
 const smsHref = c => { const d = String(c || '').replace(/[^\d+]/g, ''); return d ? 'sms:' + d : ''; };
 function actionBtns(e, showMissing) {
   const so = socialInfo(e.facebook), sms = smsHref(e.contact);
-  const msg = so ? `<a class="pf-btn" href="${escMk(so.url)}" target="_blank" rel="noopener">${pfIc('msg')}<span>${so.name ? 'Message on ' + so.name : 'Message'}</span></a>`
+  const msg = so ? `<a class="pf-btn" href="${escMk(so.url)}" target="_blank" rel="noopener">${pfIc('msg')}<span>${so.name === 'Facebook' ? 'Facebook Chat' : so.name ? 'Message on ' + so.name : 'Message'}</span></a>`
     : showMissing ? `<span class="pf-btn off" title="No social link saved">${pfIc('msg')}<span>Message</span></span>` : '';
   const txt = sms ? `<a class="pf-btn" href="${escMk(sms)}">${pfIc('sms')}<span>SMS</span></a>`
     : showMissing ? `<span class="pf-btn off" title="No phone number saved">${pfIc('sms')}<span>SMS</span></span>` : '';
@@ -419,14 +473,16 @@ function renderAll() { if (mkTab === 'rank') renderRank(); else renderEntities()
 async function loadData() {
   if (!CONFIG.portfolio.endpoint) { $m('mkState').textContent = "Sync isn't set up yet."; $m('mkState').hidden = false; return; }
   const cached = mkFirst ? cacheGet('entities') : null; mkFirst = false;
-  if (cached) { data = normData(cached); renderAll(); }
+  if (cached) { data = normData(cached); adoptServerProfiles(); renderAll(); }
   else { $m('mkState').textContent = 'Loading\u2026'; $m('mkState').hidden = false; $m('mkList').hidden = true; $m('mkSum').hidden = true; }
   try {
     const res = await jsonp(api('entities'), 60000);   // the first run also saves every name already in your sheets
     if (!res.ok) throw new Error(res.error || 'Unknown error');
     data = normData(res);
+    adoptServerProfiles();
     cacheSet('entities', data);
     renderAll();
+    migrateLocalProfiles();
   } catch (err) {
     console.warn('Marketing load failed', err);
     if (cached) return toast('Could not refresh \u2014 showing your last saved data.');
@@ -489,7 +545,7 @@ function usePicLink() {
   const v = $m('entPicUrl').value.trim();
   if (!v) return;
   if (!/^https?:\/\//i.test(v)) return toast('Paste a full link that starts with https://');
-  editPic = v; $m('entPicUrl').value = ''; $m('entPicLinkField').hidden = true; renderEditAvatar(); fillFlagSelects(e);
+  editPic = v; $m('entPicUrl').value = ''; $m('entPicLinkField').hidden = true; renderEditAvatar();
 }
 $m('entPicUse').onclick = usePicLink;
 $m('entPicUrl').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); usePicLink(); } });
@@ -566,8 +622,23 @@ $m('entSave').onclick = async () => {
     if (changed) await loadData();
     const id = wasId || (data.entities.find(x => x.name.toLowerCase() === name.toLowerCase()) || {}).id;
     const bl = $m('entBl').checked;
-    const kept = setProf(id, { g: editGender, pic: editPic, n: $m('entNick').value.replace(/\s+/g, ' ').trim().slice(0, 40), fc: $m('entFlagC').value, fs: $m('entFlagS').value, bl, blr: bl ? $m('entBlReason').value.trim().slice(0, 120) : '' });
-    toast(!kept ? 'Saved, but the photo is too large to keep on this device.' : old ? 'Profile updated.' : 'Entity added.');
+    const np = { g: editGender, pic: editPic, n: $m('entNick').value.replace(/\s+/g, ' ').trim().slice(0, 40), fc: $m('entFlagC').value, fs: $m('entFlagS').value, bl, blr: bl ? $m('entBlReason').value.trim().slice(0, 120) : '' };
+    const kept = setProf(id, np);
+    // save the profile to the sheet; a new upload goes to the Drive folder and its link replaces the raw photo
+    let synced = true;
+    try {
+      const ent = findEnt(id);
+      if (ent) {
+        const payload = profPayload(np);
+        if (/^data:/.test(np.pic)) payload.pic = (ent.profile && ent.profile.pic) || '';   // keep the current Drive photo until the new one lands
+        const res = await jsonp(api('saveEntity', entParams(ent, { profile: JSON.stringify(payload) })), 60000);
+        if (!res.ok) throw new Error(res.error || 'Request failed');
+        ent.profile = payload;
+        if (/^data:/.test(np.pic)) { const url = await uploadPhoto(id, np.pic); setProf(id, { pic: url }); ent.profile = Object.assign({}, payload, { pic: url }); }
+        cacheSet('entities', data);
+      } else synced = false;
+    } catch (err) { console.warn('Profile sync failed', err); synced = false; }
+    toast(!synced ? 'Saved on this device, but could not reach Drive. It will retry next time Marketing loads.' : !kept ? 'Saved, but the photo is too large to keep on this device.' : old ? 'Profile updated.' : 'Entity added.');
     renderAll();
     if (back) openView(back);
   } catch (err) { toast('Could not save: ' + backendErr(err)); }
