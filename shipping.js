@@ -40,7 +40,8 @@ const SHIP_ICON = {
   check: '<circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.8 2.8L16 9.7"/>',
   pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>',
   trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>',
-  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>'
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>',
+  newdoc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M12.5 11v6M9.5 14h6"/>'
 };
 const shipIcon = (name, cls, label, id, extra = '') => `<button type="button" class="icon-btn ${cls}" data-id="${id}" ${extra} title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${SHIP_ICON[name]}</svg></button>`;
 
@@ -60,7 +61,7 @@ function itemRowHtml(it) {
   const img = it.photo ? `<img src="${it.photo}" alt="${escShip(it.name)}" loading="lazy" class="ship-clickphoto" data-full="${it.photo}">` : `<div class="port-noimg">No photo</div>`;
   return `<div class="ship-item">
       <div class="port-thumb">${img}</div>
-      <div class="port-info"><b>${escShip(it.name)}</b><span>${shipPhp(it.soldPrice)}</span></div>
+      <div class="port-info"><b>${escShip(it.name)}</b><span>${it.pending ? 'Price set on the receipt' : shipPhp(it.soldPrice)}</span></div>
       <div class="ship-item-acts">
         ${shipIcon('camera', 'flat ship-itemphoto', it.photo ? 'Change item photo' : 'Add item photo', it.id)}
         ${shipIcon('trash', 'flat danger ship-delete', 'Delete card', it.id)}
@@ -80,7 +81,11 @@ function cardHtml(group, isToShip) {
   const hasProof = !!proofUrl;
   const late = isToShip ? daysLate(f) : null;
   const state = late === null ? '' : late > 0 ? 'late' : late === 0 ? 'today' : '';
-  const metaLines = [
+  const pending = !!f.pending;   // a task made before its sale receipt
+  const metaLines = pending ? [
+    `For ${escShip(f.soldTo || '\u2014')}${n > 1 ? ` \u00b7 ${n} cards` : ''}`,
+    '<span class="ship-badge wait">Awaiting sale receipt</span>'
+  ] : [
     `Sold to ${escShip(f.soldTo || '\u2014')}${n > 1 ? ` \u00b7 ${n} cards` : ''} for ${shipPhp(soldTotal)}`,
     `${careLine}${f.deductedFrom ? ' \u00b7 deducted from ' + escShip(f.deductedFrom) : ''}`,
     `${shipPhp(fee)} shipping fee`
@@ -101,9 +106,11 @@ function cardHtml(group, isToShip) {
   const notes = f.notes ? `<div class="ship-addr ship-notes"><small>Notes</small>${escShip(f.notes)}</div>` : '';
   const proof = hasProof ? `<div class="port-thumb"><img src="${proofUrl}" alt="Proof of shipment" class="ship-clickphoto" data-full="${proofUrl}"></div>` : '';
   const receiptBtn = receiptUrl ? shipIcon('doc', 'ship-receipt', 'Receipt', ids, `data-url="${escShip(receiptUrl)}"`) : '';
+  const genBtn = pending && f.batchId ? shipIcon('newdoc', 'ship-genreceipt', 'Generate the sale receipt for this task', ids, `data-batch="${escShip(f.batchId)}"`) : '';
+  const cancelBtn = pending ? shipIcon('undo', 'flat danger ship-cancel', 'Cancel task (cards go back to onhand)', ids) : '';
   const actions = isToShip
-    ? `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-edit', 'Edit method, address, notes & schedule', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}</div>`
-    : `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-editdate', 'Edit shipped details', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${receiptBtn}${shipIcon('undo', 'ship-revert', n > 1 ? 'Revert all' : 'Revert', ids)}</div>`;
+    ? `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-edit', 'Edit method, address, notes & schedule', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}${genBtn}${cancelBtn}</div>`
+    : `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-editdate', 'Edit shipped details', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${receiptBtn}${genBtn}${shipIcon('undo', 'ship-revert', n > 1 ? 'Revert all' : 'Revert', ids)}</div>`;
   return `<div class="ship-card ${state}" data-ids="${escShip(ids)}">
       ${key}
       <div class="ship-items">${group.map(itemRowHtml).join('')}</div>
@@ -214,6 +221,26 @@ $shipList.addEventListener('click', async e => {
   const receiptBtn = e.target.closest('.ship-receipt');
   if (receiptBtn) { window.open(receiptBtn.dataset.url, '_blank'); return; }
 
+  const genBtn = e.target.closest('.ship-genreceipt');
+  if (genBtn) { location.href = 'receipt.html?task=' + encodeURIComponent(genBtn.dataset.batch); return; }
+
+  const cancelBtn = e.target.closest('.ship-cancel');
+  if (cancelBtn) {
+    const n = cancelBtn.dataset.id.split(',').length;
+    if (!confirm(`Cancel this shipping task? Its ${n} card${n > 1 ? 's go' : ' goes'} back to onhand.`)) return;
+    cancelBtn.disabled = true;
+    try {
+      const data = await jsonp(CONFIG.portfolio.endpoint + '?action=cancelShipping&cardIds=' + encodeURIComponent(cancelBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+      if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
+      toast('Task cancelled.');
+      await loadShipping();
+    } catch (err) {
+      cancelBtn.disabled = false;
+      toast('Could not cancel: ' + err.message);
+    }
+    return;
+  }
+
   const editBtn = e.target.closest('.ship-edit');
   if (editBtn) { openShipEdit(editBtn.dataset.id.split(',')); return; }
 
@@ -274,7 +301,7 @@ function setMethodFields(selId, otherId, value) {
   oth.hidden = sel.value !== 'Others';
 }
 const getMethodFields = (selId, otherId) => { const sel = document.getElementById(selId).value; return sel === 'Others' ? (document.getElementById(otherId).value.trim() || 'Others') : sel; };
-[['shipEditMethod', 'shipEditMethodOther'], ['shipDateMethod', 'shipDateMethodOther']].forEach(([s, o]) =>
+[['shipEditMethod', 'shipEditMethodOther'], ['shipDateMethod', 'shipDateMethodOther'], ['snMethod', 'snMethodOther']].forEach(([s, o]) =>
   document.getElementById(s).addEventListener('change', () => { const x = document.getElementById(o); x.hidden = document.getElementById(s).value !== 'Others'; if (!x.hidden) x.focus(); }));
 
 /* ---------- Edit scheduled date + address of a to-ship task (applies to every card in the group) ---------- */
@@ -313,6 +340,89 @@ document.getElementById('shipEditSave').onclick = async () => {
     await loadShipping();
   } catch (err) { toast('Could not save: ' + err.message); }
   btn.disabled = false; btn.textContent = 'Save changes';
+};
+
+/* ---------- New shipping task: no sale receipt yet (buyer about to pay, or paying at shipping) ---------- */
+let snCards = [], snSel = new Set(), snNames = null;
+// onhand cards, a lot offered as ONE entry (a lot ships whole)
+function snEntries() {
+  const out = [], seen = {};
+  snCards.forEach(c => {
+    if (!c.lotId) return out.push({ id: String(c.id), name: c.name, cost: c.cost, photo: c.photo, ids: [String(c.id)] });
+    let l = seen[c.lotId];
+    if (!l) { l = seen[c.lotId] = { id: 'lot:' + c.lotId, isLot: true, name: c.lotName || 'Lot', cost: 0, photo: c.photo, ids: [] }; out.push(l); }
+    l.ids.push(String(c.id)); l.cost += Number(c.cost) || 0; if (!l.photo) l.photo = c.photo;
+  });
+  return out;
+}
+function snRender() {
+  const q = document.getElementById('snSearch').value.trim().toLowerCase();
+  const all = snEntries(), shown = all.filter(c => !q || String(c.name || '').toLowerCase().includes(q));
+  document.getElementById('snList').innerHTML = shown.length
+    ? shown.map(c => `<label class="chk"><input type="checkbox" value="${escShip(c.id)}"${snSel.has(c.id) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${escShip(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${c.isLot ? '<b class="lot-pill">LOT</b>' : ''}${escShip(c.name)} <small>\u2014 ${c.isLot ? c.ids.length + ' cards \u00b7 ' : ''}bought ${shipPhp(c.cost)}</small></span></label>`).join('')
+    : `<p class="stub-note" style="margin:10px 0 4px">${all.length ? 'No cards match.' : 'No onhand cards found.'}</p>`;
+  const n = all.filter(c => snSel.has(c.id)).reduce((a, c) => a + c.ids.length, 0);
+  document.getElementById('snCount').textContent = n ? `${n} card${n > 1 ? 's' : ''} selected` : 'none selected';
+}
+async function openShipNew() {
+  ['snBuyer', 'snSched', 'snAddr', 'snContact', 'snNotes', 'snSearch'].forEach(id => document.getElementById(id).value = '');
+  setMethodFields('snMethod', 'snMethodOther', 'LBC');
+  snSel.clear(); snCards = [];
+  document.getElementById('snList').innerHTML = '<p class="stub-note" style="margin:10px 0 4px">Loading onhand cards\u2026</p>';
+  document.getElementById('snCount').textContent = 'none selected';
+  document.getElementById('shipNewSheet').hidden = false;
+  try {
+    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=onhandCards&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    snCards = (data && data.ok && data.cards) || [];
+  } catch (err) { console.warn('Could not load onhand cards', err); }
+  snRender();
+  if (!snNames) {   // saved buyers, for the name suggestions (and the contact number)
+    try {
+      const d = await jsonp(CONFIG.portfolio.endpoint + '?action=entityNames&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+      snNames = (d && d.ok && d.entities) || [];
+      document.getElementById('snBuyerList').innerHTML = snNames.map(e => `<option value="${escShip(e.name)}"></option>`).join('');
+    } catch (err) { snNames = []; }
+  }
+}
+const closeShipNew = () => document.getElementById('shipNewSheet').hidden = true;
+document.getElementById('shipNew').onclick = () => { if (!CONFIG.portfolio.endpoint) return toast("Sync isn't set up yet."); openShipNew(); };
+document.getElementById('snCancel').onclick = closeShipNew;
+document.getElementById('shipNewSheet').addEventListener('click', e => { if (e.target.id === 'shipNewSheet') closeShipNew(); });
+document.getElementById('snSearch').addEventListener('input', snRender);
+document.getElementById('snList').addEventListener('change', e => { if (e.target.matches('input[type=checkbox]')) { e.target.checked ? snSel.add(e.target.value) : snSel.delete(e.target.value); snRender(); } });
+document.getElementById('snSchedClear').onclick = () => document.getElementById('snSched').value = '';
+document.getElementById('snSched').addEventListener('click', e => { if (!e.target.value) { e.target.value = isoToday(); try { e.target.showPicker(); } catch (_) {} } });
+document.getElementById('snBuyer').addEventListener('change', () => {
+  const k = document.getElementById('snBuyer').value.trim().toLowerCase(), e = k && (snNames || []).find(x => String(x.name).toLowerCase() === k || (x.aliases || []).some(a => String(a).toLowerCase() === k));
+  if (!e) return;
+  document.getElementById('snBuyer').value = e.name;
+  if (e.contact && !document.getElementById('snContact').value.trim()) document.getElementById('snContact').value = e.contact;
+});
+document.getElementById('snSave').onclick = async () => {
+  const buyer = document.getElementById('snBuyer').value.trim();
+  if (!buyer) return toast('Enter the buyer.');
+  const ids = snEntries().filter(c => snSel.has(c.id)).flatMap(c => c.ids);
+  if (!ids.length) return toast('Pick at least one card.');
+  const btn = document.getElementById('snSave');
+  btn.disabled = true; btn.textContent = 'Creating\u2026';
+  try {
+    const url = CONFIG.portfolio.endpoint + '?action=createShippingTask&cardIds=' + encodeURIComponent(ids.join(','))
+      + '&buyer=' + encodeURIComponent(buyer)
+      + '&method=' + encodeURIComponent(getMethodFields('snMethod', 'snMethodOther'))
+      + '&sched=' + encodeURIComponent(document.getElementById('snSched').value)
+      + '&address=' + encodeURIComponent(document.getElementById('snAddr').value.trim())
+      + '&contact=' + encodeURIComponent(document.getElementById('snContact').value.trim())
+      + '&notes=' + encodeURIComponent(document.getElementById('snNotes').value.trim())
+      + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
+    const data = await jsonp(url);
+    if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
+    closeShipNew();
+    toast('Shipping task created.');
+    snNames = null;   // a new buyer may have been saved
+    if (shipTab !== 'toship') document.querySelector('.tab[data-stab="toship"]').click();
+    await loadShipping();
+  } catch (err) { toast('Could not create: ' + err.message); }
+  btn.disabled = false; btn.textContent = 'Create task';
 };
 
 /* ---------- Mark shipped / edit shipped date: defaults to now, but can be backdated ---------- */

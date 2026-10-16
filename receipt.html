@@ -44,6 +44,12 @@
     <select id="vlogTask" aria-label="Existing vlog task" hidden></select>
   </div>
 
+  <div class="field" data-only="sold" id="taskField" hidden>
+    <label for="shipTask">Shipping task <small>(optional)</small></label>
+    <select id="shipTask"></select>
+    <p class="stub-note" id="taskHint" style="margin:6px 0 0;font-size:12px" hidden>Cards, buyer, shipping method, schedule, address, contact and notes come from the task. Only the sold price is left to fill in.</p>
+  </div>
+
   <div class="field">
     <label for="date">Date &amp; time</label>
     <div class="row">

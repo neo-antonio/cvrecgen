@@ -11,6 +11,9 @@
  *                   ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress | ShippedTime |  ShippingContact | SaleNotes | LotID | LotName | ShippedBy
  *                   LotID/LotName (AC-AD) group cards bought together as a lot; blank = a normal single card.
  *                   Status is one of: onhand, shipping, shipped, traded.
+ *                   A shipping task can exist BEFORE its sale receipt (customer about to pay / pays at shipping): the cards are
+ *                   shipping/shipped with a ShipBatchID but no SoldDate and no SaleReceiptURL (see pendingSale_). The sale receipt
+ *                   later links to it by that batch ID (body.shippingTaskId).
  *   Finance (A-N):  ID | CardID | Type | Date | Description | Amount | PayMethod | Recorded | RecordedDate | ReceiptURL | Flow | Images | Notes | Time
  *                   Type: purchase, sale, shipping, trade, transfer, manual.  Flow: inflow, outflow, none.
  *   Receipts (A-F): ID | Type | Date | URL | Description | Time      Type: purchase, sale, trade, transfer.
@@ -36,7 +39,7 @@
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
- *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers
+ *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
 
@@ -100,6 +103,8 @@ function doGet(e) {
     if (action === 'receiptImpact') return jsonpOut_(receiptImpact_(e.parameter.receiptId), cb);
     if (action === 'deleteReceipt') return jsonpOut_(deleteReceipt_(e.parameter.receiptId), cb);
     if (action === 'updateShipping') return jsonpOut_(updateShipping_(e.parameter), cb);
+    if (action === 'createShippingTask') return jsonpOut_(createShippingTask_(e.parameter), cb);
+    if (action === 'cancelShipping') return jsonpOut_(cancelShipping_(e.parameter.cardIds), cb);
     if (action === 'entities') return jsonpOut_(getEntities_(), cb);
     if (action === 'entityNames') return jsonpOut_(getEntityNames_(), cb);
     if (action === 'entityCards') return jsonpOut_(getEntityCards_(e.parameter.entityId), cb);
@@ -212,7 +217,12 @@ function handleSell_(body) {
   const address = String(body.shipAddress || '').trim().slice(0, 500);
   const packaging = Number(body.packaging) || 0;
   const perFee = list.length ? (Number(body.shipFee) || 0) / list.length : 0;
-  const batchId = newId_('b');
+  // A shipping task made before this receipt (customer about to pay / paid at shipping) is linked by its batch ID: its cards keep
+  // that batch, and cards that already shipped stay shipped.
+  const taskId = String(body.shippingTaskId || '').trim();
+  const data = cards.getDataRange().getValues();
+  const linked = !!taskId && data.slice(1).some(r => String(r[23]) === taskId && pendingSale_(r));
+  const batchId = linked ? taskId : newId_('b');
 
   let receiptUrl = '', receiptSaved = false;
   if (body.receiptPhoto && body.receiptPhoto.src) {
@@ -220,14 +230,17 @@ function handleSell_(body) {
     if (receiptUrl) { try { appendReceipt_('sale', body.date || todayStr_(), receiptUrl, 'Sale to ' + (buyer || '\u2014'), body.time); receiptSaved = true; } catch (err) {} }
   }
 
-  const rowOf = rowIndex_(cards), finRows = [];
-  let moved = 0;
+  const rowOf = {}, finRows = [];
+  for (let r = 1; r < data.length; r++) if (data[r][0] !== '') rowOf[String(data[r][0])] = r + 1;
+  let moved = 0, shippedCard = '';
   list.forEach(it => {
     const found = rowOf[String(it.cardId)] ? { idx: rowOf[String(it.cardId)] } : null;
     if (!found) return;
     moved++;
     // Every sale — shipped or not — goes into the "shipping" queue so it shows up under To ship.
-    cards.getRange(found.idx, 10, 1, 1).setValue('shipping'); // Status (col J)
+    const was = data[found.idx - 1], keep = linked && was[9] === 'shipped' && String(was[23]) === taskId;   // already shipped before its receipt: stays shipped
+    if (keep && !shippedCard) shippedCard = String(it.cardId);
+    cards.getRange(found.idx, 10, 1, 1).setValue(keep ? 'shipped' : 'shipping'); // Status (col J)
     cards.getRange(found.idx, 11, 1, 8).setValues([[           // SoldDate..ShippingScheduledDate (cols K-R)
       body.date || '', buyer, Number(it.cost) || 0,
       body.shipType || '', body.shipMethod || '', noShip ? 0 : perFee,
@@ -238,6 +251,13 @@ function handleSell_(body) {
     cards.getRange(found.idx, 27, 1, 2).setNumberFormat('@').setValues([[contact, saleNotes]]); // ShippingContact, SaleNotes (cols AA-AB); text format keeps a leading 0
     finRows.push([newId_('f'), it.cardId, 'sale', body.date || '', 'Sale: ' + (it.name || '(unnamed item)'), Number(it.cost) || 0, body.pay || '', false, '', receiptUrl, 'inflow']);
   });
+  // a task that shipped before its receipt already has its shipping Finance entry (made with PHP 0 and no receipt): fill in fee, source and receipt now
+  if (shippedCard) {
+    findShippingFinance_(fin, [taskId, shippedCard]).forEach(f => {
+      fin.getRange(f.idx, 6, 1, 2).setValues([[noShip ? 0 : (Number(body.shipFee) || 0), body.shipDeductFrom || '']]);   // Amount, PayMethod (F-G)
+      fin.getRange(f.idx, 10, 1, 1).setValue(receiptUrl);                                                              // ReceiptURL (J)
+    });
+  }
   // packaging the buyer paid for is part of "total received": one inflow row for the whole receipt
   if (packaging > 0) {
     finRows.push([newId_('f'), '', 'sale', body.date || '', 'Packaging: sale to ' + (buyer || '\u2014'), packaging, body.pay || '', false, '', receiptUrl, 'inflow']);
@@ -251,7 +271,7 @@ function handleSell_(body) {
   appendRows_(fin, finOut);
   let creatives = 0;
   if (body.vlog) { try { addVlog_(body, 'Sale to ' + (buyer || '\u2014'), body.date || todayStr_(), receiptUrl); creatives = 1; } catch (err) {} }
-  return { ok: true, receipt: receiptSaved, cards: moved, finance: finOut.length, creatives };
+  return { ok: true, receipt: receiptSaved, cards: moved, finance: finOut.length, creatives, linked };
 }
 
 // Proof of shipment for one card, or (cardIds) for every card of a grouped shipping task.
@@ -544,27 +564,42 @@ function addFinance_(p) {
 
 /* ---------- receipt deletion (cascade) ---------- */
 
-// Everything a receipt is linked to, matched by Drive file ID (never by blank).
+// What deleting a receipt does depends on what kind of receipt it is:
+//   purchase  deletes the cards it bought, with their Finance entries
+//   trade     deletes the cards it brought in; the cards it took out go back to onhand
+//   sale      deletes NO card: every card on it goes back to onhand (sale, shipping-task and shipped details cleared, the batch's
+//             shipping-fee Finance entry removed), exactly as if it had never been sold
+//   transfer  has no cards
+// Everything is matched by Drive file ID (never by blank).
 function planReceiptDelete_(receiptId) {
   if (!receiptId) return { error: 'missing receiptId' };
   const rSheet = receiptsSheet_();
   const rFound = findRow_(rSheet, receiptId);
   if (!rFound) return { error: 'not found' };
   const rawUrl = String(rFound.row[3] || '');
-  const key = fileKey_(rawUrl);
-  const plan = { rSheet, receiptIdx: rFound.idx, rawUrl, key, cards: [], finance: [], creatives: [] };
+  const key = fileKey_(rawUrl), type = String(rFound.row[1] || '');
+  const plan = { rSheet, receiptIdx: rFound.idx, rawUrl, key, type, cards: [], revert: [], unlink: [], finance: [], financeReset: [], creatives: [] };
   if (!key) return plan; // no URL on this receipt -> nothing can be linked to it
 
   const cSheet = cardsSheet_(), fSheet = financeSheet_();
   const cRows = cSheet.getDataRange().getValues();
-  const cardIds = {}, batches = {};
+  const cardIds = {}, batches = {}, unlinkIds = {}, unlinkBatches = {};
   for (let r = 1; r < cRows.length; r++) {
     const row = cRows[r];
     if (!row[0]) continue;
-    if (fileKey_(row[21]) === key || fileKey_(row[22]) === key) {
-      cardIds[String(row[0])] = true;
+    const inV = fileKey_(row[21]) === key, inW = fileKey_(row[22]) === key;   // V = where it came from, W = where it went
+    if (!inV && !inW) continue;
+    const c = { idx: r + 1, id: String(row[0]), name: row[4] || '(unnamed)' };
+    if (type === 'sale') {
+      if (!inW) continue;
+      c.full = true;   // full revert: also clears the shipping task fields
+      plan.revert.push(c); unlinkIds[c.id] = true;
+      if (row[23]) unlinkBatches[String(row[23])] = true;
+    } else if (type === 'trade' && inW && !inV) {
+      plan.revert.push(c);
+    } else if (inV) {
+      plan.cards.push(c); cardIds[c.id] = true;
       if (row[23]) batches[String(row[23])] = true;
-      plan.cards.push({ idx: r + 1, id: String(row[0]), name: row[4] || '(unnamed)' });
     }
   }
   // a shipping batch that has no cards left after this delete has no reason to keep its Finance entry
@@ -587,8 +622,12 @@ function planReceiptDelete_(receiptId) {
   for (let r = 1; r < fRows.length; r++) {
     const row = fRows[r];
     if (!row[0]) continue;
-    const linked = fileKey_(row[9]) === key || cardIds[String(row[1])] || batches[String(row[1])];
-    if (linked) plan.finance.push({ idx: r + 1, id: String(row[0]), description: row[4] || '(no description)' });
+    const ref = String(row[1] || ''), byKey = fileKey_(row[9]) === key;
+    const entry = { idx: r + 1, id: String(row[0]), description: row[4] || '(no description)' };
+    if (type === 'sale') {
+      // the sale's own entries go, and so does the shipping-fee entry of the batch that is being undone
+      if (String(row[2]) === 'shipping' ? (unlinkIds[ref] || unlinkBatches[ref] || byKey) : byKey) plan.finance.push(entry);
+    } else if (byKey || cardIds[ref] || batches[ref]) plan.finance.push(entry);
   }
   return plan;
 }
@@ -608,7 +647,9 @@ function deleteRowsBatch_(sheet, idxs) {
 function receiptImpact_(receiptId) {
   const plan = planReceiptDelete_(receiptId);
   if (plan.error) return { ok: false, error: plan.error };
-  return { ok: true, cards: plan.cards.map(c => c.name), finance: plan.finance.map(f => f.description), creatives: plan.creatives.map(c => c.title) };
+  const names = list => list.map(c => c.name);
+  return { ok: true, type: plan.type, cards: names(plan.cards), reverted: names(plan.revert), unlinked: names(plan.unlink),
+    finance: plan.finance.map(f => f.description), creatives: plan.creatives.map(c => c.title) };
 }
 
 function deleteReceipt_(receiptId) {
@@ -617,16 +658,35 @@ function deleteReceipt_(receiptId) {
   try {
     const plan = planReceiptDelete_(receiptId);
     if (plan.error) return { ok: false, error: plan.error };
-    deleteRowsBatch_(financeSheet_(), plan.finance.map(f => f.idx));
+    // in-place edits first: they use row numbers, which the deletes below would shift
+    const cards = cardsSheet_();
+    ensureCardsColumns_(cards);
+    plan.revert.forEach(c => {                                                   // cards given away (trade) or sold (sale) are ours again
+      cards.getRange(c.idx, 10, 1, 1).setValue('onhand');                        // Status (col J)
+      if (c.full) {                                                              // sale: also clear the shipping task / shipped details
+        cards.getRange(c.idx, 11, 1, 11).setValues([['', '', '', '', '', '', '', '', '', '', false]]);   // SoldDate..ShippingRecorded (K-U)
+        cards.getRange(c.idx, 23, 1, 6).setValues([['', '', '', '', '', '']]);   // SaleReceiptURL, ShipBatchID, ShippingAddress, ShippedTime, ShippingContact, SaleNotes (W-AB)
+        cards.getRange(c.idx, 31, 1, 1).setValue('');                            // ShippedBy (AE)
+      } else {
+        cards.getRange(c.idx, 11, 1, 3).setValues([['', '', '']]);               // SoldDate, SoldTo, SoldPrice (K-M)
+        cards.getRange(c.idx, 23, 1, 1).setValue('');                            // SaleReceiptURL (col W)
+      }
+    });
+    const fin = financeSheet_();
+    plan.financeReset.forEach(f => {                                             // a shipped task's fee entry no longer belongs to a receipt
+      fin.getRange(f.idx, 6, 1, 2).setValues([[0, '']]);                         // Amount, PayMethod (F-G)
+      fin.getRange(f.idx, 10, 1, 1).setValue('');                                // ReceiptURL (J)
+    });
+    deleteRowsBatch_(fin, plan.finance.map(f => f.idx));
     if (plan.creatives.length) deleteRowsBatch_(creativesSheet_(false), plan.creatives.map(c => c.idx));
-    deleteRowsBatch_(cardsSheet_(), plan.cards.map(c => c.idx));
+    deleteRowsBatch_(cards, plan.cards.map(c => c.idx));
     plan.rSheet.deleteRow(plan.receiptIdx);
     // the image itself goes to the Drive trash (recoverable there); never fail the delete over it
     try {
       const m = plan.rawUrl.match(/[-\w]{25,}/);
       if (m) DriveApp.getFileById(m[0]).setTrashed(true);
     } catch (err) {}
-    return { ok: true, deletedCards: plan.cards.length, deletedFinance: plan.finance.length, deletedCreatives: plan.creatives.length };
+    return { ok: true, deletedCards: plan.cards.length, revertedCards: plan.revert.length, unlinkedCards: plan.unlink.length, deletedFinance: plan.finance.length, deletedCreatives: plan.creatives.length };
   } finally {
     lock.releaseLock();
   }
@@ -734,9 +794,10 @@ function revertToOnhand_(cardId) {
   if (found.row[9] === 'onhand') return { ok: false, error: 'already onhand' };
   const batchId = found.row[23];
   cards.getRange(found.idx, 10, 1, 1).setValue('onhand');           // Status
-  cards.getRange(found.idx, 11, 1, 10).setValues([['', '', '', '', '', '', '', '', '', false]]); // SoldDate..ShippingRecorded (K-U)
+  cards.getRange(found.idx, 11, 1, 11).setValues([['', '', '', '', '', '', '', '', '', '', false]]); // SoldDate..ShippingRecorded (K-U)
   ensureCardsColumns_(cards);
   cards.getRange(found.idx, 23, 1, 6).setValues([['', '', '', '', '', '']]); // SaleReceiptURL, ShipBatchID, ShippingAddress, ShippedTime, ShippingContact, SaleNotes
+  cards.getRange(found.idx, 31, 1, 1).setValue('');                          // ShippedBy (col AE)
   if (batchId) {
     const rows = cards.getDataRange().getValues();
     const stillInBatch = rows.slice(1).some(r => r[23] === batchId && r[0] !== cardId);
@@ -864,6 +925,61 @@ function updateShipping_(p) {
     if (hasNotes) cards.getRange(f.idx, 28, 1, 1).setValue(notes);   // SaleNotes (col AB)
   });
   return { ok: true };
+}
+
+// A shipping task made before its sale receipt: the cards are shipping/shipped but have no sale date and no sale receipt yet.
+function pendingSale_(r) { return (r[9] === 'shipping' || r[9] === 'shipped') && !r[10] && !r[22]; }
+
+// Create a shipping task with no sale receipt yet (customer about to pay, or paying at shipping). The picked onhand cards move to
+// "shipping" under one new batch ID; price, shipping type and fee are filled in when the sale receipt is linked to it.
+// All-or-nothing, and a retried request fails cleanly because the cards are no longer onhand.
+function createShippingTask_(p) {
+  const ids = splitIds_(p.cardIds).filter((x, i, a) => a.indexOf(x) === i);
+  if (!ids.length) return { ok: false, error: 'pick at least one card' };
+  const sched = String(p.sched || '').trim();
+  if (sched && !/^\d{4}-\d{2}-\d{2}$/.test(sched)) return { ok: false, error: 'invalid date' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const cards = cardsSheet_();
+    ensureCardsColumns_(cards);
+    const data = cards.getDataRange().getValues(), rowOf = {};
+    for (let r = 1; r < data.length; r++) if (data[r][0] !== '') rowOf[String(data[r][0])] = r + 1;
+    if (ids.some(id => !rowOf[id])) return { ok: false, error: 'card not found' };
+    if (ids.some(id => String(data[rowOf[id] - 1][9] || 'onhand') !== 'onhand')) return { ok: false, error: 'only onhand cards can go on a shipping task' };
+    const contact = String(p.contact || '').trim().slice(0, 60), address = String(p.address || '').trim().slice(0, 500);
+    const notes = String(p.notes || '').trim().slice(0, 1000), method = String(p.method || '').trim().slice(0, 60) || 'Others';
+    const buyer = resolveParty_(p.buyer, contact, address);   // saved entity (spelling-safe), created on first use
+    const batchId = newId_('b');
+    ids.forEach(id => {
+      const idx = rowOf[id];
+      cards.getRange(idx, 10, 1, 1).setValue('shipping');                     // Status (col J)
+      cards.getRange(idx, 12, 1, 1).setValue(buyer);                          // SoldTo (col L)
+      cards.getRange(idx, 15, 1, 1).setValue(method);                         // ShippingMethod (col O)
+      cards.getRange(idx, 18, 1, 1).setValue(sched);                          // ShippingScheduledDate (col R)
+      cards.getRange(idx, 24, 1, 2).setValues([[batchId, address]]);          // ShipBatchID, ShippingAddress (cols X-Y)
+      cards.getRange(idx, 27, 1, 2).setNumberFormat('@').setValues([[contact, notes]]);   // ShippingContact, SaleNotes (cols AA-AB)
+    });
+    return { ok: true, batchId, count: ids.length };
+  } finally { lock.releaseLock(); }
+}
+
+// Cancel shipping tasks that have no sale receipt: their cards go back to onhand. A task that already has a receipt is refused
+// (delete that receipt instead, which unlinks it).
+function cancelShipping_(cardIds) {
+  const ids = splitIds_(cardIds);
+  if (!ids.length) return { ok: false, error: 'missing cardId' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const cards = cardsSheet_(), data = cards.getDataRange().getValues(), byId = {};
+    for (let r = 1; r < data.length; r++) byId[String(data[r][0])] = data[r];
+    if (ids.some(id => !byId[id])) return { ok: false, error: 'not found' };
+    if (ids.some(id => !pendingSale_(byId[id]))) return { ok: false, error: 'only shipping tasks without a sale receipt can be cancelled' };
+    let n = 0;
+    ids.forEach(id => { if (revertToOnhand_(id).ok) n++; });
+    return { ok: true, reverted: n };
+  } finally { lock.releaseLock(); }
 }
 
 // Calendar events live in their own "Events" tab (created on first save). Columns: ID | Date | Title | Time | Notes.
@@ -1092,6 +1208,7 @@ function getShipping_() {
     const item = {
       id: r[0], name: r[4], photo: toDisplayUrl_(r[7]),
       soldTo: r[11], soldPrice: Number(r[12]) || 0,
+      pending: !r[22] && !r[10], batchId: String(r[23] || ''), lotId: String(r[28] || ''), lotName: String(r[29] || ''), purchaseCost: Number(r[5]) || 0,   // pending = a task made before its sale receipt
       shipType: r[13], shipMethod: r[14], shipFee: Number(r[15]) || 0,
       deductedFrom: r[16], scheduledDate: fmtDateCell_(r[17]),
       shippedDate: fmtDateCell_(r[18]), shippedTime: fmtTimeCell_(r[25]), shippedBy: String(r[30] || ''), proofPhoto: toDisplayUrl_(r[19]),
@@ -1615,7 +1732,7 @@ function getEntities_() {
     const from = nameOf(r[2]);
     if (from) tx.push([from, (r[6] === '' || r[6] == null) ? 'trade' : 'buy', fmtDateCell_(r[1]), Number(r[5]) || 0]);
     const to = nameOf(r[11]);
-    if (to && (status === 'shipping' || status === 'shipped')) tx.push([to, 'sell', fmtDateCell_(r[10]), Number(r[12]) || 0]);
+    if (to && (status === 'shipping' || status === 'shipped') && !pendingSale_(r)) tx.push([to, 'sell', fmtDateCell_(r[10]), Number(r[12]) || 0]);
     else if (to && status === 'traded') tx.push([to, 'trade', fmtDateCell_(r[10]), Number(r[12]) || 0]);
   });
   return { ok: true, entities: ents.map(e => ({ id: e.id, name: e.name, contact: e.contact, aliases: e.aliases, address: e.address, email: e.email, facebook: e.facebook, payment: e.payment, notes: e.notes })), tx };
@@ -1632,7 +1749,7 @@ function getEntityCards_(entityId) {
     if (!r[0] || !r[4]) return;
     const status = String(r[9] || 'onhand'), photo = toDisplayUrl_(r[7], 200);
     if (keys[partyKey_(r[2])]) cards.push({ id: String(r[0]), name: String(r[4]), kind: (r[6] === '' || r[6] == null) ? 'trade' : 'buy', date: fmtDateCell_(r[1]), value: Number(r[5]) || 0, photo, status });
-    if (keys[partyKey_(r[11])] && (status === 'shipping' || status === 'shipped' || status === 'traded'))
+    if (keys[partyKey_(r[11])] && (status === 'shipping' || status === 'shipped' || status === 'traded') && !pendingSale_(r))
       cards.push({ id: String(r[0]), name: String(r[4]), kind: status === 'traded' ? 'trade' : 'sell', date: fmtDateCell_(r[10]), value: Number(r[12]) || 0, photo, status });
   });
   return { ok: true, cards };

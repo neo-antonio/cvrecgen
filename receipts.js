@@ -113,16 +113,17 @@ document.getElementById('imgViewDelete').onclick = async () => {
   try {
     const imp = await jsonp(`${base}?action=receiptImpact&receiptId=${encodeURIComponent(id)}&secret=${sec}`);
     if (!imp.ok) throw new Error(imp.error || 'Request failed');
-    const cards = imp.cards || [], fin = imp.finance || [], cre = imp.creatives || [];
+    const cards = imp.cards || [], back = imp.reverted || [], kept = imp.unlinked || [], fin = imp.finance || [], cre = imp.creatives || [];
+    const pl = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
+    const lines = [];
+    // purchase / trade-in cards go; trade-out cards come back; sale cards are never deleted
+    if (cards.length) lines.push(`\u2022 Permanently delete ${pl(cards.length, 'card')} (Portfolio / Shipping): ${sumList(cards)}`);
+    if (back.length) lines.push(`\u2022 Return ${pl(back.length, 'card')} to onhand: ${sumList(back)}`);
+    if (kept.length) lines.push(`\u2022 Keep ${pl(kept.length, 'card')} in your portfolio: ${sumList(kept)}. The sale details are cleared; if it is on a shipping task, the task stays without a receipt.`);
+    if (fin.length) lines.push(`\u2022 Permanently delete ${fin.length} Finance entr${fin.length > 1 ? 'ies' : 'y'}: ${sumList(fin)}`);
+    if (cre.length) lines.push(`\u2022 Permanently delete ${pl(cre.length, 'Creatives task')}: ${sumList(cre)}`);
     let msg = 'Delete this receipt?\n\n';
-    if (cards.length || fin.length || cre.length) {
-      msg += 'This will also permanently delete:\n';
-      if (cards.length) msg += `\u2022 ${cards.length} card${cards.length > 1 ? 's' : ''} (Portfolio / Shipping): ${sumList(cards)}\n`;
-      if (fin.length) msg += `\u2022 ${fin.length} Finance entr${fin.length > 1 ? 'ies' : 'y'}: ${sumList(fin)}\n`;
-      if (cre.length) msg += `\u2022 ${cre.length} Creatives task${cre.length > 1 ? 's' : ''}: ${sumList(cre)}\n`;
-    } else {
-      msg += 'No cards, Finance entries or Creatives tasks are linked to it.\n';
-    }
+    msg += lines.length ? 'This will also:\n' + lines.join('\n') + '\n' : 'No cards, Finance entries or Creatives tasks are linked to it.\n';
     msg += '\nThis cannot be undone.';
     if (!confirm(msg)) return;
     btn.textContent = 'Deleting\u2026';
@@ -140,7 +141,13 @@ document.getElementById('imgViewDelete').onclick = async () => {
     }
     if (!del.ok) throw new Error(del.error || 'Request failed');
     document.getElementById('imgView').hidden = true;
-    toast(`Receipt deleted (${del.deletedCards || 0} card${del.deletedCards === 1 ? '' : 's'}, ${del.deletedFinance || 0} finance entr${del.deletedFinance === 1 ? 'y' : 'ies'}${del.deletedCreatives ? `, ${del.deletedCreatives} creatives task${del.deletedCreatives === 1 ? '' : 's'}` : ''}).`);
+    const bits = [];
+    if (del.deletedCards) bits.push(`${del.deletedCards} card${del.deletedCards === 1 ? '' : 's'} deleted`);
+    if (del.revertedCards) bits.push(`${del.revertedCards} returned to onhand`);
+    if (del.unlinkedCards) bits.push(`${del.unlinkedCards} card${del.unlinkedCards === 1 ? '' : 's'} kept`);
+    if (del.deletedFinance) bits.push(`${del.deletedFinance} finance entr${del.deletedFinance === 1 ? 'y' : 'ies'} deleted`);
+    if (del.deletedCreatives) bits.push(`${del.deletedCreatives} creatives task${del.deletedCreatives === 1 ? '' : 's'} deleted`);
+    toast('Receipt deleted' + (bits.length ? ` (${bits.join(', ')})` : '') + '.');
     await loadReceipts();
   } catch (err) {
     toast('Could not delete: ' + backendErr(err));

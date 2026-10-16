@@ -13,6 +13,7 @@ const shipType = () => $('input[name=st]:checked').value;
 const SHIP_LABEL = { buyer: 'c/o buyer', us: 'c/o us', none: 'No shipping' };
 const escHtml = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let mode = 'purchase';
+let shipTasks = [], linkedTask = null;   // open shipping tasks with no sale receipt yet; the one picked on this sale
 
 // Split a total across n cards in whole cents so the parts always add back to the exact total
 // (100 / 3 -> 33.33, 33.33, 33.34): the leftover cents go to the last cards.
@@ -50,6 +51,71 @@ async function loadOnhandCards() {
     onhandCards = [];
   }
 }
+
+// Shipping tasks that have no sale receipt yet (customer about to pay / paid at shipping), still to ship or already shipped.
+async function loadShipTasks() {
+  shipTasks = [];
+  if (!CONFIG.portfolio.endpoint) return;
+  try {
+    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=shipping&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    if (!data || !data.ok) return;
+    const groups = new Map();
+    (data.toShip || []).concat(data.shipped || []).forEach(c => {
+      if (!c.pending || !c.batchId) return;
+      if (!groups.has(c.batchId)) groups.set(c.batchId, []);
+      groups.get(c.batchId).push(c);
+    });
+    shipTasks = [...groups.entries()].map(([id, cs]) => { cs = cs.slice().reverse(); const f = cs[0];   // reversed back into sheet order
+      return { id, buyer: f.soldTo || '', method: f.shipMethod || '', sched: f.scheduledDate || '', address: f.address || '', contact: f.contact || '', notes: f.notes || '', shipped: !!f.shippedDate, cards: cs }; });
+  } catch (err) { console.warn('Could not load shipping tasks', err); }
+}
+const taskLabel = t => `${t.buyer || 'No buyer'} \u00b7 ${nPl(t.cards.length, 'card')} \u00b7 ${t.shipped ? 'shipped' : (t.sched ? 'ship ' + t.sched : 'no schedule')}`;
+function fillTaskSelect() {
+  $('#shipTask').innerHTML = '<option value="">No shipping task (new sale)</option>' + shipTasks.map(t => `<option value="${escHtml(t.id)}">${escHtml(taskLabel(t))}</option>`).join('');
+  $('#shipTask').value = '';
+}
+// the task's cards as picker entries: a lot stays one row, like everywhere else
+function taskEntries(t) {
+  const out = [], seen = {};
+  t.cards.forEach(c => {
+    if (!c.lotId) return out.push({ id: String(c.id), name: c.name, cost: c.purchaseCost, photo: c.photo });
+    let l = seen[c.lotId];
+    if (!l) { l = seen[c.lotId] = { id: 'lot:' + c.lotId, isLot: true, lotId: String(c.lotId), name: c.lotName || 'Lot', cards: [], cost: 0, photo: c.photo }; out.push(l); }
+    l.cards.push({ id: c.id, name: c.name }); l.cost += Number(c.purchaseCost) || 0; if (!l.photo) l.photo = c.photo;
+  });
+  return out;
+}
+function setMethodUI(v) {
+  v = String(v || '').trim();
+  const known = ['LBC', 'Lalamove', 'Grab', 'Meet-up'].includes(v);
+  $('#method').value = known ? v : 'Others';
+  $('#methodOther').value = known || v === 'Others' ? '' : v;
+}
+// Picking a task puts its cards on the receipt (locked: change the cards by editing the task) and fills in what the task knows.
+function applyTask(id) {
+  const prev = linkedTask, t = shipTasks.find(x => x.id === id) || null;
+  linkedTask = t;
+  $('#items').innerHTML = '';
+  $('#soldPicker').style.display = t ? 'none' : '';
+  $('#taskHint').hidden = !t;
+  if (prev && !t) {   // back to a plain sale: take out what the task had filled in
+    if ($('#shipAddr').value.trim() === prev.address) $('#shipAddr').value = '';
+    if ($('#shipContact').value.trim() === prev.contact) $('#shipContact').value = '';
+    if ($('#sched').value === prev.sched) $('#sched').value = '';
+    if ($('#notes').value.trim() === prev.notes) $('#notes').value = '';
+  }
+  if (t) {
+    taskEntries(t).forEach(c => addCardRow('sold', c, true));
+    if (t.buyer) $('#party').value = t.buyer;
+    if (t.method) setMethodUI(t.method);
+    $('#sched').value = t.sched || '';
+    $('#shipAddr').value = t.address; $('#shipContact').value = t.contact;
+    if (t.notes && !$('#notes').value.includes(t.notes)) $('#notes').value = ($('#notes').value.trim() ? $('#notes').value.trim() + '\n' : '') + t.notes;
+  }
+  refreshPicker('sold');
+  update();
+}
+$('#shipTask').addEventListener('change', () => applyTask($('#shipTask').value));
 
 /* ---------- Items ---------- */
 const CAMERA_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.4"/></svg>';
@@ -328,16 +394,16 @@ function refreshPicker(kind) {
   root.querySelector('.pick-list').innerHTML = shown.length
     ? shown.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${ids.has(String(c.id)) ? ' checked' : ''}>${cardThumb(c)}<span>${c.isLot ? '<b class="lot-pill">LOT</b>' : ''}${escHtml(c.name)} <small>\u2014 ${c.isLot ? c.cards.length + ' cards \u00b7 ' : ''}bought ${php(c.cost)}</small></span></label>`).join('')
     : `<p class="stub-note" style="margin:10px 0 4px">${all.length ? 'No cards match.' : 'No onhand cards found.'}</p>`;
-  const n = ids.size, t = root.querySelector('.ms-btn span');
+  const n = all.filter(c => ids.has(String(c.id))).length, t = root.querySelector('.ms-btn span');
   t.textContent = n ? `${n} card${n > 1 ? 's' : ''} selected` : 'Select card(s)';
   t.className = n ? '' : 'ph';
 }
 
-function addCardRow(kind, card) {
+function addCardRow(kind, card, locked) {
   const cfg = PICK[kind];
   if (pickedIds(kind).includes(String(card.id))) return;  // a card (or lot) can only be on the list once
   const block = document.createElement('div');
-  block.className = 'item-block';
+  block.className = 'item-block' + (locked ? ' locked' : '');
   block.dataset.id = 'cr' + (++itemSeq);
   block.dataset.cardId = String(card.id);
   block.dataset.name = card.name || '';
@@ -501,13 +567,15 @@ async function setMode(m) {
   Object.keys(itemPhotos).forEach(k => delete itemPhotos[k]);
   $('#items').innerHTML = ''; $('#tradedItems').innerHTML = ''; $('#receivedItems').innerHTML = '';
   itemSeq = 0;
+  linkedTask = null; $('#soldPicker').style.display = ''; $('#taskHint').hidden = true;
   lots = {}; $('#payExtra').innerHTML = ''; $('#payAmt').value = '';
   if (m === 'sold' || m === 'trade') {
     const loading = '<p class="stub-note">Loading onhand cards\u2026</p>';
     if (m === 'sold') $('#items').innerHTML = loading; else $('#tradedItems').innerHTML = loading;
-    await loadOnhandCards();
+    await Promise.all([loadOnhandCards(), m === 'sold' ? loadShipTasks() : null]);
     $('#items').innerHTML = ''; $('#tradedItems').innerHTML = '';
     initPicker(m);
+    if (m === 'sold') fillTaskSelect();
   }
   if (m === 'trade') addReceivedItem(); else if (m === 'purchase') addItem();
   update();
@@ -516,6 +584,7 @@ $$('.tab').forEach(t => t.onclick = () => setMode(t.dataset.mode));
 
 function update() {
   $$('[data-only]').forEach(e => { e.hidden = !e.dataset.only.split(' ').includes(mode); });
+  if (mode === 'sold') $('#taskField').hidden = !shipTasks.length;
 
   if (mode === 'purchase' || mode === 'sold') {
     const blocks = $$('#items .item-block'), rows = $$('#items .item');
@@ -578,6 +647,7 @@ function collect() {
     sub: trade ? 0 : subtotal(), ship: trade ? 0 : shipping(), pack: packaging(),
     total: grandTotal(),
     method: $('#method').value === 'Others' ? ($('#methodOther').value.trim() || 'Others') : $('#method').value,
+    shipTaskId: mode === 'sold' && linkedTask ? linkedTask.id : '',
     shipType: t, sched: $('#sched').value, shipAddr: mode === 'sold' ? $('#shipAddr').value.trim() : '',
     shipContact: mode === 'sold' ? $('#shipContact').value.trim() : '',
     deduct: $('#deduct').value === 'Others' ? ($('#deductOther').value.trim() || 'Others') : $('#deduct').value,
@@ -770,7 +840,7 @@ function saleBody(d, receiptPhoto) {
   if (!sold.length) return null;
   return { action: 'sell', date: d.date, time: d.time, buyer: d.party, notes: d.notes, pay: d.pay,
     shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
-    shipAddress: d.shipAddr, shipContact: d.shipContact, packaging: d.pack, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
+    shippingTaskId: d.shipTaskId, shipAddress: d.shipAddr, shipContact: d.shipContact, packaging: d.pack, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
     items: sold.map(i => lotFields({ cardId: i.cardId, name: i.name, cost: i.cost }, i)), ...(d.payments.length > 1 ? { payments: d.payments } : {}), receiptPhoto };
 }
 // Items traded away become "traded"; items received become new onhand Cards only if d.receivedPortfolio is
@@ -857,7 +927,7 @@ function plannedSteps(d) {
   const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'run', t: 'Uploading to server\u2026' }, { st: 'wait', t: 'Saving receipt to archive' }];
   if (d.mode === 'transfer') st.push({ st: 'wait', t: `Creating ${d.fee > 0 ? 3 : 2} finance tasks` });
   else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k + (d.ship > 0 ? 1 : 0), 'finance task')}` }); }
-  else if (d.mode === 'sold') st.push({ st: 'wait', t: `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
+  else if (d.mode === 'sold') st.push({ st: 'wait', t: d.shipTaskId ? `Linking ${nPl(k, 'card')} to the shipping task` : `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
   else { if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio)) st.push({ st: 'wait', t: 'Updating portfolio' }); st.push({ st: 'wait', t: 'Creating finance task' }); }
   if (d.vlog) st.push({ st: 'wait', t: d.vlogTaskId ? 'Adding to existing vlog task' : 'Adding vlog task to Creatives' });
   return st;
@@ -868,7 +938,7 @@ function resultSteps(d, r) {
   const pf = r.photosFailed ? ` (${nPl(r.photosFailed, 'photo')} could not be saved)` : '';
   if (d.mode === 'transfer') st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
   else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `${nPl(r.cards || 0, 'card')} added to portfolio${pf}` }); st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` }); }
-  else if (d.mode === 'sold') st.push({ st: 'ok', t: `${nPl(r.cards || 0, 'card')} moved to Shipping` }, { st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
+  else if (d.mode === 'sold') st.push({ st: 'ok', t: `${nPl(r.cards || 0, 'card')} ${d.shipTaskId ? 'linked to the shipping task' : 'moved to Shipping'}` }, { st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
   else {
     if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio))
       st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `Portfolio updated: ${r.traded || 0} traded out, ${r.received || 0} added${pf}` });
@@ -999,6 +1069,12 @@ function resetAfterCardReceipt(d) {
     $('#items').innerHTML = ''; refreshPicker('sold');
     $('#payExtra').innerHTML = ''; $('#payAmt').value = '';   // split amounts belonged to that sale's total
     $('#pack').value = ''; $('#shipAddr').value = ''; $('#shipContact').value = '';   // per-sale fields: never carry one buyer's over to the next sale
+    if (d.shipTaskId) {   // the task now has its receipt: drop it from the list and clear what it had filled in
+      shipTasks = shipTasks.filter(t => t.id !== d.shipTaskId);
+      linkedTask = null; $('#soldPicker').style.display = ''; $('#taskHint').hidden = true;
+      $('#sched').value = ''; $('#notes').value = '';
+      fillTaskSelect();
+    }
   } else if (d.mode === 'transfer') {
     $('#trAmt').value = ''; $('#trFee').value = '';   // per-transfer: never carry one amount over to the next
   } else if (d.mode === 'trade') {
@@ -1077,6 +1153,7 @@ $('#party').addEventListener('change', () => {
 /* ---------- Init ---------- */
 $('#date').value = todayStr();
 $('#time').value = nowTimeStr();   // time the page was loaded; editable
-setMode('purchase');
+const qTask = new URLSearchParams(location.search).get('task');
+setMode(qTask ? 'sold' : 'purchase').then(() => { if (qTask && shipTasks.some(t => t.id === qTask)) { $('#shipTask').value = qTask; applyTask(qTask); } });
 resumeOutbox().catch(err => console.warn('Outbox resume failed', err));
 loadEntities();

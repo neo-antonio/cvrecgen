@@ -283,6 +283,8 @@ body.home-body{padding-top:0}
 .ship-badge{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:999px;font:600 10px Inter,system-ui,sans-serif;letter-spacing:.3px;text-transform:uppercase}
 .ship-badge.late{background:#c0392b;color:#fff}
 .ship-badge.today{background:#e3a22a;color:#fff}
+.ship-badge.wait{background:#6b6b6b;color:#fff;margin-top:0}
+.item-block.locked .x{visibility:hidden;pointer-events:none}
 .ship-card.late{border-color:#c0392b;box-shadow:0 0 0 1px #c0392b}
 .ship-card.today{border-color:#e3b55a}
 .ship-addr em{color:var(--mut)}

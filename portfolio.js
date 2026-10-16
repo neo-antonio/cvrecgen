@@ -69,7 +69,7 @@ function cardHtml(it, inLot) {
     ? `<img src="${it.photo}" alt="${escHtml(it.name)}" loading="lazy" class="port-clickphoto" data-full="${it.photo}">`
     : `<div class="port-noimg">No photo</div>`;
   const owned = isOwned(it);
-  const dateLine = owned ? 'Bought ' + fmtCardDate(it.purchaseDate) : (it.tag === 'traded' ? 'Traded ' : 'Sold ') + fmtCardDate(it.soldDate);
+  const dateLine = owned ? 'Bought ' + fmtCardDate(it.purchaseDate) : (it.tag === 'sold' && !it.soldDate ? 'Shipped \u00b7 sale receipt pending' : (it.tag === 'traded' ? 'Traded ' : 'Sold ') + fmtCardDate(it.soldDate));
   const costLine = owned ? it.purchaseCost : it.soldPrice;
   const held = heldLine(it);
   const rcpts = receiptsFor(it);

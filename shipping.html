@@ -35,6 +35,7 @@
   <div class="port-summary">
     <span>Total shipping</span>
     <b id="shipTotal">PHP 0.00</b>
+    <button type="button" class="ghost sm" id="shipNew">+ New task</button>
     <button type="button" class="ghost sm" id="shipRefresh">Refresh</button>
   </div>
   <div class="field" style="margin-bottom:12px">
@@ -103,6 +104,50 @@
     <div class="acts">
       <button type="button" class="go sm" id="shipDateSave">Mark shipped</button>
       <button type="button" class="ghost" id="shipDateCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="shipNewSheet" hidden>
+  <div class="sheet small wide">
+    <h3>New shipping task</h3>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">For a sale that has no receipt yet, e.g. the buyer is about to pay or pays when it ships. Pick this task when you generate the sale receipt.</p>
+    <div class="field">
+      <label for="snBuyer">Buyer</label>
+      <input type="text" id="snBuyer" list="snBuyerList" autocomplete="off">
+      <datalist id="snBuyerList"></datalist>
+    </div>
+    <div class="field">
+      <label>Cards <small id="snCount">none selected</small></label>
+      <div class="field" style="margin-bottom:8px"><input type="search" id="snSearch" placeholder="Search onhand cards" autocomplete="off"></div>
+      <div id="snList" class="lot-pick"></div>
+    </div>
+    <div class="field">
+      <label for="snMethod">Shipping method</label>
+      <select id="snMethod"><option>LBC</option><option>Lalamove</option><option>Grab</option><option>Meet-up</option><option>Others</option></select>
+      <input type="text" id="snMethodOther" placeholder="Specify shipping method" hidden>
+    </div>
+    <div class="field">
+      <label for="snSched">Scheduled shipping date <small>(optional)</small></label>
+      <div class="row">
+        <input type="date" id="snSched">
+        <button type="button" class="ghost sm" id="snSchedClear">Clear</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="snAddr">Shipping address <small>(optional)</small></label>
+      <textarea id="snAddr" rows="3" placeholder="Name, street, barangay, city, province, ZIP"></textarea>
+    </div>
+    <div class="field">
+      <label for="snContact">Contact number <small>(optional)</small></label>
+      <input type="tel" id="snContact" inputmode="tel" autocomplete="off" placeholder="09xx xxx xxxx">
+    </div>
+    <div class="field">
+      <label for="snNotes">Notes <small>(optional)</small></label>
+      <textarea id="snNotes" rows="3" maxlength="500" placeholder="Reminders for packing, payment arrangement&hellip;"></textarea>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="snSave">Create task</button>
+      <button type="button" class="ghost" id="snCancel">Cancel</button>
     </div>
   </div>
 </div>
