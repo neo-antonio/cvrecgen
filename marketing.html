@@ -48,7 +48,7 @@
         <button type="button" class="ghost sm" id="mkRefresh">Refresh</button>
       </div>
     </div>
-    <div class="mk-sum" id="mkSum" hidden><span id="mkSumLbl"></span><b id="mkSumVal"></b></div>
+    <div class="mk-sum" id="mkSum" hidden><span id="mkSumLbl"></span><div class="mk-sumr"><b id="mkSumVal"></b><small id="mkSumSub" hidden></small></div></div>
     <p class="stub-note" id="mkState">Loading&hellip;</p>
     <div class="mk-list" id="mkList" hidden></div>
   </div>
@@ -58,7 +58,14 @@
       <input type="search" id="entSearch" placeholder="Search name, contact, address, email or notes" autocomplete="off">
     </div>
     <button type="button" class="ghost add-task" id="entAdd">+ Add entity</button>
-    <p class="rec-count" id="entCount"></p>
+    <div class="ent-bar">
+      <p class="rec-count" id="entCount"></p>
+      <div class="ent-tools">
+        <button type="button" class="icon-btn" id="entFilterBtn" aria-label="Sort and filter" title="Sort and filter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6 8v6l-4-2v-4z"/></svg></button>
+        <button type="button" class="ghost sm" id="entDetailsToggle">Hide details</button>
+      </div>
+    </div>
+    <div class="ent-active" id="entActive" hidden></div>
     <p class="stub-note" id="entState" hidden></p>
     <div class="mk-list" id="entList" hidden></div>
   </div>
@@ -67,9 +74,33 @@
 <div class="modal" id="entSheet" hidden>
   <div class="sheet small wide">
     <h3 id="entHeading">Add entity</h3>
+    <div class="pe-top">
+      <span id="entAvatar"></span>
+      <div class="pe-btns">
+        <button type="button" class="ghost sm" id="entPicUpload">Upload photo</button>
+        <button type="button" class="ghost sm" id="entPicLink">Paste image link</button>
+        <button type="button" class="ghost sm" id="entPicRemove" hidden>Remove photo</button>
+      </div>
+    </div>
+    <div class="pay-add pe-link" id="entPicLinkField" hidden>
+      <input type="url" id="entPicUrl" inputmode="url" autocomplete="off" maxlength="600" placeholder="https://example.com/photo.jpg">
+      <button type="button" class="ghost sm" id="entPicUse">Use</button>
+    </div>
+    <div class="field">
+      <label>Gender <small>(sets the blank profile picture)</small></label>
+      <div class="radios">
+        <label class="rad"><input type="radio" name="entGender" value="m"><span>Male</span></label>
+        <label class="rad"><input type="radio" name="entGender" value="f"><span>Female</span></label>
+        <label class="rad"><input type="radio" name="entGender" value="" checked><span>Not set</span></label>
+      </div>
+    </div>
     <div class="field">
       <label for="entName">Name</label>
       <input type="text" id="entName" autocomplete="off" placeholder="e.g. Kuya Rick">
+    </div>
+    <div class="field">
+      <label for="entNick">Nickname <small>(optional, shown small after the name)</small></label>
+      <input type="text" id="entNick" autocomplete="off" maxlength="40" placeholder="e.g. Kuya Rick">
     </div>
     <div class="field">
       <label for="entContact">Contact number <small>(optional)</small></label>
@@ -108,13 +139,31 @@
 </div>
 
 <div class="modal" id="entView" hidden>
-  <div class="sheet small wide">
+  <div class="sheet small wide pf-sheet">
     <div id="entViewBody"></div>
     <div class="ed-cards" id="entViewCards" hidden></div>
     <div class="acts" style="margin-top:14px">
       <button type="button" class="ghost" id="entViewLoad">Load purchased, sold &amp; traded cards</button>
       <button type="button" class="go sm" id="entViewEdit">Edit details</button>
       <button type="button" class="ghost" id="entViewClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="sortSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Sort entities</h3>
+    <div class="so-list" id="sortOpts"></div>
+    <div class="field" id="sortDirField">
+      <label>Order</label>
+      <div class="radios two">
+        <label class="rad"><input type="radio" name="sortDir" value="most" checked><span>Most first</span></label>
+        <label class="rad"><input type="radio" name="sortDir" value="least"><span>Least first</span></label>
+      </div>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="sortDone">Done</button>
+      <button type="button" class="ghost" id="sortReset">Reset to A&ndash;Z</button>
     </div>
   </div>
 </div>
@@ -133,6 +182,7 @@
     </div>
   </div>
 </div>
+<input type="file" accept="image/*" id="entPicFile" hidden>
 <div class="toast" id="mkToast" hidden></div>
 
 <footer class="site-footer">

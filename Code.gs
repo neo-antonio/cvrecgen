@@ -1749,6 +1749,7 @@ function syncEntities_() {
 // Entities + one slim line per card movement: [entityName, kind, date, value]
 //   buy   = a card we bought (value = what we paid)       sell  = a card we sold (value = sold price)
 //   trade = a card traded in or out (value = its stated value). Trade-in cards are the ones saved with no pay method.
+//   A 5th item marks trades: 'in' = card we received, 'out' = card we gave.
 function getEntities_() {
   syncEntities_();
   const ents = readEntities_(entitiesSheet_(true)), map = entityMap_(ents);
@@ -1759,10 +1760,10 @@ function getEntities_() {
     if (!r[0] || !r[4]) return;
     const status = String(r[9] || 'onhand');
     const from = nameOf(r[2]);
-    if (from) tx.push([from, (r[6] === '' || r[6] == null) ? 'trade' : 'buy', fmtDateCell_(r[1]), Number(r[5]) || 0]);
+    if (from) tx.push([from, (r[6] === '' || r[6] == null) ? 'trade' : 'buy', fmtDateCell_(r[1]), Number(r[5]) || 0, (r[6] === '' || r[6] == null) ? 'in' : '']);
     const to = nameOf(r[11]);
     if (to && (status === 'shipping' || status === 'shipped') && !pendingSale_(r)) tx.push([to, 'sell', fmtDateCell_(r[10]), Number(r[12]) || 0]);
-    else if (to && status === 'traded') tx.push([to, 'trade', fmtDateCell_(r[10]), Number(r[12]) || 0]);
+    else if (to && status === 'traded') tx.push([to, 'trade', fmtDateCell_(r[10]), Number(r[12]) || 0, 'out']);
   });
   return { ok: true, entities: ents.map(e => ({ id: e.id, name: e.name, contact: e.contact, aliases: e.aliases, address: e.address, email: e.email, facebook: e.facebook, payment: e.payment, notes: e.notes })), tx };
 }
@@ -1777,9 +1778,9 @@ function getEntityCards_(entityId) {
   rows.forEach(r => {
     if (!r[0] || !r[4]) return;
     const status = String(r[9] || 'onhand'), photo = toDisplayUrl_(r[7], 200);
-    if (keys[partyKey_(r[2])]) cards.push({ id: String(r[0]), name: String(r[4]), kind: (r[6] === '' || r[6] == null) ? 'trade' : 'buy', date: fmtDateCell_(r[1]), value: Number(r[5]) || 0, photo, status });
+    if (keys[partyKey_(r[2])]) cards.push({ id: String(r[0]), name: String(r[4]), kind: (r[6] === '' || r[6] == null) ? 'trade' : 'buy', date: fmtDateCell_(r[1]), value: Number(r[5]) || 0, photo, status, dir: (r[6] === '' || r[6] == null) ? 'in' : '' });
     if (keys[partyKey_(r[11])] && (status === 'shipping' || status === 'shipped' || status === 'traded') && !pendingSale_(r))
-      cards.push({ id: String(r[0]), name: String(r[4]), kind: status === 'traded' ? 'trade' : 'sell', date: fmtDateCell_(r[10]), value: Number(r[12]) || 0, photo, status });
+      cards.push({ id: String(r[0]), name: String(r[4]), kind: status === 'traded' ? 'trade' : 'sell', date: fmtDateCell_(r[10]), value: Number(r[12]) || 0, photo, status, dir: status === 'traded' ? 'out' : '' });
   });
   return { ok: true, cards };
 }
