@@ -258,24 +258,36 @@ async function lotCall(action, params) {
 async function lotBatches(action, ids, extra) {   // keep each request URL short
   for (let i = 0; i < ids.length; i += 25) await lotCall(action, Object.assign({ cardIds: ids.slice(i, i + 25).join(',') }, extra || {}));
 }
-let lotAddId = null; const lotAddSel = new Set();
+let lotAddId = null, lotCreate = false; const lotAddSel = new Set();
 function lotAddRender() {
   const q = document.getElementById('lotAddSearch').value.trim().toLowerCase();
   const cand = portData.cards.filter(c => c.tag === 'onhand' && !c.lotId && (!q || String(c.name || '').toLowerCase().includes(q)));
   document.getElementById('lotAddList').innerHTML = cand.length
     ? cand.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${lotAddSel.has(String(c.id)) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${escHtml(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${escHtml(c.name)} <small>\u2014 bought ${portPhp(c.purchaseCost)}</small></span></label>`).join('')
     : '<p class="stub-note" style="margin:10px 0 4px">No loose onhand cards to add.</p>';
-  document.getElementById('lotAddSave').textContent = lotAddSel.size ? `Add ${lotAddSel.size} card${lotAddSel.size > 1 ? 's' : ''}` : 'Add to lot';
+  const n = lotAddSel.size;
+  document.getElementById('lotAddSave').textContent = lotCreate ? (n ? `Create lot of ${n}` : 'Create lot') : (n ? `Add ${n} card${n > 1 ? 's' : ''}` : 'Add to lot');
 }
 document.getElementById('lotAddSearch').addEventListener('input', lotAddRender);
 document.getElementById('lotAddList').addEventListener('change', e => { if (e.target.matches('input[type=checkbox]')) { e.target.checked ? lotAddSel.add(e.target.value) : lotAddSel.delete(e.target.value); lotAddRender(); } });
-const closeLotAdd = () => { document.getElementById('lotAddSheet').hidden = true; lotAddId = null; };
+const closeLotAdd = () => { document.getElementById('lotAddSheet').hidden = true; lotAddId = null; lotCreate = false; };
+/* Create a brand-new lot out of loose onhand cards (no receipt needed) */
+document.getElementById('portNewLot').onclick = () => {
+  lotCreate = true; lotAddId = null; lotAddSel.clear();
+  document.getElementById('lotAddSearch').value = ''; document.getElementById('lotAddName').value = '';
+  document.getElementById('lotAddNameWrap').hidden = false;
+  document.getElementById('lotAddTitle').textContent = 'New lot';
+  lotAddRender(); document.getElementById('lotAddSheet').hidden = false;
+};
 document.getElementById('lotAddCancel').onclick = closeLotAdd;
 document.getElementById('lotAddSave').onclick = async () => {
+  if (lotCreate && lotAddSel.size < 2) return toast('Pick at least two cards for a lot.');
   if (!lotAddSel.size) return toast('Pick at least one card.');
-  const id = lotAddId, ids = [...lotAddSel], name = (allLotCards(id)[0] || {}).lotName || '', btn = document.getElementById('lotAddSave');
+  const ids = [...lotAddSel], btn = document.getElementById('lotAddSave');
+  const id = lotCreate ? 'lot_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) : lotAddId;
+  const name = lotCreate ? (document.getElementById('lotAddName').value.trim() || `Lot of ${ids.length} cards`) : ((allLotCards(id)[0] || {}).lotName || '');
   btn.disabled = true;
-  try { await lotBatches('setLot', ids, { lotId: id, lotName: name }); openLots.add(id); closeLotAdd(); toast(`Added ${ids.length} card${ids.length > 1 ? 's' : ''} to the lot.`); await loadPortfolio(); }
+  try { await lotBatches('setLot', ids, { lotId: id, lotName: name }); openLots.add(id); const made = lotCreate; closeLotAdd(); toast(made ? 'Lot created.' : `Added ${ids.length} card${ids.length > 1 ? 's' : ''} to the lot.`); await loadPortfolio(); }
   catch (err) { toast('Could not add: ' + err.message); }
   btn.disabled = false;
 };
@@ -288,7 +300,7 @@ $portList.addEventListener('click', async e => {
     return;
   }
   const add = e.target.closest('.lot-add');
-  if (add) { lotAddId = add.dataset.id; lotAddSel.clear(); document.getElementById('lotAddSearch').value = ''; lotAddRender(); document.getElementById('lotAddSheet').hidden = false; return; }
+  if (add) { lotCreate = false; lotAddId = add.dataset.id; lotAddSel.clear(); document.getElementById('lotAddSearch').value = ''; document.getElementById('lotAddNameWrap').hidden = true; document.getElementById('lotAddTitle').textContent = 'Add cards to lot'; lotAddRender(); document.getElementById('lotAddSheet').hidden = false; return; }
   const ren = e.target.closest('.lot-rename');
   if (ren) {
     const cards = allLotCards(ren.dataset.id), cur = (cards[0] || {}).lotName || '';

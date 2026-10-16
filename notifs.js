@@ -9,6 +9,8 @@
     { group: 'Creatives', items: [
       { key: 'cr_video', label: 'Video task due', hint: 'Due today or tomorrow (red once missed)' },
       { key: 'cr_post', label: 'Post task due', hint: 'Due today or tomorrow (red once missed)' } ] },
+    { group: 'Calendar', items: [
+      { key: 'cal_event', label: 'Calendar event', hint: 'An event from the Calendar app is today or tomorrow' } ] },
     { group: 'Finance', items: [
       { key: 'fin_new', label: 'New finance record', hint: 'A receipt or finance task was recorded since your last transaction' } ] },
     { group: 'Operations', items: [
@@ -89,6 +91,10 @@
   };
   const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
   const names = arr => { const q = arr.map(t => '\u201c' + (t.length > 40 ? t.slice(0, 39) + '\u2026' : t) + '\u201d'); return q.length > 2 ? q.slice(0, 2).join(', ') + ` +${q.length - 2} more` : q.join(', '); };
+  const clock = t => { const m = String(t || '').match(/^(\d{1,2}):(\d{2})/); if (!m) return ''; const h = +m[1]; return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`; };
+  // an event with its time when it has one: \u201cCard show\u201d at 2:30 PM
+  const evLabel = e => { const t = String(e.title || '').trim() || 'Untitled', q = '\u201c' + (t.length > 40 ? t.slice(0, 39) + '\u2026' : t) + '\u201d', c = clock(e.time); return c ? `${q} at ${c}` : q; };
+  const evNames = arr => arr.length > 2 ? arr.slice(0, 2).map(evLabel).join(', ') + ` +${arr.length - 2} more` : arr.map(evLabel).join(', ');
   const groupsOf = list => { const m = new Map(); (list || []).forEach(i => { const k = i.groupKey || ('c:' + i.id); if (!m.has(k)) m.set(k, []); m.get(k).push(i); }); return [...m.values()]; };
 
   function evaluate(S, user, keys) {
@@ -123,6 +129,17 @@
           n++; by.add(who);
         });
         if (n) add('ops_done', 'green', `${pl(n, 'shipment')} shipped today by ${[...by].join(', ')}`, 'shipping.html');
+      }
+    }
+    if (S.ev && on.has('cal_event')) {
+      // events from the Calendar app, shown the day of and the day before; they vanish by themselves once the date has passed
+      const byTime = (a, b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99'));
+      const evs = (S.ev.events || []).filter(e => d10(e.date)), todayE = evs.filter(e => away(d10(e.date)) === 0).sort(byTime), tomE = evs.filter(e => away(d10(e.date)) === 1).sort(byTime);
+      if (todayE.length || tomE.length) {
+        const parts = [];
+        if (todayE.length) parts.push(`${todayE.length === 1 ? 'Event' : pl(todayE.length, 'event')} today: ${evNames(todayE)}`);
+        if (tomE.length) parts.push(`${todayE.length ? (tomE.length === 1 ? 'Event' : pl(tomE.length, 'event')) : (tomE.length === 1 ? 'Event' : pl(tomE.length, 'event'))} tomorrow: ${evNames(tomE)}`);
+        add('cal_event', 'orange', parts.join(' \u00b7 '), 'calendar.html');
       }
     }
     if (on.has('fin_new')) {

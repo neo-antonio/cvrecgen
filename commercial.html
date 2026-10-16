@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>trackello &ndash; Commercial</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="trackello">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+.cm-stats{margin:-6px 0 14px;font-size:12px;color:var(--mut);line-height:1.6}
+.cm-stats b{color:var(--fg);font-weight:600}
+.cm-chip{display:inline-block;font:600 11px Inter,system-ui,sans-serif;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.cm-chip.pos{background:#dcf3df;color:#1c6b2e}
+.cm-chip.neg{background:#fde4e1;color:#a5281b}
+.cm-chip.none{background:#eaeaea;color:#555}
+.cm-tgt{font:500 11px Inter,system-ui,sans-serif;color:var(--mut);text-align:right;white-space:nowrap}
+.cm-line{display:block;font-size:11px;color:var(--mut)}
+.cm-right{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.cm-lotbar{display:grid;gap:8px;margin-bottom:12px}
+.cm-row{display:grid;gap:6px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.cm-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cm-pair .money em{padding-left:10px}
+.cm-row:last-child{border-bottom:0}
+.cm-row small{display:block;color:var(--mut);font-size:11px}
+.cm-pair .money input{min-width:0;width:100%}
+.cm-sum{display:flex;justify-content:space-between;font:600 13px Inter,system-ui,sans-serif;margin:10px 0 14px}
+.cm-sum span{color:var(--mut);font-weight:500}
+</style>
+<script src="shell.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="hbar">
+    <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
+    <h2>Commercial</h2>
+    <span class="hbar-spacer" aria-hidden="true"></span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-ctab="onhand" role="tab">Onhand</button>
+    <button type="button" class="tab" data-ctab="sold" role="tab">Sold</button>
+  </nav>
+</header>
+
+<main class="port-wrap">
+  <div class="port-summary">
+    <span id="cmLabel">Target value</span>
+    <b id="cmTotal">PHP 0.00</b>
+    <span class="port-count" id="cmCount" aria-live="polite"></span>
+    <button type="button" class="ghost sm" id="cmNewLot">+ New lot</button>
+    <button type="button" class="ghost sm" id="cmRefresh">Refresh</button>
+  </div>
+  <p class="cm-stats" id="cmStats"></p>
+  <div class="field" style="margin-bottom:12px">
+    <input type="search" id="cmSearch" placeholder="Search by card or lot name" autocomplete="off">
+  </div>
+  <div class="filter-chips" id="cmFilters" hidden>
+    <button type="button" class="chip active" data-sub="all">All</button>
+    <button type="button" class="chip" data-sub="met">Met target</button>
+    <button type="button" class="chip" data-sub="missed">Below target</button>
+    <button type="button" class="chip" data-sub="none">No target</button>
+  </div>
+  <p class="stub-note" id="cmState">Loading&hellip;</p>
+  <div id="cmList" class="port-list" hidden></div>
+</main>
+
+<div class="modal" id="imgView" hidden>
+  <div class="sheet small">
+    <img id="imgViewImg" alt="">
+    <div class="acts"><button type="button" class="ghost" id="imgViewClose">Close</button></div>
+  </div>
+</div>
+
+<div class="modal" id="tgtSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="tgtTitle">Target sale price</h3>
+    <p class="stub-note" id="tgtHint" style="margin:-6px 0 14px;font-size:12px;text-align:center"></p>
+    <div class="field" id="tgtLotWrap" hidden>
+      <label>Lot target total <small>(&quot;To&quot; is optional, for a range)</small></label>
+      <div class="cm-pair">
+        <div class="money"><em>From</em><input type="number" id="tgtLotLo" inputmode="decimal" min="0" step="0.01" placeholder="Total"></div>
+        <div class="money"><em>To</em><input type="number" id="tgtLotHi" inputmode="decimal" min="0" step="0.01" placeholder="optional"></div>
+      </div>
+      <button type="button" class="ghost sm" id="tgtSplit" style="margin-top:8px">Split evenly across cards</button>
+    </div>
+    <div id="tgtRows"></div>
+    <div class="cm-sum"><span id="tgtSumLbl">Target</span><b id="tgtSum">PHP 0.00</b></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="tgtSave">Save target</button>
+      <button type="button" class="ghost" id="tgtClear">Clear target</button>
+      <button type="button" class="ghost" id="tgtCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="lotAddSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="lotAddTitle">Add cards to lot</h3>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">Onhand cards that are not in a lot yet.</p>
+    <div class="field" id="lotAddNameWrap" hidden><label for="lotAddName">Lot name <small>(optional)</small></label><input type="text" id="lotAddName" autocomplete="off" placeholder="e.g. Prizm base lot"></div>
+    <div class="field" style="margin-bottom:8px"><input type="search" id="lotAddSearch" placeholder="Search cards" autocomplete="off"></div>
+    <div id="lotAddList" class="lot-pick"></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="lotAddSave">Add to lot</button>
+      <button type="button" class="ghost" id="lotAddCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="cmToast" hidden></div>
+
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+  <p>trackello <span class="ver">v1.2</span></p>
+</footer>
+<script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="net.js"></script>
+<script src="commercial.js"></script>
+</body>
+</html>

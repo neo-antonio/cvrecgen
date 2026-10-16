@@ -10,6 +10,7 @@
  *                   SoldDate | SoldTo | SoldPrice | ShipType | ShippingMethod | ShippingFee | ShippingDeductedFrom | ShippingScheduledDate |
  *                   ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress | ShippedTime |  ShippingContact | SaleNotes | LotID | LotName | ShippedBy
  *                   LotID/LotName (AC-AD) group cards bought together as a lot; blank = a normal single card.
+ *                   TargetPrice / TargetMax (AF-AG, Commercial app): target sale price; TargetMax is the top of a range (blank/0 = a single price). Created on first use.
  *                   Status is one of: onhand, shipping, shipped, traded.
  *                   A shipping task can exist BEFORE its sale receipt (customer about to pay / pays at shipping): the cards are
  *                   shipping/shipped with a ShipBatchID but no SoldDate and no SaleReceiptURL (see pendingSale_). The sale receipt
@@ -35,7 +36,7 @@
  * DEPLOY: Deploy > Manage deployments > edit your Web app > Version: New version > Deploy.
  *
  * POST actions: purchase, sell, trade, transfer, shipPhoto, cardPhoto, financeReceipt, saveFinance
- * GET  actions: setLot, clearLot, portfolio, onhandCards, finance, shipping, receipts, syncStatus, record, unrecord, balance, saveBalance, saveInterest,
+ * GET  actions: setLot, clearLot, setTargets, portfolio, onhandCards, finance, shipping, receipts, syncStatus, record, unrecord, balance, saveBalance, saveInterest,
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
@@ -96,6 +97,7 @@ function doGet(e) {
     if (action === 'renameCard') return jsonpOut_(renameCard_(e.parameter.cardId, e.parameter.name), cb);
     if (action === 'setLot') return jsonpOut_(setLot_(e.parameter), cb);
     if (action === 'clearLot') return jsonpOut_(clearLot_(e.parameter), cb);
+    if (action === 'setTargets') return jsonpOut_(setTargets_(e.parameter), cb);
     if (action === 'linkFinanceReceipt') return jsonpOut_(linkFinanceReceipt_(e.parameter), cb);
     if (action === 'unlinkFinanceReceipt') return jsonpOut_(setTaskReceipt_(e.parameter.financeId, ''), cb);
     if (action === 'clearPhoto') return jsonpOut_(clearPhoto_(e.parameter.cardId, e.parameter.which), cb);
@@ -408,6 +410,32 @@ function clearLot_(p) {
   const rowOf = rowIndex_(cards);
   let n = 0;
   ids.forEach(id => { const idx = rowOf[id]; if (!idx) return; cards.getRange(idx, 29, 1, 2).setValues([['', '']]); n++; });
+  return { ok: true, updated: n };
+}
+
+// Commercial: target sale price per card. pairs = "cardId:low" or "cardId:low:high", comma separated. An empty low clears the target;
+// a high that is not above the low means a single price. Stored in Cards AF (TargetPrice) and AG (TargetMax).
+function ensureTargetColumns_(cards) {
+  const need = 33;
+  if (cards.getMaxColumns() < need) cards.insertColumnsAfter(cards.getMaxColumns(), need - cards.getMaxColumns());
+  const h = cards.getRange(1, 32, 1, 2).getValues()[0];
+  ['TargetPrice', 'TargetMax'].forEach((name, i) => { if (!h[i]) cards.getRange(1, 32 + i).setValue(name); });
+}
+function setTargets_(p) {
+  const list = String(p.pairs || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!list.length) return { ok: false, error: 'missing pairs' };
+  const cards = cardsSheet_();
+  ensureCardsColumns_(cards);
+  ensureTargetColumns_(cards);
+  const rowOf = rowIndex_(cards);
+  let n = 0;
+  list.forEach(item => {
+    const part = item.split(':'), idx = rowOf[part[0]];
+    if (!idx) return;
+    const lo = Math.round((Number(part[1]) || 0) * 100) / 100, hi = Math.round((Number(part[2]) || 0) * 100) / 100;
+    cards.getRange(idx, 32, 1, 2).setNumberFormat('0.00').setValues([[lo > 0 ? lo : '', lo > 0 && hi > lo ? hi : '']]);
+    n++;
+  });
   return { ok: true, updated: n };
 }
 
@@ -1136,7 +1164,8 @@ function getPortfolio_() {
       tag, soldDate: fmtDateCell_(r[10]), soldPrice: Number(r[12]) || 0,
       purchaseReceipt: r[21] || '', saleReceipt: r[22] || '',
       receipts: receiptLinks_(r[21], r[22], rmap),
-      lotId: String(r[28] || ''), lotName: String(r[29] || '')
+      lotId: String(r[28] || ''), lotName: String(r[29] || ''),
+      targetPrice: Number(r[31]) || 0, targetMax: Number(r[32]) || 0   // Commercial: target sale price (low end) and optional top of the range
     };
     (status === 'onhand' || status === 'shipping' ? owned : sold).push(item);
     all.push(item);

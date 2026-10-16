@@ -12,6 +12,8 @@ const APPS = [
     svg: '<path d="M6 2.2h12v19.6l-2-1.1-2 1.1-2-1.1-2 1.1-2-1.1-2 1.1z"/><line x1="8.2" y1="7" x2="15.8" y2="7"/><line x1="8.2" y1="11" x2="15.8" y2="11"/><line x1="8.2" y1="15" x2="13" y2="15"/>' },
   { id: 'portfolio', label: 'Portfolio', href: 'portfolio.html', desc: 'Every card on hand, shipping, sold or traded.',
     svg: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3v18M5.6 5.6c2.9 3 2.9 9.9 0 12.8M18.4 5.6c-2.9 3-2.9 9.9 0 12.8"/>' },
+  { id: 'commercial', label: 'Commercial', href: 'commercial.html', desc: 'Target sale prices, margins and lots.',
+    svg: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/>' },
   { id: 'shipping', label: 'Shipping', href: 'shipping.html', desc: 'Sold cards waiting to ship, and proof of what shipped.',
     svg: '<path d="M1.5 6.5h12.5v10.5h-12.5z"/><path d="M14 9.8h4.2l3.3 3.3v3.9h-7.5z"/><circle cx="6" cy="18.6" r="1.9"/><circle cx="17.8" cy="18.6" r="1.9"/>' },
   { id: 'finance', label: 'Finance', href: 'finance.html', desc: 'Money in and out, recorded from receipts.',
@@ -26,10 +28,13 @@ const APPS = [
     svg: '<path d="M12 3a9 9 0 100 18c1.4 0 2-.9 2-1.8 0-1.2-1-1.5-1-2.7 0-1 .8-1.7 1.9-1.7H17a4 4 0 004-4C21 6.6 17 3 12 3z"/><circle cx="7.6" cy="11.2" r="1" fill="currentColor" stroke="none"/><circle cx="10.2" cy="7.4" r="1" fill="currentColor" stroke="none"/><circle cx="14.6" cy="7.4" r="1" fill="currentColor" stroke="none"/>' },
   { id: 'organization', label: 'Organization', href: 'organization.html', desc: 'Team chart, business processes and FAQ.',
     svg: '<rect x="9" y="3" width="6" height="5" rx="1.2"/><rect x="2.5" y="16" width="6" height="5" rx="1.2"/><rect x="15.5" y="16" width="6" height="5" rx="1.2"/><path d="M12 8v4M5.5 16v-4h13v4"/>' },
+  { id: 'legal', label: 'Legal', href: 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link', desc: 'Legal documents folder in Google Drive.',
+    svg: '<path d="M12 3v18M7 21h10M5 7h14"/><path d="M5 7l-3 7a3.5 3.5 0 006 0z"/><path d="M19 7l-3 7a3.5 3.5 0 006 0z"/>' },
   { id: 'settings', label: 'Settings', href: 'settings.html', desc: 'App settings.',
     svg: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/>' }
 ];
 const APP = Object.fromEntries(APPS.map(a => [a.id, a]));
+const extA = a => /^https?:/.test(a.href) ? ' target="_blank" rel="noopener noreferrer"' : '';
 const appSvg = a => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${a.svg}</svg>`;
 const appIcons = (ids, max = 6) => {
   const list = (ids || []).map(i => APP[i]).filter(Boolean);
@@ -74,7 +79,7 @@ function renderProcs() {
       <summary><b>${escOrg(p.title)}</b>${p.role ? `<span>Owner: ${escOrg(p.role)}</span>` : ''}</summary>
       <div class="org-card-body">
         ${stepsOf(p.body).length ? `<ol>${stepsOf(p.body).map(s => `<li>${escOrg(s)}</li>`).join('')}</ol>` : '<p class="stub-note">No steps written yet.</p>'}
-        ${p.apps.length ? `<div class="org-apps-line"><small>Apps used</small>${p.apps.map(i => APP[i]).filter(Boolean).map(a => `<a class="org-chip" href="${a.href}">${appSvg(a)}${escOrg(a.label)}</a>`).join('')}</div>` : ''}
+        ${p.apps.length ? `<div class="org-apps-line"><small>Apps used</small>${p.apps.map(i => APP[i]).filter(Boolean).map(a => `<a class="org-chip" href="${a.href}"${extA(a)}>${appSvg(a)}${escOrg(a.label)}</a>`).join('')}</div>` : ''}
         <button type="button" class="ghost sm org-edit" data-id="${escOrg(p.id)}">Edit</button>
       </div>
     </details>`).join('') : '<p class="stub-note">No processes yet. Tap + Add process to write down how something is done.</p>';
@@ -138,7 +143,7 @@ function openView(id) {
     ${boss ? `<div class="ed-row"><small>Reports to</small><span>${escOrg(boss.title)}</span></div>` : ''}
     ${team.length ? `<div class="ed-row"><small>Direct reports</small><span>${team.map(t => escOrg(t.title)).join(', ')}</span></div>` : ''}
     <div class="ed-row"><small>Description</small><span class="org-text">${p.body ? escOrg(p.body) : '<em class="ed-none">Not set</em>'}</span></div>
-    <div class="ed-row"><small>Apps</small>${apps.length ? `<div class="org-applist">${apps.map(a => `<a class="org-app" href="${a.href}"><i>${appSvg(a)}</i><span><b>${escOrg(a.label)}</b>${escOrg(a.desc)}</span></a>`).join('')}</div>` : '<span><em class="ed-none">No apps assigned</em></span>'}</div>
+    <div class="ed-row"><small>Apps</small>${apps.length ? `<div class="org-applist">${apps.map(a => `<a class="org-app" href="${a.href}"${extA(a)}><i>${appSvg(a)}</i><span><b>${escOrg(a.label)}</b>${escOrg(a.desc)}</span></a>`).join('')}</div>` : '<span><em class="ed-none">No apps assigned</em></span>'}</div>
     <div class="ed-row"><small>Home alerts</small><span>${nts.length ? nts.map(escOrg).join(', ') : '<em class="ed-none">None</em>'}</span></div>`;
   $o('orgView').hidden = false;
 }
