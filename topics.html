@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>trackello &ndash; Topic Board</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="trackello">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="shell.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="hbar">
+    <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
+    <h2>Topic Board</h2>
+    <span class="hbar-spacer" aria-hidden="true"></span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-ttab="open" role="tab">Open</button>
+    <button type="button" class="tab" data-ttab="resolved" role="tab">Resolved</button>
+  </nav>
+</header>
+
+<main class="port-wrap">
+  <div class="port-summary">
+    <span id="tpLabel">Topics to discuss</span>
+    <b id="tpTotal">0</b>
+    <button type="button" class="ghost sm" id="tpNew">+ New topic</button>
+    <button type="button" class="ghost sm" id="tpRefresh">Refresh</button>
+  </div>
+  <div class="field" style="margin-bottom:12px">
+    <input type="search" id="tpSearch" placeholder="Search topics, comments or conclusions" autocomplete="off">
+  </div>
+  <p class="stub-note" id="tpState">Loading&hellip;</p>
+  <div id="tpBoard" class="tp-board" hidden></div>
+</main>
+
+<!-- add / edit a topic -->
+<div class="modal" id="tpForm" hidden>
+  <div class="sheet small wide">
+    <h3 id="tpFormTitle">New topic</h3>
+    <div class="field">
+      <label for="tpTitle">Topic</label>
+      <input type="text" id="tpTitle" maxlength="120" autocomplete="off" placeholder="What should we discuss?">
+    </div>
+    <div class="field">
+      <label for="tpBodyIn">Details <small>(optional)</small></label>
+      <textarea id="tpBodyIn" rows="5" maxlength="1000" placeholder="Context, questions or options for the meeting"></textarea>
+      <p class="tp-hint">Paste an image, video (YouTube, Vimeo, Google Drive or .mp4) or web link and it shows up in the topic.</p>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="tpFormSave">Add to board</button>
+      <button type="button" class="ghost" id="tpFormCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- one topic: full note, comments, conclusion -->
+<div class="modal" id="tpView" hidden>
+  <div class="sheet small wide tp-sheet">
+    <div id="tpViewBody" class="tp-det"></div>
+  </div>
+</div>
+<div class="toast" id="tpToast" hidden></div>
+
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+  <p>trackello <span class="ver">v1.2</span></p>
+</footer>
+<script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="net.js"></script>
+<script src="topics.js"></script>
+</body>
+</html>

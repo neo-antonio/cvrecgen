@@ -138,6 +138,12 @@
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Facebook, Instagram, TikTok, YouTube</p>
     </a>
+    <a class="tile" href="topics.html">
+      <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/><path d="M7 8.5h5M7 12h10M7 15.5h7"/></svg></div>
+      <div class="tile-t"><b>Topic Board</b><small>Team</small></div>
+      <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
+      <p class="tile-d">Meeting topics, comments and conclusions</p>
+    </a>
     <a class="tile" href="calendar.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="3"/><path d="M3 9.5h18M8 2.8v3.4M16 2.8v3.4"/><circle cx="8.3" cy="14" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="14" r=".9" fill="currentColor" stroke="none"/><circle cx="15.7" cy="14" r=".9" fill="currentColor" stroke="none"/><circle cx="8.3" cy="17.4" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="17.4" r=".9" fill="currentColor" stroke="none"/></svg></div>
       <div class="tile-t"><b>Calendar</b><small>Team</small></div>
@@ -167,12 +173,6 @@
       <div class="tile-t"><b>Settings</b><small>System</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Preferences</p>
-    </a>
-    <a class="tile" href="chatbot/index.html">
-      <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 016.5 3h11A2.5 2.5 0 0120 5.5v8a2.5 2.5 0 01-2.5 2.5H11l-4.5 4v-4h0A2.5 2.5 0 014 13.5z"/><circle cx="9" cy="9.5" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="9.5" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="9.5" r=".9" fill="currentColor" stroke="none"/></svg></div>
-      <div class="tile-t"><b>Assistant</b><small>AI</small></div>
-      <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
-      <p class="tile-d">Ask questions about your data</p>
     </a>
   </div>
 </main>
@@ -316,7 +316,8 @@ document.getElementById('chartsTile').addEventListener('click', e => {
     if (S.port) {
       const on = S.port.filter(c => c.tag === 'onhand');
       set('sumOnhand', on.length);
-      set('sumPort', php(on.reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0)));
+      // cards on a shipping task that is not paid yet ("pending") keep their cost value until the sale receipt sets the price
+      set('sumPort', php(S.port.filter(c => c.tag === 'onhand' || c.tag === 'pending').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0)));
     }
     if (S.ship) {
       // count shipping TASKS, not cards: cards from one sale receipt share a groupKey and are one task
@@ -336,7 +337,7 @@ document.getElementById('chartsTile').addEventListener('click', e => {
     }
     const c = computeBalance(S.bal, S.fin, S.cfg);
     if (c) {
-      const liquid = c.cash + c.maribank, port = S.port ? S.port.filter(x => x.tag === 'onhand').reduce((a, x) => a + (Number(x.purchaseCost) || 0), 0) : 0;
+      const liquid = c.cash + c.maribank, port = S.port ? S.port.filter(x => x.tag === 'onhand' || x.tag === 'pending').reduce((a, x) => a + (Number(x.purchaseCost) || 0), 0) : 0;
       set('sumSpend', php(liquid));
       set('sumRes', php(c.reserves));
       set('sumTotal', S.port ? php(liquid + c.reserves + port + c.others) : '\u2014');

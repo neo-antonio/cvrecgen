@@ -1,4 +1,4 @@
-/* ---------- Organization — org chart (people and the apps each one uses), business processes and FAQ ---------- */
+/* ---------- Organization — org chart (people and the apps each one uses), goals and FAQ ---------- */
 const $o = id => document.getElementById(id);
 const escOrg = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const backendErr = err => err.message === 'unknown action' ? 'Code.gs needs the latest version deployed' : err.message;
@@ -26,7 +26,7 @@ const APPS = [
     svg: '<rect x="3.5" y="12" width="4.5" height="8.5" rx=".8"/><rect x="9.75" y="7" width="4.5" height="13.5" rx=".8"/><rect x="16" y="3.5" width="4.5" height="17" rx=".8"/>' },
   { id: 'creatives', label: 'Creatives', href: 'creatives.html', desc: 'Vlog tasks and post edits.',
     svg: '<path d="M12 3a9 9 0 100 18c1.4 0 2-.9 2-1.8 0-1.2-1-1.5-1-2.7 0-1 .8-1.7 1.9-1.7H17a4 4 0 004-4C21 6.6 17 3 12 3z"/><circle cx="7.6" cy="11.2" r="1" fill="currentColor" stroke="none"/><circle cx="10.2" cy="7.4" r="1" fill="currentColor" stroke="none"/><circle cx="14.6" cy="7.4" r="1" fill="currentColor" stroke="none"/>' },
-  { id: 'organization', label: 'Organization', href: 'organization.html', desc: 'Team chart, business processes and FAQ.',
+  { id: 'organization', label: 'Organization', href: 'organization.html', desc: 'Team chart, goals and FAQ.',
     svg: '<rect x="9" y="3" width="6" height="5" rx="1.2"/><rect x="2.5" y="16" width="6" height="5" rx="1.2"/><rect x="15.5" y="16" width="6" height="5" rx="1.2"/><path d="M12 8v4M5.5 16v-4h13v4"/>' },
   { id: 'legal', label: 'Legal', href: 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link', desc: 'Legal documents folder in Google Drive.',
     svg: '<path d="M12 3v18M7 21h10M5 7h14"/><path d="M5 7l-3 7a3.5 3.5 0 006 0z"/><path d="M19 7l-3 7a3.5 3.5 0 006 0z"/>' },
@@ -71,18 +71,129 @@ function renderTeam() {
   $o('orgChart').innerHTML = `<ul class="org-tree">${(kids[''] || []).map(p => node(p, new Set())).join('')}</ul>`;
 }
 
-/* ---------- Processes ---------- */
-const stepsOf = body => String(body || '').split(/\r?\n/).map(s => s.replace(/^\s*(\d+[.)]|[-*\u2022])\s*/, '').trim()).filter(Boolean);
-function renderProcs() {
-  const list = items.filter(i => i.kind === 'process');
-  $o('procList').innerHTML = list.length ? list.map(p => `<details class="org-card">
-      <summary><b>${escOrg(p.title)}</b>${p.role ? `<span>Owner: ${escOrg(p.role)}</span>` : ''}</summary>
-      <div class="org-card-body">
-        ${stepsOf(p.body).length ? `<ol>${stepsOf(p.body).map(s => `<li>${escOrg(s)}</li>`).join('')}</ol>` : '<p class="stub-note">No steps written yet.</p>'}
-        ${p.apps.length ? `<div class="org-apps-line"><small>Apps used</small>${p.apps.map(i => APP[i]).filter(Boolean).map(a => `<a class="org-chip" href="${a.href}"${extA(a)}>${appSvg(a)}${escOrg(a.label)}</a>`).join('')}</div>` : ''}
-        <button type="button" class="ghost sm org-edit" data-id="${escOrg(p.id)}">Edit</button>
-      </div>
-    </details>`).join('') : '<p class="stub-note">No processes yet. Tap + Add process to write down how something is done.</p>';
+/* ---------- Goals ---------- */
+const METRIC = {
+  cards:  { label: 'Cards sold', unit: 'cards', field: 'Target (number of cards)', ph: 'e.g. 50', hint: 'Counts cards sold from the start date up to the deadline.' },
+  profit: { label: 'Net profit', unit: '', field: 'Target (PHP)', ph: 'e.g. 100000', hint: 'Sale price minus purchase cost of the cards sold from the start date up to the deadline.' },
+  value:  { label: 'Business value', unit: '', field: 'Target (PHP)', ph: 'e.g. 1000000', hint: 'The total on the Finance balance card: every account plus cards on hand at cost, measured today. The start date is not used.' }
+};
+const phpG = n => (n < 0 ? '-' : '') + 'PHP ' + Math.abs(Math.round(n)).toLocaleString('en-PH');
+const dayFmt = d => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
+const todayIso = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const daysTo = iso => { const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/), t = new Date(); return m ? Math.round((new Date(+m[1], +m[2] - 1, +m[3]) - new Date(t.getFullYear(), t.getMonth(), t.getDate())) / 864e5) : 0; };
+const goalNum = (g, n) => g.metric === 'cards' ? n.toLocaleString('en-PH') : phpG(n);
+
+/* Progress is worked out here from the same data the other pages use (Portfolio, Balance, Finance tasks). */
+let stats = null, statsAt = 0, statsBusy = null;
+const needFin = () => items.some(i => i.kind === 'goal' && i.metric === 'value');
+function loadStats() {
+  if (!CONFIG.portfolio.endpoint) return Promise.resolve();
+  if (statsBusy) return statsBusy;
+  if (stats && Date.now() - statsAt < 60000 && (!needFin() || stats.fin)) return Promise.resolve();
+  statsBusy = (async () => {
+    try {
+      const fin = needFin();
+      const [p, b, f] = await Promise.all([jsonp(api('portfolio'), 60000), fin ? jsonp(api('balance'), 60000) : null, fin ? jsonp(api('finance'), 60000) : null]);
+      if (!p.ok) throw new Error(p.error || 'Unknown error');
+      if (fin && (!b.ok || !f.ok)) throw new Error((b.ok ? f : b).error || 'Unknown error');
+      stats = { cards: p.cards || [], fin: fin ? { balance: b.balance, interest: b.interest, tasks: (f.toRecord || []).concat(f.recorded || []) } : null }; statsAt = Date.now();
+    } catch (err) { console.warn('Goal progress failed', err); toast('Could not load progress: ' + backendErr(err)); }
+    statsBusy = null;
+  })();
+  return statsBusy;
+}
+
+/* Business value = the Finance page's grand total: what each account holds now + cards on hand at cost.
+   This is a copy of computeBalance() in finance.js (without the interest history), so keep the two in step. */
+const BUCKETS = ['cash', 'maribank', 'reserves', 'others'];
+const DEFAULT_INTEREST = { lo: 3.25, hi: 3.75, threshold: 1000000, tax: 20, accounts: { cash: false, maribank: true, reserves: true, others: false } };
+function normInterest(c) {
+  const n = (v, d) => (v === '' || v == null || !isFinite(Number(v)) || Number(v) < 0) ? d : Number(v);
+  c = c || {}; const a = c.accounts || {};
+  return { lo: n(c.lo, DEFAULT_INTEREST.lo), hi: n(c.hi, DEFAULT_INTEREST.hi), threshold: n(c.threshold, DEFAULT_INTEREST.threshold), tax: Math.min(100, n(c.tax, DEFAULT_INTEREST.tax)),
+    accounts: Object.fromEntries(BUCKETS.map(k => [k, a[k] == null ? DEFAULT_INTEREST.accounts[k] : !!a[k]])) };
+}
+const r2 = x => Math.round(x * 100) / 100;
+const nextDay = iso => { const [y, m, d] = iso.split('-').map(Number), n = new Date(y, m - 1, d + 1), p = k => String(k).padStart(2, '0'); return `${n.getFullYear()}-${p(n.getMonth() + 1)}-${p(n.getDate())}`; };
+function bucketOf(pay) {
+  const p = String(pay || '').trim().toLowerCase();
+  if (!p) return '';
+  if (p === 'cash') return 'cash';
+  if (p.includes('maribank')) return 'maribank';
+  if (/^(cash )?reserves?$/.test(p)) return 'reserves';
+  return 'others';
+}
+function accountsNow(fin) {
+  const b = fin.balance;
+  if (!b) return null;
+  const m = String(b.updatedAt || '').match(/^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}:\d{2})/);
+  const bDate = m ? m[1] : (String(b.updatedAt || '').slice(0, 10) || todayIso()), bTime = m ? m[2].padStart(5, '0') : '00:00';
+  const skip = new Set((b.skip || []).map(String));
+  const after = t => {
+    const d = String(t.date || '').slice(0, 10);
+    if (!d) return false;
+    if (d !== bDate) return d > bDate;
+    const tm = String(t.time || '').trim();
+    return tm ? tm.padStart(5, '0') > bTime : !skip.has(String(t.id));
+  };
+  const daily = {}, base = { cash: +b.cash || 0, maribank: +b.maribank || 0, reserves: +b.reserves || 0, others: +b.others || 0 };
+  fin.tasks.forEach(t => {
+    if (t.flow !== 'inflow' && t.flow !== 'outflow') return;
+    const k = bucketOf(t.payMethod);
+    if (!k || !after(t)) return;
+    const amt = Number(t.amount) || 0, d = String(t.date).slice(0, 10);
+    (daily[k] = daily[k] || {})[d] = (daily[k][d] || 0) + (t.flow === 'inflow' ? amt : -amt);
+  });
+  const cfg = normInterest(fin.interest), today = todayIso();
+  let total = 0;
+  BUCKETS.forEach(k => {
+    let cur = base[k]; const days = daily[k] || {};
+    for (let d = bDate, guard = 0; d < today && guard < 4000; d = nextDay(d), guard++) {
+      cur += days[d] || 0;
+      if (cfg.accounts[k] && cur > 0) {
+        const gross = r2(cur * (cur > cfg.threshold ? cfg.hi : cfg.lo) / 100 / 365);
+        cur += r2(gross - r2(gross * cfg.tax / 100));
+      }
+    }
+    Object.keys(days).forEach(d => { if (d >= today) cur += days[d]; });
+    total += r2(cur);
+  });
+  return total;
+}
+function progressOf(g) {
+  if (!stats) return null;
+  const inWin = c => c.soldDate && (!g.start || c.soldDate >= g.start) && (!g.deadline || c.soldDate <= g.deadline);
+  if (g.metric === 'cards') return stats.cards.filter(c => c.tag === 'sold' && inWin(c)).length;
+  if (g.metric === 'profit') return stats.cards.filter(c => c.tag === 'sold' && inWin(c)).reduce((a, c) => a + (c.soldPrice - c.purchaseCost), 0);
+  if (!stats.fin) return null;
+  const accounts = accountsNow(stats.fin);
+  if (accounts == null) return null;   // no starting balance saved on the Finance page yet
+  return accounts + stats.cards.filter(c => c.tag === 'onhand').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
+}
+function goalState(g, cur) {
+  if (cur == null) return { cls: '', badge: '', foot: '' };
+  const left = daysTo(g.deadline);
+  if (cur >= g.target) return { cls: 'done', badge: 'Reached', foot: left >= 0 ? (left === 0 ? 'Due today' : left + ' day' + (left === 1 ? '' : 's') + ' to spare') : 'Reached in time' };
+  if (left < 0) return { cls: 'late', badge: 'Missed', foot: 'Ended ' + (-left) + ' day' + (left === -1 ? '' : 's') + ' ago' };
+  return { cls: '', badge: left === 0 ? 'Due today' : left + ' day' + (left === 1 ? '' : 's') + ' left', foot: goalNum(g, g.target - cur) + (g.metric === 'cards' ? ' to go' : ' to go') };
+}
+function goalHtml(g) {
+  const M = METRIC[g.metric] || METRIC.cards, cur = progressOf(g), st = goalState(g, cur);
+  const pct = cur == null || !(g.target > 0) ? 0 : Math.max(0, Math.min(100, cur / g.target * 100));
+  const range = g.metric === 'value' ? 'Before ' + dayFmt(g.deadline) : (g.start ? dayFmt(g.start) + ' to ' : 'Until ') + dayFmt(g.deadline);
+  return `<div class="gl-card ${st.cls}">
+      <div class="gl-head"><div><b>${escOrg(g.title)}</b><span class="gl-kind">${escOrg(M.label)}, ${escOrg(range)}</span></div>${st.badge ? `<span class="gl-badge ${st.cls}">${escOrg(st.badge)}</span>` : ''}</div>
+      <div class="gl-nums"><b>${cur == null ? 'Calculating\u2026' : goalNum(g, cur) + ' of ' + goalNum(g, g.target)}</b><span>${cur == null ? '' : Math.floor(pct) + '%'}</span></div>
+      <span class="gl-bar"><u style="width:${pct}%"></u></span>
+      ${g.body ? `<p class="gl-note">${escOrg(g.body)}</p>` : ''}
+      <div class="gl-foot"><span>${escOrg(st.foot)}</span><button type="button" class="ghost sm org-edit" data-id="${escOrg(g.id)}">Edit</button></div>
+    </div>`;
+}
+function renderGoals() {
+  const list = items.filter(i => i.kind === 'goal');
+  const rank = g => { const c = progressOf(g); return c == null ? 0 : c >= g.target ? 1 : daysTo(g.deadline) < 0 ? 2 : 0; };
+  list.sort((a, b) => rank(a) - rank(b) || String(a.deadline).localeCompare(String(b.deadline)));
+  $o('goalList').innerHTML = list.length ? list.map(goalHtml).join('') : '<p class="stub-note">No goals yet. Tap + Add goal to set a target, like cards sold or net profit by a date.</p>';
 }
 
 /* ---------- FAQ ---------- */
@@ -100,7 +211,9 @@ function renderFaq() {
 
 function renderAll() {
   $o('orgState').hidden = true;
-  if (orgTab === 'team') renderTeam(); else if (orgTab === 'proc') renderProcs(); else renderFaq();
+  if (orgTab === 'team') renderTeam();
+  else if (orgTab === 'goal') { renderGoals(); loadStats().then(() => { if (orgTab === 'goal') renderGoals(); }); }
+  else renderFaq();
 }
 
 /* ---------- Load ---------- */
@@ -112,7 +225,7 @@ async function loadData() {
   try {
     const res = await jsonp(api('organization'), 60000);
     if (!res.ok) throw new Error(res.error || 'Unknown error');
-    items = (res.items || []).map(i => Object.assign({ apps: [], notifs: [], parent: '', role: '', body: '' }, i));
+    items = (res.items || []).map(i => Object.assign({ apps: [], notifs: [], parent: '', role: '', body: '', metric: '', target: 0, start: '', deadline: '' }, i));
     cacheSet('org', items);
     renderAll();
   } catch (err) {
@@ -127,7 +240,7 @@ async function loadData() {
 document.querySelectorAll('.tab[data-otab]').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab[data-otab]').forEach(x => x.classList.toggle('active', x === t));
   orgTab = t.dataset.otab;
-  $o('panelTeam').hidden = orgTab !== 'team'; $o('panelProc').hidden = orgTab !== 'proc'; $o('panelFaq').hidden = orgTab !== 'faq';
+  $o('panelTeam').hidden = orgTab !== 'team'; $o('panelGoal').hidden = orgTab !== 'goal'; $o('panelFaq').hidden = orgTab !== 'faq';
   renderAll();
 });
 $o('faqSearch').addEventListener('input', renderFaq);
@@ -152,12 +265,12 @@ $o('orgViewClose').onclick = closeView;
 $o('orgView').addEventListener('click', e => { if (e.target.id === 'orgView') closeView(); });
 $o('orgViewEdit').onclick = () => { const id = viewId; closeView(); openEdit('person', id); };
 $o('orgChart').addEventListener('click', e => { const n = e.target.closest('.org-node'); if (n) openView(n.dataset.id); });
-['procList', 'faqList'].forEach(l => $o(l).addEventListener('click', e => { const b = e.target.closest('.org-edit'); if (b) openEdit(findItem(b.dataset.id).kind, b.dataset.id); }));
+['goalList', 'faqList'].forEach(l => $o(l).addEventListener('click', e => { const b = e.target.closest('.org-edit'); if (b) openEdit(findItem(b.dataset.id).kind, b.dataset.id); }));
 
 /* ---------- Add / edit ---------- */
 const FORM = {
   person:  { add: 'Add person', edit: 'Edit person', title: 'Name', role: 'Role / position', body: 'What they do', apps: 'Apps they use', parent: true },
-  process: { add: 'Add process', edit: 'Edit process', title: 'Process name', role: 'Owner (optional)', body: 'Steps (one per line)', apps: 'Apps used', parent: false },
+  goal:    { add: 'Add goal', edit: 'Edit goal', title: 'Goal name', role: null, body: 'Notes (optional)', apps: null, parent: false },
   faq:     { add: 'Add question', edit: 'Edit question', title: 'Question', role: null, body: 'Answer', apps: null, parent: false }
 };
 let editId = '', editKind = 'person', pickedApps = [], pickedNotifs = [];
@@ -193,6 +306,14 @@ function openEdit(kind, id) {
   pickedApps = it ? it.apps.slice() : []; renderPicker();
   $o('orgNotifWrap').hidden = kind !== 'person';
   pickedNotifs = it && it.notifs ? it.notifs.slice() : []; renderNotifPicker();
+  $o('orgGoalWrap').hidden = kind !== 'goal';
+  if (kind === 'goal') {
+    $o('orgMetric').value = it && METRIC[it.metric] ? it.metric : 'cards';
+    $o('orgTarget').value = it && it.target ? it.target : '';
+    $o('orgStart').value = it ? it.start : todayIso();
+    $o('orgDeadline').value = it ? it.deadline : '';
+    metricHint();
+  }
   $o('orgParentWrap').hidden = !F.parent;
   if (F.parent) {
     const banned = it ? descendants(it.id) : new Set();
@@ -203,9 +324,14 @@ function openEdit(kind, id) {
   $o('orgSheet').hidden = false;
   if (!it) $o('orgTitle').focus();
 }
+function metricHint() {
+  const M = METRIC[$o('orgMetric').value];
+  $o('orgLTarget').textContent = M.field; $o('orgTarget').placeholder = M.ph; $o('orgGoalHint').textContent = M.hint;
+}
+$o('orgMetric').addEventListener('change', metricHint);
 const closeEdit = () => { $o('orgSheet').hidden = true; editId = ''; };
 $o('addPerson').onclick = () => openEdit('person', '');
-$o('addProc').onclick = () => openEdit('process', '');
+$o('addGoal').onclick = () => openEdit('goal', '');
 $o('addFaq').onclick = () => openEdit('faq', '');
 $o('orgCancel').onclick = closeEdit;
 $o('orgSheet').addEventListener('click', e => { if (e.target.id === 'orgSheet') closeEdit(); });
@@ -223,14 +349,22 @@ async function send(btn, busyText, action, params, okMsg, failMsg) {
 $o('orgSave').onclick = () => {
   const F = FORM[editKind], title = $o('orgTitle').value.trim().replace(/\s+/g, ' ');
   if (!title) return toast(`Enter the ${F.title.toLowerCase()}.`);
-  send($o('orgSave'), 'Saving\u2026', 'saveOrgItem', {
+  const goal = {};
+  if (editKind === 'goal') {
+    const target = parseFloat($o('orgTarget').value), start = $o('orgStart').value, deadline = $o('orgDeadline').value;
+    if (!(target > 0)) return toast('Enter a target above zero.');
+    if (!deadline) return toast('Pick the date to reach it by.');
+    if (start && start > deadline) return toast('"Count from" must be before the deadline.');
+    Object.assign(goal, { metric: $o('orgMetric').value, target, start, deadline });
+  }
+  send($o('orgSave'), 'Saving\u2026', 'saveOrgItem', Object.assign({
     id: editId, kind: editKind, title,
     role: F.role === null ? '' : $o('orgRole').value.trim(),
     parent: F.parent ? $o('orgParent').value : '',
     apps: F.apps === null ? '' : pickedApps.join('|'),
     notifs: editKind === 'person' ? pickedNotifs.join('|') : '',
     body: $o('orgBody').value.trim()
-  }, 'Saved.', 'Could not save: ');
+  }, goal), 'Saved.', 'Could not save: ');
 };
 $o('orgDelete').onclick = () => {
   const it = findItem(editId); if (!it) return;

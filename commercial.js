@@ -80,14 +80,14 @@ function unitsOf(list) {
 const thumb = (c, alt) => c && c.photo ? `<img src="${esc(c.photo)}" alt="${esc(alt)}" loading="lazy" class="port-clickphoto" data-full="${esc(c.photo)}">` : '<div class="port-noimg">No photo</div>';
 
 function cardHtml(c, inLot) {
-  const sold = tab === 'sold', m = metrics([c], sold);
+  const sold = tab === 'sold', pend = tab === 'pending', m = metrics([c], sold);
   const info = sold
     ? `<span>Sold ${c.soldDate ? fmtDay(c.soldDate) : '\u2014'}</span><span class="cm-line">Cost ${php(c.purchaseCost)}</span>`
-    : `<span>Cost ${php(c.purchaseCost)}</span>`;
+    : `<span>Cost ${php(c.purchaseCost)}</span>` + (pend ? `<span class="cm-line">Awaiting payment${c.soldTo ? ' \u00b7 ' + esc(c.soldTo) : ''}</span>` : '');
   const right = sold
     ? `<div class="port-cost">${php(c.soldPrice)}</div><span class="cm-tgt">${tgtLine(m)}</span>${m.priced ? statusChip(m.status, m.range) : ''}${chip(m)}`
     : `<div class="port-cost">${m.priced ? rangeTxt(m.tLo, m.tHi) : '<span class="cm-tgt">No target</span>'}</div>${m.priced ? '<span class="cm-tgt">Target</span>' : ''}${m.priced ? chip(m) : ''}`;
-  const acts = icon('target', 'cm-target', m.priced ? 'Edit target price' : 'Set target price', c.id) + (inLot && !sold ? icon('unlink', 'cm-unlot', 'Remove from lot', c.id) : '');
+  const acts = icon('target', 'cm-target', m.priced ? 'Edit target price' : 'Set target price', c.id) + (inLot && !sold && !pend ? icon('unlink', 'cm-unlot', 'Remove from lot', c.id) : '');
   return `<div class="port-card" data-id="${esc(c.id)}">
       <div class="port-card-main">
         <div class="port-thumb">${thumb(c, c.name)}</div>
@@ -98,13 +98,13 @@ function cardHtml(c, inLot) {
     </div>`;
 }
 function lotHtml(g) {
-  const sold = tab === 'sold', open = openLots.has(g.id), m = metrics(g.cards, sold);
+  const sold = tab === 'sold', pend = tab === 'pending', open = openLots.has(g.id), m = metrics(g.cards, sold);
   const first = g.cards.find(c => c.photo);
   const right = sold
     ? `<div class="port-cost">${php(m.sale)}</div><span class="cm-tgt">${tgtLine(m)}</span>${m.priced ? statusChip(m.status, m.range) : ''}${chip(m)}`
     : `<div class="port-cost">${m.priced ? rangeTxt(m.tLo, m.tHi) : '<span class="cm-tgt">No target</span>'}</div>${m.priced ? '<span class="cm-tgt">Target</span>' + chip(m) : ''}`;
   const acts = icon('target', 'cm-lot-target', 'Set lot target price', g.id)
-    + (sold ? '' : icon('pencil', 'cm-lot-rename', 'Rename lot', g.id) + icon('plus', 'cm-lot-add', 'Add cards to lot', g.id) + icon('unlink', 'cm-lot-ungroup', 'Ungroup lot', g.id));
+    + (sold || pend ? '' : icon('pencil', 'cm-lot-rename', 'Rename lot', g.id) + icon('plus', 'cm-lot-add', 'Add cards to lot', g.id) + icon('unlink', 'cm-lot-ungroup', 'Ungroup lot', g.id));
   return `<div class="port-card lot-group" data-lot="${esc(g.id)}">
       <div class="port-card-main lot-head" data-lot="${esc(g.id)}">
         <div class="port-thumb">${first ? `<img src="${esc(first.photo)}" alt="" loading="lazy">` : '<div class="port-noimg">No photo</div>'}</div>
@@ -119,9 +119,9 @@ function lotHtml(g) {
 function render() {
   const sold = tab === 'sold';
   $('cmFilters').hidden = !sold;
-  $('cmNewLot').hidden = sold;
-  $('cmLabel').textContent = sold ? 'Total profit' : 'Target value';
-  let list = data.cards.filter(c => c.tag === (sold ? 'sold' : 'onhand'));
+  $('cmNewLot').hidden = sold || tab === 'pending';
+  $('cmLabel').textContent = sold ? 'Total profit' : tab === 'pending' ? 'Pending target value' : 'Target value';
+  let list = data.cards.filter(c => c.tag === tab);   // tab is onhand, pending or sold: the same names as the card tags
   if (query) list = list.filter(c => String(c.name || '').toLowerCase().includes(query) || String(c.lotName || '').toLowerCase().includes(query));
   let units = unitsOf(list);
   if (sold && sub !== 'all') units = units.filter(u => { const st = metrics(u.lot ? u.cards : [u.card], true).status; return sub === 'met' ? (st === 'met' || st === 'above') : st === sub; });
@@ -295,7 +295,7 @@ $('cmList').addEventListener('click', async e => {
   }
   const t = e.target.closest('.cm-target'); if (t) return openTarget([t.dataset.id]);
   const lt = e.target.closest('.cm-lot-target');
-  if (lt) { const wanted = tab === 'sold' ? 'sold' : 'onhand'; return openTarget(allLotCards(lt.dataset.id).filter(c => c.tag === wanted).map(c => c.id)); }
+  if (lt) { const wanted = tab; return openTarget(allLotCards(lt.dataset.id).filter(c => c.tag === wanted).map(c => c.id)); }
   const add = e.target.closest('.cm-lot-add'); if (add) return openLotSheet(false, add.dataset.id);
   const ren = e.target.closest('.cm-lot-rename');
   if (ren) {

@@ -12,6 +12,8 @@
  *                   LotID/LotName (AC-AD) group cards bought together as a lot; blank = a normal single card.
  *                   TargetPrice / TargetMax (AF-AG, Commercial app): target sale price; TargetMax is the top of a range (blank/0 = a single price). Created on first use.
  *                   Status is one of: onhand, shipping, shipped, traded.
+ *                   PENDING is not a stored status: Portfolio / Commercial show a card as "pending" while it sits on a shipping task that has no sale date and no
+ *                   sale receipt yet (customer has not paid). It keeps its cost value until the sale receipt is linked, then becomes shipping/sold (see getPortfolio_).
  *                   A shipping task can exist BEFORE its sale receipt (customer about to pay / pays at shipping): the cards are
  *                   shipping/shipped with a ShipBatchID but no SoldDate and no SaleReceiptURL (see pendingSale_). The sale receipt
  *                   later links to it by that batch ID (body.shippingTaskId).
@@ -31,6 +33,8 @@
  *                   hand-made / merged task (ID = pc_<id>, Cards = pipe-separated card IDs that belong to it).
  *                   Status: todo | done | posted (videos); todo | posted (posts; edited is derived from the Edited column).
  *                   Platforms is JSON {fb,ig,yt,tt: {on,date,link}}. Edited = pipe-separated card IDs already edited (posts).
+ *   Topics (A-K):   ID | Title | Body | AddedBy | Added | Status | Conclusion | ConcludedBy | Concluded | Comments | Updated   (Topic board, created automatically)
+ *                   Status: open | resolved. Comments is a JSON array of {id, by, at, text}; every note, comment and conclusion records who wrote it and when.
  *   Users (A-C):    Username | Password | UpdatedAt   (created automatically with the five team logins; passwords are stored as plain text so the admin can view them)
  *   Optional columns/tabs are created by the script on first use. Interest settings are kept in Script Properties.
  *
@@ -41,7 +45,8 @@
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
- *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping
+ *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping,
+ *               topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
 
@@ -128,6 +133,12 @@ function doGet(e) {
     if (action === 'completeCreatives') return jsonpOut_(completeCreatives_(e.parameter), cb);
     if (action === 'deleteCreative') return jsonpOut_(deleteCreative_(e.parameter.id), cb);
     if (action === 'savePostGroup') return jsonpOut_(savePostGroup_(e.parameter), cb);
+    if (action === 'topics') return jsonpOut_(getTopics_(), cb);
+    if (action === 'saveTopic') return jsonpOut_(saveTopic_(e.parameter), cb);
+    if (action === 'addTopicComment') return jsonpOut_(addTopicComment_(e.parameter), cb);
+    if (action === 'resolveTopic') return jsonpOut_(resolveTopic_(e.parameter), cb);
+    if (action === 'reopenTopic') return jsonpOut_(reopenTopic_(e.parameter), cb);
+    if (action === 'deleteTopic') return jsonpOut_(deleteTopic_(e.parameter), cb);
     if (action === 'login') return jsonpOut_(login_(e.parameter), cb);
     if (action === 'changePassword') return jsonpOut_(changePassword_(e.parameter), cb);
     if (action === 'listUsers') return jsonpOut_(listUsers_(e.parameter), cb);
@@ -1157,14 +1168,16 @@ function getPortfolio_() {
   rows.forEach(r => {
     if (!r[4]) return;
     const status = r[9] || 'onhand';
-    const tag = status === 'onhand' ? 'onhand'
+    // pending = on a shipping task whose sale is not paid/receipted yet (no sale date, no sale receipt): still valued at cost until the receipt sets the price
+    const tag = pendingSale_(r) ? 'pending'
+      : status === 'onhand' ? 'onhand'
       : status === 'shipping' ? 'shipping'
       : status === 'traded' ? 'traded'
       : 'sold';   // shipped == sold now: Finance tasks are archive records, there is no separate "recorded" step
     const item = {
       id: r[0], name: r[4], photo: toDisplayUrl_(r[7]),
       purchaseDate: fmtDateCell_(r[1]), purchaseCost: Number(r[5]) || 0,
-      tag, soldDate: fmtDateCell_(r[10]), soldPrice: Number(r[12]) || 0,
+      tag, soldDate: fmtDateCell_(r[10]), soldPrice: Number(r[12]) || 0, soldTo: String(r[11] || ''),
       purchaseReceipt: r[21] || '', saleReceipt: r[22] || '',
       receipts: receiptLinks_(r[21], r[22], rmap),
       lotId: String(r[28] || ''), lotName: String(r[29] || ''),
@@ -1926,18 +1939,21 @@ function deleteEntity_(entityId) {
   } finally { lock.releaseLock(); }
 }
 
-/* ---------- organization: team chart, business processes, FAQ ---------- */
+/* ---------- organization: team chart, goals, FAQ ---------- */
 
 const ORG_SHEET = 'Organization';
-const ORG_HEADERS = ['ID', 'Kind', 'Title', 'Role', 'ParentID', 'Apps', 'Body', 'Created', 'Notifs'];
+const ORG_HEADERS = ['ID', 'Kind', 'Title', 'Role', 'ParentID', 'Apps', 'Body', 'Created', 'Notifs', 'Metric', 'Target', 'Start', 'Deadline'];
 function orgSheet_(create) {
   const ss = ss_();
   let sh = ss.getSheetByName(ORG_SHEET);
   if (!sh && create) {
     sh = ss.insertSheet(ORG_SHEET);
-    sh.getRange(1, 1, 1, 9).setValues([ORG_HEADERS]);
-    sh.getRange('A:I').setNumberFormat('@');
+    sh.getRange(1, 1, 1, 13).setValues([ORG_HEADERS]);
+    sh.getRange('A:M').setNumberFormat('@');
   }
+  // goals (kind 'goal') use columns J-M: Metric (cards|profit|value), Target, Start and Deadline (yyyy-MM-dd)
+  if (sh && sh.getMaxColumns() < 13) sh.insertColumnsAfter(sh.getMaxColumns(), 13 - sh.getMaxColumns());
+  if (sh && !sh.getRange(1, 10).getValue()) { sh.getRange(1, 10, 1, 4).setValues([['Metric', 'Target', 'Start', 'Deadline']]); sh.getRange('J:M').setNumberFormat('@'); }
   // older sheets stop at column H: add Notifs (Home alerts assigned to a person, pipe-separated keys)
   if (sh && !sh.getRange(1, 9).getValue()) { sh.getRange(1, 9).setValue('Notifs'); sh.getRange('I:I').setNumberFormat('@'); }
   return sh;
@@ -1950,7 +1966,8 @@ function getOrg_() {
       const x = rows[r];
       if (!x[0] || !x[2]) continue;
       items.push({ id: String(x[0]), kind: String(x[1]), title: String(x[2]), role: String(x[3] || ''), parent: String(x[4] || ''),
-        apps: String(x[5] || '').split('|').filter(Boolean), body: String(x[6] || ''), notifs: String(x[8] || '').split('|').filter(Boolean) });
+        apps: String(x[5] || '').split('|').filter(Boolean), body: String(x[6] || ''), notifs: String(x[8] || '').split('|').filter(Boolean),
+        metric: String(x[9] || ''), target: Number(x[10]) || 0, start: fmtDateCell_(x[11]), deadline: fmtDateCell_(x[12]) });
     }
   }
   return { ok: true, items };
@@ -1958,12 +1975,21 @@ function getOrg_() {
 // Create (no id) or edit (id). Kind never changes after creation. A person cannot report to themselves or to someone below them.
 function saveOrgItem_(p) {
   const kind = String(p.kind || '');
-  if (['person', 'process', 'faq'].indexOf(kind) < 0) return { ok: false, error: 'unknown kind' };
+  if (['person', 'process', 'goal', 'faq'].indexOf(kind) < 0) return { ok: false, error: 'unknown kind' };
   const title = String(p.title || '').replace(/\s+/g, ' ').trim().slice(0, 160);
   if (!title) return { ok: false, error: 'title cannot be empty' };
   const role = String(p.role || '').trim().slice(0, 120), body = String(p.body || '').trim().slice(0, 2000);
   const apps = String(p.apps || '').split('|').filter(a => /^[a-z]{2,20}$/.test(a)).filter((a, i, all) => all.indexOf(a) === i).join('|');
   const notifs = kind === 'person' ? String(p.notifs || '').split('|').filter(a => /^[a-z_]{2,20}$/.test(a)).filter((a, i, all) => all.indexOf(a) === i).join('|') : '';
+  // goals: what to measure, the number to reach, and the period (Start is optional)
+  const metric = kind === 'goal' ? String(p.metric || '') : '', target = kind === 'goal' ? Number(p.target) : 0;
+  const start = kind === 'goal' ? cleanDate_(p.start) : '', deadline = kind === 'goal' ? cleanDate_(p.deadline) : '';
+  if (kind === 'goal') {
+    if (['cards', 'profit', 'value'].indexOf(metric) < 0) return { ok: false, error: 'unknown goal type' };
+    if (!isFinite(target) || target <= 0) return { ok: false, error: 'target must be above zero' };
+    if (!deadline) return { ok: false, error: 'deadline is required' };
+    if (start && start > deadline) return { ok: false, error: 'start must be before the deadline' };
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -1977,9 +2003,11 @@ function saveOrgItem_(p) {
       if (!up.hasOwnProperty(parent)) parent = '';
       for (let cur = parent, n = 0; cur && id && n < 200; cur = up[cur], n++) if (cur === id) return { ok: false, error: 'a person cannot report to someone who reports to them' };
     }
-    if (found) { sh.getRange(found.idx, 3, 1, 5).setValues([[title, role, parent, apps, body]]); sh.getRange(found.idx, 9).setValue(notifs); return { ok: true, id }; }
+    if (found) { sh.getRange(found.idx, 3, 1, 5).setValues([[title, role, parent, apps, body]]); sh.getRange(found.idx, 9).setValue(notifs);
+      if (kind === 'goal') sh.getRange(found.idx, 10, 1, 4).setValues([[metric, String(target), start, deadline]]);
+      return { ok: true, id }; }
     const nid = newId_('og');
-    appendRows_(sh, [[nid, kind, title, role, parent, apps, body, todayStr_(), notifs]]);
+    appendRows_(sh, [[nid, kind, title, role, parent, apps, body, todayStr_(), notifs, metric, kind === 'goal' ? String(target) : '', start, deadline]]);
     return { ok: true, id: nid };
   } finally { lock.releaseLock(); }
 }
@@ -2156,6 +2184,132 @@ function jsonpOut_(obj, callback) {
     return ContentService.createTextOutput(callback + '(' + JSON.stringify(obj) + ')').setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
   return json_(obj);
+}
+
+/* ---------- Topic board: meeting topics, comments and conclusions ---------- */
+// One row per topic in the "Topics" tab (created on first use). Columns:
+//   ID | Title | Body | AddedBy | Added | Status | Conclusion | ConcludedBy | Concluded | Comments | Updated
+// Status: open | resolved.  Added / Concluded / Updated are "yyyy-MM-dd HH:mm" in the script's time zone.
+// Comments is a JSON array of {id, by, at, text}. The person who adds a note, comment or conclusion is recorded from the logged-in username.
+const TOPICS_SHEET = 'Topics';
+const TOPIC_HEADERS = ['ID', 'Title', 'Body', 'AddedBy', 'Added', 'Status', 'Conclusion', 'ConcludedBy', 'Concluded', 'Comments', 'Updated'];
+const TOPIC_LIMITS = { title: 120, body: 1000, comment: 800, conclusion: 800 };   // kept short because these travel in a GET URL
+
+function topicsSheet_(create) {
+  const ss = ss_();
+  let sh = ss.getSheetByName(TOPICS_SHEET);
+  if (!sh && create) {
+    sh = ss.insertSheet(TOPICS_SHEET);
+    sh.getRange(1, 1, 1, TOPIC_HEADERS.length).setValues([TOPIC_HEADERS]);
+    sh.getRange(1, 1, sh.getMaxRows(), TOPIC_HEADERS.length).setNumberFormat('@');
+  }
+  return sh;
+}
+function stampNow_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'); }
+// the username must be one of the team logins (the Users tab); returns it lowercased, or '' when unknown
+function knownUser_(by) {
+  const name = String(by || '').trim().toLowerCase();
+  if (!name) return '';
+  const rows = usersSheet_().getDataRange().getValues();
+  for (let i = 1; i < rows.length; i++) if (String(rows[i][0]).trim().toLowerCase() === name) return name;
+  return '';
+}
+function parseComments_(cell) { try { const a = JSON.parse(cell || '[]'); return Array.isArray(a) ? a : []; } catch (err) { return []; } }
+function topicOut_(r) {
+  return { id: String(r[0]), title: String(r[1] || ''), body: String(r[2] || ''), by: String(r[3] || ''), at: String(r[4] || ''),
+    status: String(r[5] || 'open') === 'resolved' ? 'resolved' : 'open',
+    conclusion: String(r[6] || ''), concludedBy: String(r[7] || ''), concludedAt: String(r[8] || ''),
+    comments: parseComments_(r[9]), updatedAt: String(r[10] || '') };
+}
+function getTopics_() {
+  const sh = topicsSheet_(false);
+  if (!sh) return { ok: true, topics: [] };
+  const rows = sh.getDataRange().getValues(); rows.shift();
+  return { ok: true, topics: rows.filter(r => r[0] && r[1]).map(topicOut_).reverse() };   // newest first
+}
+// runs fn(sh, found, who) under the lock for an existing topic; fn returns the response
+function withTopic_(p, fn) {
+  const who = knownUser_(p.by);
+  if (!who) return { ok: false, error: 'Please log in again.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = topicsSheet_(false), found = sh && findRow_(sh, p.topicId);
+    if (!found) return { ok: false, error: 'not found' };
+    return fn(sh, found, who);
+  } finally { lock.releaseLock(); }
+}
+const canEditTopic_ = (found, who) => who === ADMIN_USER || String(found.row[3]).trim().toLowerCase() === who;
+
+// Create a topic, or (topicId given) edit its title/details. Only the person who added it, or the admin, can edit.
+function saveTopic_(p) {
+  const who = knownUser_(p.by);
+  if (!who) return { ok: false, error: 'Please log in again.' };
+  const title = String(p.title || '').trim().slice(0, TOPIC_LIMITS.title), body = String(p.body || '').trim().slice(0, TOPIC_LIMITS.body);
+  if (!title) return { ok: false, error: 'missing title' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = topicsSheet_(true), now = stampNow_();
+    if (p.topicId) {
+      const found = findRow_(sh, p.topicId);
+      if (!found) return { ok: false, error: 'not found' };
+      if (!canEditTopic_(found, who)) return { ok: false, error: 'Only the person who added this topic can edit it.' };
+      sh.getRange(found.idx, 2, 1, 2).setNumberFormat('@').setValues([[title, body]]);
+      sh.getRange(found.idx, 11, 1, 1).setNumberFormat('@').setValue(now);
+      return { ok: true, topic: topicOut_(sh.getRange(found.idx, 1, 1, TOPIC_HEADERS.length).getValues()[0]) };
+    }
+    const row = [newId_('t'), title, body, who, now, 'open', '', '', '', '[]', now];
+    sh.getRange(sh.getLastRow() + 1, 1, 1, TOPIC_HEADERS.length).setNumberFormat('@').setValues([row]);
+    return { ok: true, topic: topicOut_(row) };
+  } finally { lock.releaseLock(); }
+}
+
+// Add a comment (e.g. a note for the next meeting). Anyone on the team can comment.
+function addTopicComment_(p) {
+  const text = String(p.text || '').trim().slice(0, TOPIC_LIMITS.comment);
+  if (!text) return { ok: false, error: 'missing comment' };
+  return withTopic_(p, (sh, found, who) => {
+    const now = stampNow_(), list = parseComments_(found.row[9]);
+    list.push({ id: newId_('m'), by: who, at: now, text });
+    sh.getRange(found.idx, 10, 1, 2).setNumberFormat('@').setValues([[JSON.stringify(list), now]]);
+    found.row[9] = JSON.stringify(list); found.row[10] = now;
+    return { ok: true, topic: topicOut_(found.row) };
+  });
+}
+
+// After the meeting: record the conclusion and move the topic to resolved.
+function resolveTopic_(p) {
+  const conclusion = String(p.conclusion || '').trim().slice(0, TOPIC_LIMITS.conclusion);
+  if (!conclusion) return { ok: false, error: 'Write a conclusion before resolving.' };
+  return withTopic_(p, (sh, found, who) => {
+    const now = stampNow_();
+    sh.getRange(found.idx, 6, 1, 4).setNumberFormat('@').setValues([['resolved', conclusion, who, now]]);   // Status..Concluded (F-I)
+    sh.getRange(found.idx, 11, 1, 1).setNumberFormat('@').setValue(now);
+    found.row[5] = 'resolved'; found.row[6] = conclusion; found.row[7] = who; found.row[8] = now; found.row[10] = now;
+    return { ok: true, topic: topicOut_(found.row) };
+  });
+}
+
+// Bring a resolved topic back to open. Its conclusion is kept as a comment so nothing is lost.
+function reopenTopic_(p) {
+  return withTopic_(p, (sh, found, who) => {
+    const now = stampNow_(), list = parseComments_(found.row[9]);
+    if (found.row[6]) list.push({ id: newId_('m'), by: String(found.row[7] || who), at: String(found.row[8] || now), text: 'Previous conclusion: ' + String(found.row[6]) });
+    list.push({ id: newId_('m'), by: who, at: now, text: 'Reopened for discussion.' });
+    sh.getRange(found.idx, 6, 1, 4).setNumberFormat('@').setValues([['open', '', '', '']]);
+    sh.getRange(found.idx, 10, 1, 2).setNumberFormat('@').setValues([[JSON.stringify(list), now]]);
+    found.row[5] = 'open'; found.row[6] = ''; found.row[7] = ''; found.row[8] = ''; found.row[9] = JSON.stringify(list); found.row[10] = now;
+    return { ok: true, topic: topicOut_(found.row) };
+  });
+}
+
+function deleteTopic_(p) {
+  return withTopic_(p, (sh, found, who) => {
+    if (!canEditTopic_(found, who)) return { ok: false, error: 'Only the person who added this topic can delete it.' };
+    sh.deleteRow(found.idx);
+    return { ok: true };
+  });
 }
 
 /* ---------- Team logins ---------- */

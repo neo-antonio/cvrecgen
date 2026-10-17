@@ -17,7 +17,7 @@
   };
   applyTheme(getPref(THEME_KEY));
   if (getPref(PIN_KEY) === '0') document.documentElement.classList.add('sb-rail');
-  // folder prefix back to the site root, taken from how this script was loaded ("" on normal pages, "../" inside chatbot/)
+  // folder prefix back to the site root, taken from how this script was loaded ("" on normal pages, "../" inside a sub-folder)
   var BASE = (document.currentScript && document.currentScript.getAttribute('src') || 'shell.js').replace(/shell\.js.*$/, '');
 
 
@@ -140,7 +140,7 @@
     organization: '<rect x="9" y="3" width="6" height="5" rx="1.2"/><rect x="2.5" y="16" width="6" height="5" rx="1.2"/><rect x="15.5" y="16" width="6" height="5" rx="1.2"/><path d="M12 8v4M5.5 16v-4h13v4"/>',
     backend: '<rect x="3" y="3.5" width="18" height="7" rx="2"/><rect x="3" y="13.5" width="18" height="7" rx="2"/><circle cx="7" cy="7" r=".9" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r=".9" fill="currentColor" stroke="none"/><path d="M11 7h6M11 17h6"/>',
     social: '<circle cx="18" cy="5.5" r="2.7"/><circle cx="6" cy="12" r="2.7"/><circle cx="18" cy="18.5" r="2.7"/><path d="M8.4 10.7l7.2-3.9M8.4 13.3l7.2 3.9"/>',
-    assistant: '<path d="M4 5.5A2.5 2.5 0 016.5 3h11A2.5 2.5 0 0120 5.5v8a2.5 2.5 0 01-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 014 13.5z"/><circle cx="9" cy="9.5" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="9.5" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="9.5" r=".9" fill="currentColor" stroke="none"/>',
+    topics: '<path d="M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/><path d="M7 8.5h5M7 12h10M7 15.5h7"/>',
     pin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3.5 3.5V15h-11v-2.5L10 9z"/>',
     settings: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/>'
   };
@@ -149,18 +149,16 @@
   // [icon key, label, page]
   var GROUPS = [
     ['Workspace', [['home', 'Home', 'index.html']]],
-    ['Assistant', [['assistant', 'Assistant', 'chatbot/index.html']]],
     ['Operations', [['receipt', 'Receipt', 'receipt.html'], ['portfolio', 'Portfolio', 'portfolio.html'], ['commercial', 'Commercial', 'commercial.html'], ['shipping', 'Shipping', 'shipping.html']]],
     ['Money', [['finance', 'Finance', 'finance.html'], ['charts', 'Charts', '#charts']]],
     ['Marketing', [['marketing', 'Marketing', 'marketing.html'], ['creatives', 'Creatives', 'creatives.html'], ['social', 'Social Media', '#social']]],
-    ['Team', [['calendar', 'Calendar', 'calendar.html'], ['organization', 'Organization', 'organization.html'], ['legal', 'Legal', 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link']]]
+    ['Team', [['topics', 'Topic Board', 'topics.html'], ['calendar', 'Calendar', 'calendar.html'], ['organization', 'Organization', 'organization.html'], ['legal', 'Legal', 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link']]]
   ];
   var BACKEND_URL = 'https://docs.google.com/spreadsheets/d/1It4a7gEvyxr-gz4SL6gClC84o6mfxjr9Ooho_DxjL9o/edit?gid=1823529634#gid=1823529634';
   var SOCIAL = [['Facebook', 'https://www.facebook.com/courtvisioncollection'], ['Instagram', 'https://www.instagram.com/courtvisioncollection'], ['TikTok', 'https://www.tiktok.com/@courtvisioncollection'], ['YouTube', 'https://www.youtube.com/@courtvisioncollection']];
   var ALIAS = { 'receipts.html': 'receipt.html', '': 'index.html' };
   var page = (location.pathname.split('/').pop() || '').toLowerCase();
   page = ALIAS[page] || page;
-  if (/\/chatbot\/[^/]*$/i.test(location.pathname)) page = 'chatbot/index.html';
 
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   // sidebar number badges: page -> badge key (filled in by loadBadges below, or by other scripts through CVShell.setBadge)

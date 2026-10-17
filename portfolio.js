@@ -14,13 +14,14 @@ let statusFilter = 'onhand';
 let searchQuery = '';
 let portData = { cards: [] };
 
-// still in our hands (onhand, or sold but not yet shipped) vs. gone (shipped / sold / traded)
-const isOwned = it => it.tag === 'onhand' || it.tag === 'shipping';
+// still in our hands (onhand, sold but not yet shipped, or on a shipping task that is not paid yet) vs. gone (shipped / sold / traded)
+// pending cards have no sale price yet, so they stay valued at cost until the sale receipt is linked
+const isOwned = it => it.tag === 'onhand' || it.tag === 'shipping' || it.tag === 'pending';
 // Code.gs now sends one `cards` list; against an older deploy (or an older cached copy) merge owned + sold
 // "shipped" no longer exists as a separate state: once shipped, a card is sold (older Code.gs / cached copies still send "shipped")
 const normPort = d => ({ cards: (Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || [])).map(c => c.tag === 'shipped' ? Object.assign({}, c, { tag: 'sold' }) : c) });
 
-const TAG_LABEL = { onhand: 'Onhand', shipping: 'Shipping', shipped: 'Shipped', sold: 'Sold', traded: 'Traded' };
+const TAG_LABEL = { onhand: 'Onhand', pending: 'Pending', shipping: 'Shipping', shipped: 'Shipped', sold: 'Sold', traded: 'Traded' };
 
 function toast(m) {
   const t = document.getElementById('portToast'); t.textContent = m; t.hidden = false;
@@ -56,7 +57,7 @@ const icon = (name, cls, label, id) => `<button type="button" class="icon-btn ${
 const parseDay = v => { const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
 function heldLine(it) {
   const a = parseDay(it.purchaseDate); if (!a) return '';
-  const ongoing = it.tag === 'onhand';
+  const ongoing = it.tag === 'onhand' || it.tag === 'pending';
   let b = ongoing ? new Date() : parseDay(it.soldDate);
   if (!b) return '';
   b = new Date(b.getFullYear(), b.getMonth(), b.getDate());
@@ -69,6 +70,7 @@ function cardHtml(it, inLot) {
     ? `<img src="${it.photo}" alt="${escHtml(it.name)}" loading="lazy" class="port-clickphoto" data-full="${it.photo}">`
     : `<div class="port-noimg">No photo</div>`;
   const owned = isOwned(it);
+  const pend = it.tag === 'pending';
   const dateLine = owned ? 'Bought ' + fmtCardDate(it.purchaseDate) : (it.tag === 'sold' && !it.soldDate ? 'Shipped \u00b7 sale receipt pending' : (it.tag === 'traded' ? 'Traded ' : 'Sold ') + fmtCardDate(it.soldDate));
   const costLine = owned ? it.purchaseCost : it.soldPrice;
   const held = heldLine(it);
@@ -76,7 +78,7 @@ function cardHtml(it, inLot) {
   const renameBtn = icon('pencil', 'port-rename', 'Edit name', it.id);
   const photoBtn = icon('camera', 'port-photo', it.photo ? 'Change photo' : 'Add photo', it.id);
   const receiptBtn = rcpts.length ? icon('doc', 'port-receipt', rcpts.length > 1 ? 'Receipts' : 'Receipt', it.id) : '';
-  const revertBtn = (it.tag === 'shipping' || it.tag === 'shipped' || it.tag === 'traded') ? icon('undo', 'port-revert', 'Revert to onhand', it.id) : '';
+  const revertBtn = (it.tag === 'shipping' || it.tag === 'pending' || it.tag === 'shipped' || it.tag === 'traded') ? icon('undo', 'port-revert', 'Revert to onhand', it.id) : '';
   const unlotBtn = inLot ? icon('unlink', 'port-unlot', 'Remove from lot', it.id) : '';
   const deleteBtn = icon('trash', 'port-delete danger', 'Delete card', it.id);
   return `<div class="port-card" data-id="${it.id}">
@@ -85,6 +87,7 @@ function cardHtml(it, inLot) {
         <div class="port-info">
           <b>${escHtml(it.name)}</b>
           <span>${dateLine}</span>
+          ${pend ? `<span class="port-held">Awaiting payment${it.soldTo ? ' \u00b7 ' + escHtml(it.soldTo) : ''}</span>` : ''}
           ${held ? `<span class="port-held">${held}</span>` : ''}
         </div>
         <div class="port-right">
@@ -113,7 +116,7 @@ function lotHtml(g) {
   const open = openLots.has(g.id);
   const value = g.cards.reduce((a, c) => a + (Number(isOwned(c) ? c.purchaseCost : c.soldPrice) || 0), 0);
   const tags = {}; g.cards.forEach(c => { tags[c.tag] = (tags[c.tag] || 0) + 1; });
-  const tagTxt = Object.keys(tags).map(t => (Object.keys(tags).length > 1 ? tags[t] + ' ' : '') + (TAG_LABEL[t] || t)).join(' \u00b7 ');
+  const tagTxt = Object.keys(tags).sort((a, b) => Object.keys(TAG_LABEL).indexOf(a) - Object.keys(TAG_LABEL).indexOf(b)).map(t => (Object.keys(tags).length > 1 ? tags[t] + ' ' : '') + (TAG_LABEL[t] || t)).join(' \u00b7 ');
   const first = g.cards.find(c => c.photo);
   const img = first ? `<img src="${first.photo}" alt="${escHtml(g.name)}" loading="lazy">` : '<div class="port-noimg">No photo</div>';
   return `<div class="port-card lot-group" data-lot="${escHtml(g.id)}">
@@ -132,7 +135,7 @@ function lotHtml(g) {
 const SUMMARY_LABEL = { shipped: 'Total shipped', sold: 'Total sold', traded: 'Total traded' };
 function renderTab() {
   const gone = statusFilter === 'shipped' || statusFilter === 'sold' || statusFilter === 'traded';
-  $portSummaryLabel.textContent = gone ? SUMMARY_LABEL[statusFilter] : 'Onhand value';
+  $portSummaryLabel.textContent = gone ? SUMMARY_LABEL[statusFilter] : statusFilter === 'pending' ? 'Pending value' : 'Onhand value';
   let list = portData.cards;
   if (statusFilter !== 'all') list = list.filter(i => i.tag === statusFilter);
   if (searchQuery) list = list.filter(i => (i.name || '').toLowerCase().includes(searchQuery) || (i.lotName || '').toLowerCase().includes(searchQuery));
