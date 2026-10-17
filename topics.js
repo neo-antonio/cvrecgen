@@ -166,7 +166,7 @@ $('tpView').addEventListener('click', async e => {
   const act = b.dataset.act, who = me();
   if (act === 'close') return closeDetail();
   if (act === 'resolve') { $('tpResolveBox').hidden = false; b.hidden = true; $('tpConcl').focus(); return; }
-  if (act === 'edit') return openForm(t);
+  if (act === 'edit') { $('tpView').hidden = true; return openForm(t); }   // the form sits under the detail sheet, so hide the detail while editing
   const run = async (fn, okMsg) => {
     b.disabled = true;
     try { const d = await fn(); if (d && d.topic) put(d.topic); else if (d) { topics = topics.filter(x => x.id !== t.id); cacheSet('topics', topics); closeDetail(); render(); } toast(okMsg); }
@@ -198,7 +198,7 @@ function openForm(t) {
   $('tpTitle').value = t ? t.title : ''; $('tpBodyIn').value = t ? t.body : '';
   $('tpForm').hidden = false; $('tpTitle').focus();
 }
-const closeForm = () => { $('tpForm').hidden = true; editId = null; };
+const closeForm = () => { const back = editId && openId; $('tpForm').hidden = true; editId = null; if (back) $('tpView').hidden = false; };   // after editing, go back to the topic
 $('tpNew').onclick = () => openForm(null);
 $('tpFormCancel').onclick = closeForm;
 $('tpForm').addEventListener('click', e => { if (e.target.id === 'tpForm') closeForm(); });
