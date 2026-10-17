@@ -18,52 +18,55 @@ function stamp(s) {
 }
 // each person gets the same note colour every time
 const colour = name => 'tp-c' + (String(name || '').split('').reduce((a, ch) => a + ch.charCodeAt(0), 0) % 5);
-/* ---------- links, images and videos pasted into text ----------
-   Any http(s) link in a topic, comment or conclusion becomes a tappable link. Image links show the picture, YouTube / Vimeo /
-   Google Drive links show a player, and direct video files (.mp4 etc.) play inline. Nothing extra is stored: it is all read from the text. */
+/* ---------- links pasted into text ----------
+   Every http(s) link in a topic, comment or conclusion becomes a button that opens it in a new tab. The icon shows what it is:
+   video, image, Google Doc / Sheet / Slides, Drive file or folder, PDF, or a plain link when it can't be told. Nothing extra is stored. */
 const URL_RE = /https?:\/\/[^\s<>"'`]+/g;
+const LINK_ICON = {
+  video: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10.5 9.5l4 2.5-4 2.5z" fill="currentColor"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9.5" r="1.6"/><path d="M4 18l5.5-5.5 4 4 2.5-2.5L20 18"/>',
+  doc: '<path d="M6 2.8h8l4.2 4.2V21H6z"/><path d="M14 2.8V7h4.2M8.8 12h6.4M8.8 15.5h6.4"/>',
+  sheet: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M3.5 9.5h17M3.5 15h17M9.5 3.5v17"/>',
+  slides: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M12 16.5v4M8 20.5h8"/>',
+  folder: '<path d="M3 6.5a2 2 0 012-2h4.2l2 2.3H19a2 2 0 012 2v8.7a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>',
+  link: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>'
+};
 function classify(raw) {
   let u; try { u = new URL(raw); } catch (_) { return null; }
   if (!/^https?:$/.test(u.protocol)) return null;
-  const h = u.hostname.replace(/^(www|m)\./, ''), p = u.pathname; let id = '', m;
-  if (h === 'youtu.be') id = p.slice(1).split('/')[0];
-  else if (h === 'youtube.com' || h === 'music.youtube.com') id = u.searchParams.get('v') || ((p.match(/^\/(?:shorts|embed|live)\/([\w-]+)/) || [])[1]) || '';
-  if (id && /^[\w-]{6,20}$/.test(id)) return { kind: 'frame', src: 'https://www.youtube-nocookie.com/embed/' + id, ratio: '16/9', thumb: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg' };
-  if (h === 'vimeo.com' && (m = p.match(/^\/(?:video\/)?(\d{5,})/))) return { kind: 'frame', src: 'https://player.vimeo.com/video/' + m[1], ratio: '16/9' };
-  if (h === 'drive.google.com' && (m = p.match(/\/file\/d\/([\w-]{10,})/) || (u.searchParams.get('id') || '').match(/^([\w-]{10,})$/)))
-    return { kind: 'frame', src: 'https://drive.google.com/file/d/' + m[1] + '/preview', ratio: '4/3', thumb: 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w600' };
-  if (/\.(mp4|webm|mov|m4v|ogv)$/i.test(p)) return { kind: 'video', src: u.href };
-  if (/\.(jpe?g|png|gif|webp|avif|bmp)$/i.test(p)) return { kind: 'image', src: u.href, thumb: u.href };
-  return { kind: 'link' };
+  const h = u.hostname.replace(/^(www|m)\./, ''), p = u.pathname;
+  const host = h.length > 28 ? h.slice(0, 27) + '\u2026' : h;
+  if (h === 'docs.google.com') {
+    if (/^\/spreadsheets/.test(p)) return { icon: 'sheet', label: 'Google Sheet' };
+    if (/^\/presentation/.test(p)) return { icon: 'slides', label: 'Google Slides' };
+    if (/^\/forms/.test(p)) return { icon: 'doc', label: 'Google Form' };
+    return { icon: 'doc', label: 'Google Doc' };
+  }
+  if (h === 'drive.google.com' || h === 'drive.usercontent.google.com') {
+    if (/\/folders\//.test(p)) return { icon: 'folder', label: 'Drive folder' };
+    return { icon: 'doc', label: 'Drive file' };
+  }
+  if (/(^|\.)(youtube\.com|youtu\.be|vimeo\.com|loom\.com|tiktok\.com|streamable\.com|twitch\.tv|dailymotion\.com)$/.test(h)
+    || (/(^|\.)facebook\.com$|^fb\.watch$/.test(h) && /\/(watch|reel|videos?)\b/.test(p) || h === 'fb.watch')
+    || (h === 'instagram.com' && /^\/(reel|tv)\//.test(p)) || /\.(mp4|webm|mov|m4v|ogv|mkv)$/i.test(p)) return { icon: 'video', label: 'Video' };
+  if (/\.(jpe?g|png|gif|webp|avif|bmp|heic)$/i.test(p) || h === 'i.imgur.com') return { icon: 'image', label: 'Image' };
+  if (/\.pdf$/i.test(p)) return { icon: 'doc', label: 'PDF' };
+  return { icon: 'link', label: host };
 }
-function shortUrl(raw) {
-  try { const u = new URL(raw), t = u.hostname.replace(/^www\./, '') + (u.pathname.length > 1 ? u.pathname : ''); return t.length > 38 ? t.slice(0, 37) + '\u2026' : t; } catch (_) { return raw; }
-}
-function embedHtml(e) {
-  if (e.kind === 'image') return `<a href="${esc(e.src)}" target="_blank" rel="noopener noreferrer"><img class="tp-img" src="${esc(e.src)}" alt="Attached image" loading="lazy" referrerpolicy="no-referrer"></a>`;
-  if (e.kind === 'video') return `<video class="tp-vid" src="${esc(e.src)}" controls preload="metadata" playsinline></video>`;
-  return `<div class="tp-frame" style="aspect-ratio:${e.ratio}"><iframe src="${esc(e.src)}" title="Embedded video" loading="lazy" allowfullscreen allow="fullscreen; picture-in-picture; encrypted-media" referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"></iframe></div>`;
-}
-// -> { text: safe HTML with tappable links, embeds: safe HTML with the pictures / players, media: [..] }
+// text with every link swapped for its button (all other text is escaped)
 function rich(src) {
-  const s = String(src == null ? '' : src), media = []; let text = '', last = 0, m;
+  const s = String(src == null ? '' : src); let out = '', last = 0, m;
   URL_RE.lastIndex = 0;
   while ((m = URL_RE.exec(s))) {
-    const trail = (m[0].match(/[.,;:!?)\]]+$/) || [''])[0], url = m[0].slice(0, m[0].length - trail.length);
-    text += esc(s.slice(last, m.index));
-    const c = classify(url);
-    if (c) {
-      text += `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(shortUrl(url))}</a>`;
-      if (c.kind !== 'link' && !media.some(x => x.src === c.src)) media.push(c);
-    } else text += esc(url);
-    text += esc(trail); last = m.index + m[0].length;
+    const trail = (m[0].match(/[.,;:!?)\]]+$/) || [''])[0], url = m[0].slice(0, m[0].length - trail.length), c = classify(url);
+    out += esc(s.slice(last, m.index));
+    out += c ? `<a class="tp-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="${esc(url)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LINK_ICON[c.icon]}</svg><span>${esc(c.label)}</span></a>` : esc(url);
+    out += esc(trail); last = m.index + m[0].length;
   }
-  text += esc(s.slice(last));
-  return { text, media, embeds: media.length ? `<div class="tp-embeds">${media.map(embedHtml).join('')}</div>` : '' };
+  return out + esc(s.slice(last));
 }
-// board notes show plain text only: each link is shortened to its address, and the first picture becomes a thumbnail
-const plain = s => String(s || '').replace(URL_RE, u => shortUrl(u.replace(/[.,;:!?)\]]+$/, '')));
-const thumbOf = t => { for (const s of [t.body, t.conclusion].concat(t.comments.map(c => c.text))) { const e = rich(s).media.find(x => x.thumb); if (e) return e.thumb; } return ''; };
+// board notes stay plain text: each link is shortened to its address
+const plain = s => String(s || '').replace(URL_RE, u => { const c = u.replace(/[.,;:!?)\]]+$/, ''); try { return new URL(c).hostname.replace(/^www\./, ''); } catch (_) { return c; } });
 const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
 const mine = t => isAdmin() || String(t.by).toLowerCase() === me();
 
@@ -89,9 +92,7 @@ function put(t) {
 /* ---------- board ---------- */
 function noteHtml(t) {
   const n = t.comments.length;
-  const th = thumbOf(t);
   return `<button type="button" class="tp-note ${colour(t.by)}" data-id="${esc(t.id)}">
-      ${th ? `<img class="tp-thumb" src="${esc(th)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}
       <b>${esc(t.title)}</b>
       ${t.body ? `<p class="tp-prev">${esc(plain(t.body))}</p>` : ''}
       ${t.status === 'resolved' ? `<div class="tp-done"><small>Conclusion</small>${esc(plain(t.conclusion))}</div>` : ''}
@@ -126,20 +127,20 @@ function renderDetail() {
   if (!t) { $('tpView').hidden = true; openId = null; return; }
   const keepComment = ($('tpCmText') || {}).value || '', keepConcl = ($('tpConcl') || {}).value || '', resolveOpen = !!$('tpResolveBox') && !$('tpResolveBox').hidden;
   const comments = t.comments.length
-    ? t.comments.map(c => { const r = rich(c.text); return `<div class="tp-cm ${colour(c.by)}"><div class="tp-cm-h"><b>${esc(cap(c.by))}</b><small>${esc(stamp(c.at))}</small></div><p>${r.text}</p>${r.embeds}</div>`; }).join('')
+    ? t.comments.map(c => `<div class="tp-cm ${colour(c.by)}"><div class="tp-cm-h"><b>${esc(cap(c.by))}</b><small>${esc(stamp(c.at))}</small></div><p>${rich(c.text)}</p></div>`).join('')
     : '<p class="tp-none">No comments yet.</p>';
-  const isOpen = t.status === 'open', rb = rich(t.body), rc = rich(t.conclusion);
+  const isOpen = t.status === 'open';
   $('tpViewBody').innerHTML = `
     <span class="tp-state ${t.status}">${isOpen ? 'Open' : 'Resolved'}</span>
     <h3>${esc(t.title)}</h3>
     <p class="tp-by">Added by <b>${esc(cap(t.by))}</b> \u00b7 ${esc(stamp(t.at))}</p>
-    ${t.body ? `<div class="tp-bodywrap"><p class="tp-body">${rb.text}</p>${rb.embeds}</div>` : ''}
-    ${isOpen ? '' : `<div class="tp-concl"><small>Conclusion by <b>${esc(cap(t.concludedBy))}</b> \u00b7 ${esc(stamp(t.concludedAt))}</small><p>${rc.text}</p>${rc.embeds}</div>`}
+    ${t.body ? `<p class="tp-body">${rich(t.body)}</p>` : ''}
+    ${isOpen ? '' : `<div class="tp-concl"><small>Conclusion by <b>${esc(cap(t.concludedBy))}</b> \u00b7 ${esc(stamp(t.concludedAt))}</small><p>${rich(t.conclusion)}</p></div>`}
     <h4 class="tp-sec">Comments (${t.comments.length})</h4>
     <div class="tp-cms">${comments}</div>
     <div class="tp-add">
       <textarea id="tpCmText" rows="2" maxlength="800" placeholder="${isOpen ? 'Add a comment, e.g. a note for next time' : 'Add a comment'}">${esc(keepComment)}</textarea>
-      <p class="tp-hint">Paste an image, video or web link and it shows up here.</p>
+      <p class="tp-hint">Paste a link and it turns into a button.</p>
       <button type="button" class="ghost sm" data-act="comment">Add comment</button>
     </div>
     ${isOpen ? `<div class="field tp-add" id="tpResolveBox"${resolveOpen ? '' : ' hidden'}>
@@ -239,12 +240,6 @@ document.querySelectorAll('[data-ttab]').forEach(t => t.onclick = () => {
 });
 $('tpSearch').addEventListener('input', () => { query = $('tpSearch').value.trim().toLowerCase(); render(); });
 $('tpRefresh').onclick = load;
-document.addEventListener('error', e => {
-  const i = e.target;
-  if (!i || i.tagName !== 'IMG') return;
-  if (i.classList.contains('tp-thumb')) i.hidden = true;
-  else if (i.classList.contains('tp-img')) { const a = i.closest('a'); if (a) { a.className = 'tp-broken'; a.textContent = 'Image could not load. Open the link.'; } }
-}, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeForm(); closeDetail(); } });
 
 load();
