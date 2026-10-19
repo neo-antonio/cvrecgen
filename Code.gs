@@ -218,7 +218,8 @@ function handlePurchase_(body) {
   appendRows_(fin, finOut);
   let creatives = 0;
   if (body.vlog) { try { addVlog_(body, 'Purchase from ' + (seller || '\u2014'), body.date || todayStr_(), receiptUrl); creatives = 1; } catch (err) {} }
-  return { ok: true, receipt: receiptSaved, cards: cardRows.length, finance: finOut.length, creatives, photosFailed };
+  // Commercial lists every onhand card, so each card added to the portfolio is in Commercial too
+  return { ok: true, receipt: receiptSaved, cards: cardRows.length, commercial: cardRows.length, finance: finOut.length, creatives, photosFailed };
 }
 
 function handleSell_(body) {

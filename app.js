@@ -926,7 +926,7 @@ function plannedSteps(d) {
   const k = d.mode === 'purchase' ? d.items.length : d.mode === 'sold' ? d.items.filter(i => i.cardId).length : 0;
   const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'run', t: 'Uploading to server\u2026' }, { st: 'wait', t: 'Saving receipt to archive' }];
   if (d.mode === 'transfer') st.push({ st: 'wait', t: `Creating ${d.fee > 0 ? 3 : 2} finance tasks` });
-  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k + (d.ship > 0 ? 1 : 0), 'finance task')}` }); }
+  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio and Commercial` }); st.push({ st: 'wait', t: `Creating ${nPl(k + (d.ship > 0 ? 1 : 0), 'finance task')}` }); }
   else if (d.mode === 'sold') st.push({ st: 'wait', t: d.shipTaskId ? `Linking ${nPl(k, 'card')} to the shipping task` : `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
   else { if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio)) st.push({ st: 'wait', t: 'Updating portfolio' }); st.push({ st: 'wait', t: 'Creating finance task' }); }
   if (d.vlog) st.push({ st: 'wait', t: d.vlogTaskId ? 'Adding to existing vlog task' : 'Adding vlog task to Creatives' });
@@ -937,7 +937,7 @@ function resultSteps(d, r) {
     r.receipt ? { st: 'ok', t: 'Receipt saved to archive' } : { st: 'warn', t: 'Receipt image could not be saved to the archive' }];
   const pf = r.photosFailed ? ` (${nPl(r.photosFailed, 'photo')} could not be saved)` : '';
   if (d.mode === 'transfer') st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
-  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `${nPl(r.cards || 0, 'card')} added to portfolio${pf}` }); st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` }); }
+  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `${nPl(r.cards || 0, 'card')} added to portfolio${r.commercial === undefined ? '' : (r.commercial ? ' and Commercial' : '')}${pf}` }); st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` }); }
   else if (d.mode === 'sold') st.push({ st: 'ok', t: `${nPl(r.cards || 0, 'card')} ${d.shipTaskId ? 'linked to the shipping task' : 'moved to Shipping'}` }, { st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
   else {
     if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio))
