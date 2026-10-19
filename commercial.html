@@ -35,6 +35,12 @@
 .cm-pair .money input{min-width:0;width:100%}
 .cm-sum{display:flex;justify-content:space-between;font:600 13px Inter,system-ui,sans-serif;margin:10px 0 14px}
 .cm-sum span{color:var(--mut);font-weight:500}
+.ch-day{font:600 11px Inter,system-ui,sans-serif;letter-spacing:.3px;text-transform:uppercase;color:var(--mut);margin:14px 0 4px}
+.ch-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+.ch-row>div{min-width:0;overflow-wrap:anywhere}
+.ch-row small{display:block;color:var(--mut);font-size:11px;margin-top:2px}
+.ch-row>span{flex:none;text-align:right;font-size:12px;white-space:nowrap}
+.ch-row .up{color:#1c6b2e}.ch-row .down{color:#a5281b}
 </style>
 <script src="shell.js"></script>
 </head>
@@ -43,7 +49,7 @@
   <div class="hbar">
     <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
     <h2>Commercial</h2>
-    <span class="hbar-spacer" aria-hidden="true"></span>
+    <a href="#" class="back" id="cmHistBtn" aria-label="Price history" title="Price history"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4.2a2 2 0 011.5.7L12 7h7a2 2 0 012 2v8.5a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M3 11h18"/></svg></a>
   </div>
   <nav class="tabs tabs-3" role="tablist">
     <button type="button" class="tab active" data-ctab="onhand" role="tab">Onhand</button>
@@ -116,6 +122,14 @@
     </div>
   </div>
 </div>
+<div class="modal" id="cmHist" hidden>
+  <div class="sheet small wide">
+    <h3>Price history</h3>
+    <p class="stub-note" style="margin:-6px 0 8px;font-size:12px;text-align:center">Every change to a target sale price, newest first.</p>
+    <div id="cmHistBody"></div>
+    <div class="acts"><button type="button" class="ghost" id="cmHistClose">Close</button></div>
+  </div>
+</div>
 <div class="toast" id="cmToast" hidden></div>
 
 <footer class="site-footer">
@@ -126,5 +140,6 @@
 <script src="config.js"></script>
 <script src="net.js"></script>
 <script src="commercial.js"></script>
+<script src="commercial-history.js"></script>
 </body>
 </html>

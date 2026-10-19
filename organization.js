@@ -1,4 +1,5 @@
-/* ---------- Organization — org chart (people and the apps each one uses), goals and FAQ ---------- */
+/* ---------- Organization — org chart (people and the apps each one uses), goals and FAQ ----------
+   A person's Apps are their Home shortcuts (see CVAccess in shell.js). They do not limit what anyone can open or edit. */
 const $o = id => document.getElementById(id);
 const escOrg = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const backendErr = err => err.message === 'unknown action' ? 'Code.gs needs the latest version deployed' : err.message;
@@ -26,10 +27,16 @@ const APPS = [
     svg: '<rect x="3.5" y="12" width="4.5" height="8.5" rx=".8"/><rect x="9.75" y="7" width="4.5" height="13.5" rx=".8"/><rect x="16" y="3.5" width="4.5" height="17" rx=".8"/>' },
   { id: 'creatives', label: 'Creatives', href: 'creatives.html', desc: 'Vlog tasks and post edits.',
     svg: '<path d="M12 3a9 9 0 100 18c1.4 0 2-.9 2-1.8 0-1.2-1-1.5-1-2.7 0-1 .8-1.7 1.9-1.7H17a4 4 0 004-4C21 6.6 17 3 12 3z"/><circle cx="7.6" cy="11.2" r="1" fill="currentColor" stroke="none"/><circle cx="10.2" cy="7.4" r="1" fill="currentColor" stroke="none"/><circle cx="14.6" cy="7.4" r="1" fill="currentColor" stroke="none"/>' },
+  { id: 'social', label: 'Social Media', href: 'index.html', desc: 'Facebook, Instagram, TikTok and YouTube links, opened from the home screen.',
+    svg: '<circle cx=\"18\" cy=\"5.5\" r=\"2.7\"/><circle cx=\"6\" cy=\"12\" r=\"2.7\"/><circle cx=\"18\" cy=\"18.5\" r=\"2.7\"/><path d=\"M8.4 10.7l7.2-3.9M8.4 13.3l7.2 3.9\"/>' },
+  { id: 'topics', label: 'Topic Board', href: 'topics.html', desc: 'Meeting topics, comments and conclusions.',
+    svg: '<path d=\"M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z\"/><path d=\"M7 8.5h5M7 12h10M7 15.5h7\"/>' },
   { id: 'organization', label: 'Organization', href: 'organization.html', desc: 'Team chart, goals and FAQ.',
     svg: '<rect x="9" y="3" width="6" height="5" rx="1.2"/><rect x="2.5" y="16" width="6" height="5" rx="1.2"/><rect x="15.5" y="16" width="6" height="5" rx="1.2"/><path d="M12 8v4M5.5 16v-4h13v4"/>' },
   { id: 'legal', label: 'Legal', href: 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link', desc: 'Legal documents folder in Google Drive.',
     svg: '<path d="M12 3v18M7 21h10M5 7h14"/><path d="M5 7l-3 7a3.5 3.5 0 006 0z"/><path d="M19 7l-3 7a3.5 3.5 0 006 0z"/>' },
+  { id: 'backend', label: 'Backend', href: 'https://docs.google.com/spreadsheets/d/1It4a7gEvyxr-gz4SL6gClC84o6mfxjr9Ooho_DxjL9o/edit?gid=1823529634#gid=1823529634', desc: 'The Google Sheet behind the app, opened in a new tab.',
+    svg: '<rect x=\"3\" y=\"3.5\" width=\"18\" height=\"7\" rx=\"2\"/><rect x=\"3\" y=\"13.5\" width=\"18\" height=\"7\" rx=\"2\"/><circle cx=\"7\" cy=\"7\" r=\".9\" fill=\"currentColor\" stroke=\"none\"/><circle cx=\"7\" cy=\"17\" r=\".9\" fill=\"currentColor\" stroke=\"none\"/><path d=\"M11 7h6M11 17h6\"/>' },
   { id: 'settings', label: 'Settings', href: 'settings.html', desc: 'App settings.',
     svg: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/>' }
 ];
@@ -75,7 +82,7 @@ function renderTeam() {
 const METRIC = {
   cards:  { label: 'Cards sold', unit: 'cards', field: 'Target (number of cards)', ph: 'e.g. 50', hint: 'Counts cards sold from the start date up to the deadline.' },
   profit: { label: 'Net profit', unit: '', field: 'Target (PHP)', ph: 'e.g. 100000', hint: 'Sale price minus purchase cost of the cards sold from the start date up to the deadline.' },
-  value:  { label: 'Business value', unit: '', field: 'Target (PHP)', ph: 'e.g. 1000000', hint: 'The total on the Finance balance card: every account plus cards on hand at cost, measured today. The start date is not used.' }
+  value:  { label: 'Business value', unit: '', field: 'Target (PHP)', ph: 'e.g. 1000000', hint: 'The total on the Finance balance card: every account plus cards on hand and pending at cost, measured today. The start date is not used.' }
 };
 const phpG = n => (n < 0 ? '-' : '') + 'PHP ' + Math.abs(Math.round(n)).toLocaleString('en-PH');
 const dayFmt = d => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
@@ -168,7 +175,7 @@ function progressOf(g) {
   if (!stats.fin) return null;
   const accounts = accountsNow(stats.fin);
   if (accounts == null) return null;   // no starting balance saved on the Finance page yet
-  return accounts + stats.cards.filter(c => c.tag === 'onhand').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
+  return accounts + stats.cards.filter(c => c.tag === 'onhand' || c.tag === 'pending').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
 }
 function goalState(g, cur) {
   if (cur == null) return { cls: '', badge: '', foot: '' };
@@ -227,6 +234,7 @@ async function loadData() {
     if (!res.ok) throw new Error(res.error || 'Unknown error');
     items = (res.items || []).map(i => Object.assign({ apps: [], notifs: [], parent: '', role: '', body: '', metric: '', target: 0, start: '', deadline: '' }, i));
     cacheSet('org', items);
+    if (window.CVAccess) CVAccess.update(items);   // keep this login's Home shortcuts and edit access in step with what was just saved
     renderAll();
   } catch (err) {
     console.warn('Organization load failed', err);
@@ -256,8 +264,8 @@ function openView(id) {
     ${boss ? `<div class="ed-row"><small>Reports to</small><span>${escOrg(boss.title)}</span></div>` : ''}
     ${team.length ? `<div class="ed-row"><small>Direct reports</small><span>${team.map(t => escOrg(t.title)).join(', ')}</span></div>` : ''}
     <div class="ed-row"><small>Description</small><span class="org-text">${p.body ? escOrg(p.body) : '<em class="ed-none">Not set</em>'}</span></div>
-    <div class="ed-row"><small>Apps</small>${apps.length ? `<div class="org-applist">${apps.map(a => `<a class="org-app" href="${a.href}"${extA(a)}><i>${appSvg(a)}</i><span><b>${escOrg(a.label)}</b>${escOrg(a.desc)}</span></a>`).join('')}</div>` : '<span><em class="ed-none">No apps assigned</em></span>'}</div>
-    <div class="ed-row"><small>Home alerts</small><span>${nts.length ? nts.map(escOrg).join(', ') : '<em class="ed-none">None</em>'}</span></div>`;
+    <div class="ed-row"><small>Home apps</small>${apps.length ? `<div class="org-applist">${apps.map(a => `<a class="org-app" href="${a.href}"${extA(a)}><i>${appSvg(a)}</i><span><b>${escOrg(a.label)}</b>${escOrg(a.desc)}</span></a>`).join('')}</div>` : '<span><em class="ed-none">None assigned</em></span>'}</div>
+    <div class="ed-row"><small>Home widgets</small><span>${nts.length ? nts.map(escOrg).join(', ') : '<em class="ed-none">None</em>'}</span></div>`;
   $o('orgView').hidden = false;
 }
 const closeView = () => { $o('orgView').hidden = true; viewId = ''; };
@@ -269,14 +277,14 @@ $o('orgChart').addEventListener('click', e => { const n = e.target.closest('.org
 
 /* ---------- Add / edit ---------- */
 const FORM = {
-  person:  { add: 'Add person', edit: 'Edit person', title: 'Name', role: 'Role / position', body: 'What they do', apps: 'Apps they use', parent: true },
+  person:  { add: 'Add person', edit: 'Edit person', title: 'Name', role: 'Role / position', body: 'What they do', apps: 'Home apps (shortcuts)', parent: true },
   goal:    { add: 'Add goal', edit: 'Edit goal', title: 'Goal name', role: null, body: 'Notes (optional)', apps: null, parent: false },
   faq:     { add: 'Add question', edit: 'Edit question', title: 'Question', role: null, body: 'Answer', apps: null, parent: false }
 };
 let editId = '', editKind = 'person', pickedApps = [], pickedNotifs = [];
-const NOTIF_LABEL = Object.fromEntries(CVNotifs.CATALOG.reduce((a, g) => a.concat(g.items.map(i => [i.key, i.label])), []));
+const NOTIF_LABEL = Object.fromEntries(CVWidgets.CATALOG.reduce((a, g) => a.concat(g.items.map(i => [i.key, i.label])), []));
 function renderNotifPicker() {
-  $o('orgNotifs').innerHTML = CVNotifs.CATALOG.map(g => `<div class="nt-grp"><b>${escOrg(g.group)}</b>${g.items.map(i => `<label class="port-chk"><input type="checkbox" value="${i.key}"${pickedNotifs.includes(i.key) ? ' checked' : ''}><span>${escOrg(i.label)} <small>${escOrg(i.hint)}</small></span></label>`).join('')}</div>`).join('');
+  $o('orgNotifs').innerHTML = CVWidgets.CATALOG.map(g => `<div class="nt-grp"><b>${escOrg(g.group)}</b>${g.items.map(i => `<label class="port-chk"><input type="checkbox" value="${i.key}"${pickedNotifs.includes(i.key) ? ' checked' : ''}><span>${escOrg(i.label)} <small>${escOrg(i.hint)}</small></span></label>`).join('')}</div>`).join('');
 }
 $o('orgNotifs').addEventListener('change', e => { if (e.target.matches('input[type=checkbox]')) pickedNotifs = [...$o('orgNotifs').querySelectorAll('input:checked')].map(i => i.value); });
 function renderPicker() {
@@ -305,7 +313,7 @@ function openEdit(kind, id) {
   $o('orgAppsWrap').hidden = F.apps === null; if (F.apps) $o('orgLApps').textContent = F.apps;
   pickedApps = it ? it.apps.slice() : []; renderPicker();
   $o('orgNotifWrap').hidden = kind !== 'person';
-  pickedNotifs = it && it.notifs ? it.notifs.slice() : []; renderNotifPicker();
+  pickedNotifs = it && it.notifs ? it.notifs.filter(k => NOTIF_LABEL[k]) : []; renderNotifPicker();   // alerts from before widgets existed are dropped
   $o('orgGoalWrap').hidden = kind !== 'goal';
   if (kind === 'goal') {
     $o('orgMetric').value = it && METRIC[it.metric] ? it.metric : 'cards';

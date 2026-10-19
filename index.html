@@ -30,7 +30,10 @@
 .hs-l{display:block;font:600 11px/1.3 Inter,system-ui,sans-serif;letter-spacing:.3px;text-transform:uppercase;color:var(--mut);margin:0}
 .hs-n{display:block;font:600 32px/1.1 Inter,system-ui,sans-serif;margin-top:2px}
 .hs-v{display:block;font:500 12px/1.3 Inter,system-ui,sans-serif;color:var(--mut)}
-.hs-s{display:block;font:600 11px/1.3 Inter,system-ui,sans-serif;color:#c0392b}
+.hs-sub{display:block;font:500 12px/1.35 Inter,system-ui,sans-serif;color:var(--mut)}
+.hs-sub em{font-style:normal;font-weight:600;color:#c0392b}
+.hs-ev{display:block;font:500 12px/1.35 Inter,system-ui,sans-serif;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hs-ev b{font-weight:600;color:var(--fg)}
 .hs-card.hs-alert{background:#fff1ec;border-color:#f1c2b6}
 .hs-fin{gap:0;padding:4px 16px}
 .hs-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
@@ -46,6 +49,39 @@
 .hs-hide .hs-fin .hs-row b{font-size:0;line-height:0}
 .hs-hide .hs-fin .hs-row b::after{content:'\2022\2022\2022\2022\2022\2022';font:600 17px/1.3 Inter,system-ui,sans-serif;letter-spacing:1px}
 .hs-hide .hs-fin .hs-total b::after{font-size:20px}
+.wg-sec{margin-top:22px}
+.wg-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+.wg{display:flex;flex-direction:column;gap:6px;min-width:0;text-decoration:none;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.wg:active{background:#f6f6f6}
+.wg.wg-warn{background:#fff6e8;border-color:#f0d3a4}
+.wg.wg-late{background:#fff1ec;border-color:#f1c2b6}
+.wg-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.wg-n{font:600 26px/1.1 Inter,system-ui,sans-serif}
+.wg-sub{font:500 12px/1.35 Inter,system-ui,sans-serif;color:var(--mut)}
+.wg em,.wg-sub em{font-style:normal;font-weight:600;color:var(--mut)}
+.wg em.today{color:#b9660a}.wg em.late{color:#c0392b}
+.wg-list{list-style:none;margin:2px 0 0;padding:0}
+.wg-list li{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 0;border-top:1px solid var(--line);font:500 13px/1.35 Inter,system-ui,sans-serif;min-width:0}
+.wg-list li>span{min-width:0;overflow-wrap:anywhere}
+.wg-list li>em,.wg-list li>b{flex:none;font-size:12px;white-space:nowrap}
+.wg-list small{display:block;font-weight:400;font-size:11px;color:var(--mut)}
+.wg-list b.in{color:#1c6b2e}.wg-list b.out{color:#c0392b}
+.wg-new{display:inline-block;font:700 9px/1 Inter,system-ui,sans-serif;letter-spacing:.4px;font-style:normal;background:var(--fg);color:var(--bg);border-radius:999px;padding:3px 6px;margin-right:6px;vertical-align:1px}
+.wg-more,.wg-empty{font:500 12px/1.4 Inter,system-ui,sans-serif;color:var(--mut)}
+.wg-goal{padding:8px 0;border-top:1px solid var(--line)}
+.wg-goal:first-of-type{border-top:0}
+.wg-gh,.wg-gn{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.wg-gh b{font:600 13px/1.35 Inter,system-ui,sans-serif;min-width:0;overflow-wrap:anywhere}
+.wg-gn{font:500 12px/1.4 Inter,system-ui,sans-serif;color:var(--mut);margin:2px 0 6px}
+.wg-badge{flex:none;font:600 10px/1 Inter,system-ui,sans-serif;padding:3px 7px;border-radius:999px;background:#eaeaea;color:#555}
+.wg-badge.ok{background:#dcf3df;color:#1c6b2e}.wg-badge.bad{background:#fde4e1;color:#a5281b}
+.wg-bar{display:block;height:8px;background:#ececec;border-radius:4px;overflow:hidden}
+.wg-bar u{display:block;height:100%;background:var(--fg);border-radius:4px;text-decoration:none}
+.wg-goal.ok .wg-bar u{background:#1c8a3a}.wg-goal.bad .wg-bar u{background:#c0392b}
+.hs-hide .wg-money{filter:blur(6px);user-select:none}
+html[data-theme=dark] .wg:active{background:#1a1a1b}
+html[data-theme=dark] .wg-bar,html[data-theme=dark] .wg-badge{background:#2a2a2c}
+@media (min-width:900px){.wg-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wg-grid>.wg-wide,.wg-grid>.wg:last-child:nth-child(odd){grid-column:1/-1}}   /* a lone widget (or an odd one out) fills the row */
 @media (min-width:600px){
   .hs-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
   .hs-grid>.hs-card:last-child:nth-child(odd){grid-column:auto}
@@ -68,11 +104,9 @@
   </div>
   <div class="nt-list" id="ntList" hidden></div>
   <div class="hs-grid">
-    <a class="hs-card" id="cntOnhand" href="portfolio.html"><span class="hs-l">Cards on hand</span><b class="hs-n" id="sumOnhand">&hellip;</b><span class="hs-s" hidden></span></a>
-    <a class="hs-card" id="cntShip" href="shipping.html"><span class="hs-l">Shipping today</span><b class="hs-n" id="sumShipToday">&hellip;</b><span class="hs-s" hidden></span></a>
-    <a class="hs-card" id="cntVideos" href="creatives.html"><span class="hs-l">Videos to edit</span><b class="hs-n" id="sumVideos">&hellip;</b><span class="hs-s" hidden></span></a>
-    <a class="hs-card" id="cntPosts" href="creatives.html"><span class="hs-l">Posts to edit</span><b class="hs-n" id="sumPosts">&hellip;</b><span class="hs-s" hidden></span></a>
-    <a class="hs-card" id="cntEvents" href="calendar.html"><span class="hs-l" id="sumEventsLbl">Events today</span><b class="hs-n" id="sumEvents">&hellip;</b><span class="hs-s" hidden></span></a>
+    <a class="hs-card" id="cntOnhand" href="portfolio.html"><span class="hs-l">Cards on hand</span><b class="hs-n" id="sumOnhand">&hellip;</b><span class="hs-sub" id="subOnhand">&nbsp;</span></a>
+    <a class="hs-card" id="cntShip" href="shipping.html"><span class="hs-l">Shipping today</span><b class="hs-n" id="sumShipToday">&hellip;</b><span class="hs-sub" id="subShip">&nbsp;</span></a>
+    <a class="hs-card" id="cntEvents" href="calendar.html"><span class="hs-l" id="sumEventsLbl">Events today</span><b class="hs-n" id="sumEvents">&hellip;</b><span id="subEvents"><span class="hs-sub">&nbsp;</span></span></a>
   </div>
   <a class="hs-card hs-fin" href="finance.html">
     <div class="hs-row"><span class="hs-l">Spendable money</span><b id="sumSpend">&hellip;</b></div>
@@ -80,95 +114,100 @@
     <div class="hs-row"><span class="hs-l">Cash reserves</span><b id="sumRes">&hellip;</b></div>
     <div class="hs-row hs-total"><span class="hs-l">Total business value</span><b id="sumTotal">&hellip;</b></div>
   </a>
+  <div class="wg-sec" id="wgSec" hidden>
+    <div class="sec-head">Widgets<span id="wgCount">0</span></div>
+    <div class="wg-grid" id="wgGrid"></div>
+  </div>
 </section>
 
-  <div class="sec-head">Your apps<span>15</span></div>
+  <div class="sec-head">Your apps<span id="appCount">0</span></div>
+  <p class="stub-note" id="appsEmpty" hidden>No apps are assigned to you yet. Ask an admin to assign them in Organization.</p>
   <div class="grid6">
-    <a class="tile" href="receipt.html">
+    <a class="tile" data-app="receipt" href="receipt.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.2h12v19.6l-2-1.1-2 1.1-2-1.1-2 1.1-2-1.1-2 1.1z"/><line x1="8.2" y1="7" x2="15.8" y2="7"/><line x1="8.2" y1="11" x2="15.8" y2="11"/><line x1="8.2" y1="15" x2="13" y2="15"/></svg></div>
       <div class="tile-t"><b>Receipt</b><small>Operations</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Purchases, sales, trades and transfers</p>
     </a>
-    <a class="tile" href="portfolio.html">
+    <a class="tile" data-app="portfolio" href="portfolio.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3v18M5.6 5.6c2.9 3 2.9 9.9 0 12.8M18.4 5.6c-2.9 3-2.9 9.9 0 12.8"/></svg></div>
       <div class="tile-t"><b>Portfolio</b><small>Operations</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Onhand, shipping, sold and traded cards</p>
     </a>
-    <a class="tile" href="commercial.html">
+    <a class="tile" data-app="commercial" href="commercial.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/></svg></div>
       <div class="tile-t"><b>Commercial</b><small>Operations</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Target prices, margins and lots</p>
     </a>
-    <a class="tile" href="shipping.html">
+    <a class="tile" data-app="shipping" href="shipping.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 6.5h12.5v10.5h-12.5z"/><path d="M14 9.8h4.2l3.3 3.3v3.9h-7.5z"/><circle cx="6" cy="18.6" r="1.9"/><circle cx="17.8" cy="18.6" r="1.9"/></svg></div>
       <div class="tile-t"><b>Shipping</b><small>Operations</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">To ship, shipped and proof photos</p>
     </a>
-    <a class="tile" href="finance.html">
+    <a class="tile" data-app="finance" href="finance.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5h14.5a3 3 0 013 3v8a3 3 0 01-3 3H6a3 3 0 01-3-3z"/><path d="M3 6.5V5a2 2 0 012-2h9.5"/><circle cx="16.3" cy="13.7" r="1.3" fill="currentColor" stroke="none"/></svg></div>
       <div class="tile-t"><b>Finance</b><small>Money</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Money in and out</p>
     </a>
-    <a class="tile" href="#" id="chartsTile">
+    <a class="tile" data-app="charts" href="#" id="chartsTile">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="12" width="4.5" height="8.5" rx=".8"/><rect x="9.75" y="7" width="4.5" height="13.5" rx=".8"/><rect x="16" y="3.5" width="4.5" height="17" rx=".8"/></svg></div>
       <div class="tile-t"><b>Charts</b><small>Money</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Opens in a new tab</p>
     </a>
-    <a class="tile" href="marketing.html">
+    <a class="tile" data-app="marketing" href="marketing.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7.8" r="4"/><path d="M4.2 20.5c0-4.3 3.5-6.8 7.8-6.8s7.8 2.5 7.8 6.8"/></svg></div>
       <div class="tile-t"><b>Marketing</b><small>Marketing</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Rankings and entities</p>
     </a>
-    <a class="tile" href="creatives.html">
+    <a class="tile" data-app="creatives" href="creatives.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18c1.4 0 2-.9 2-1.8 0-1.2-1-1.5-1-2.7 0-1 .8-1.7 1.9-1.7H17a4 4 0 004-4C21 6.6 17 3 12 3z"/><circle cx="7.6" cy="11.2" r="1" fill="currentColor" stroke="none"/><circle cx="10.2" cy="7.4" r="1" fill="currentColor" stroke="none"/><circle cx="14.6" cy="7.4" r="1" fill="currentColor" stroke="none"/></svg></div>
       <div class="tile-t"><b>Creatives</b><small>Marketing</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Vlogs and post edits</p>
     </a>
-    <a class="tile" href="#" id="socialTile">
+    <a class="tile" data-app="social" href="#" id="socialTile">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5.5" r="2.7"/><circle cx="6" cy="12" r="2.7"/><circle cx="18" cy="18.5" r="2.7"/><path d="M8.4 10.7l7.2-3.9M8.4 13.3l7.2 3.9"/></svg></div>
       <div class="tile-t"><b>Social Media</b><small>Marketing</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Facebook, Instagram, TikTok, YouTube</p>
     </a>
-    <a class="tile" href="topics.html">
+    <a class="tile" data-app="topics" href="topics.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/><path d="M7 8.5h5M7 12h10M7 15.5h7"/></svg></div>
       <div class="tile-t"><b>Topic Board</b><small>Team</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Meeting topics, comments and conclusions</p>
     </a>
-    <a class="tile" href="calendar.html">
+    <a class="tile" data-app="calendar" href="calendar.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="3"/><path d="M3 9.5h18M8 2.8v3.4M16 2.8v3.4"/><circle cx="8.3" cy="14" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="14" r=".9" fill="currentColor" stroke="none"/><circle cx="15.7" cy="14" r=".9" fill="currentColor" stroke="none"/><circle cx="8.3" cy="17.4" r=".9" fill="currentColor" stroke="none"/><circle cx="12" cy="17.4" r=".9" fill="currentColor" stroke="none"/></svg></div>
       <div class="tile-t"><b>Calendar</b><small>Team</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Events and schedules</p>
     </a>
-    <a class="tile" href="organization.html">
+    <a class="tile" data-app="organization" href="organization.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="5" rx="1.2"/><rect x="2.5" y="16" width="6" height="5" rx="1.2"/><rect x="15.5" y="16" width="6" height="5" rx="1.2"/><path d="M12 8v4M5.5 16v-4h13v4"/></svg></div>
       <div class="tile-t"><b>Organization</b><small>Team</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Team chart, processes and FAQ</p>
     </a>
-    <a class="tile" href="https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link" target="_blank" rel="noopener noreferrer">
+    <a class="tile" data-app="legal" href="https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link" target="_blank" rel="noopener noreferrer">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M7 21h10M5 7h14"/><path d="M5 7l-3 7a3.5 3.5 0 006 0z"/><path d="M19 7l-3 7a3.5 3.5 0 006 0z"/></svg></div>
       <div class="tile-t"><b>Legal</b><small>Team</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Opens the Legal folder in Google Drive</p>
     </a>
-    <a class="tile" href="https://docs.google.com/spreadsheets/d/1It4a7gEvyxr-gz4SL6gClC84o6mfxjr9Ooho_DxjL9o/edit?gid=1823529634#gid=1823529634" target="_blank" rel="noopener noreferrer">
+    <a class="tile" data-app="backend" href="https://docs.google.com/spreadsheets/d/1It4a7gEvyxr-gz4SL6gClC84o6mfxjr9Ooho_DxjL9o/edit?gid=1823529634#gid=1823529634" target="_blank" rel="noopener noreferrer">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3.5" width="18" height="7" rx="2"/><rect x="3" y="13.5" width="18" height="7" rx="2"/><circle cx="7" cy="7" r=".9" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r=".9" fill="currentColor" stroke="none"/><path d="M11 7h6M11 17h6"/></svg></div>
       <div class="tile-t"><b>Backend</b><small>System</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Opens the Google Sheet in a new tab</p>
     </a>
-    <a class="tile" href="settings.html">
+    <a class="tile" data-app="settings" href="settings.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/></svg></div>
       <div class="tile-t"><b>Settings</b><small>System</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
@@ -198,6 +237,7 @@
 <script src="config.js"></script>
 <script src="net.js"></script>
 <script src="notifs.js"></script>
+<script src="widgets.js"></script>
 <script>
 // Charts is a link out to another page. Set CONFIG.chartsUrl in config.js; until then the tile just says so.
 document.getElementById('chartsTile').addEventListener('click', e => {
@@ -229,6 +269,20 @@ document.getElementById('chartsTile').addEventListener('click', e => {
   try { hidden = localStorage.getItem('cv:hideAmounts') === '1'; } catch (_) {}
   apply(hidden);
   btn.onclick = () => { hidden = !hidden; apply(hidden); try { localStorage.setItem('cv:hideAmounts', hidden ? '1' : '0'); } catch (_) {} };
+})();
+
+// Home shortcuts: only the apps assigned to this person in Organization are shown. Nothing is assigned by default.
+(function () {
+  const tiles = [...document.querySelectorAll('.grid6 .tile[data-app]')], count = document.getElementById('appCount'), empty = document.getElementById('appsEmpty');
+  const paint = () => {
+    const list = window.CVAccess ? CVAccess.apps() : null, set = new Set(list || []);
+    let n = 0;
+    tiles.forEach(t => { const on = set.has(t.dataset.app); t.style.display = on ? '' : 'none'; if (on) n++; });
+    count.textContent = n;
+    empty.hidden = !(list && !n);   // say "none assigned" only once we know the list, never while it is still loading
+  };
+  paint();
+  document.addEventListener('cv:access', paint);
 })();
 
 // Home summary
@@ -299,23 +353,22 @@ document.getElementById('chartsTile').addEventListener('click', e => {
     return out;
   }
 
-  const S = { ship: null, cr: null, ev: null, bal: null, fin: null, rc: null, port: null, freshFin: false, freshRc: false, cfg: normInterest(null) };
+  const S = { ship: null, cr: null, ev: null, bal: null, fin: null, port: null, cm: null, acct: null, freshFin: false, cfg: normInterest(null) };
   const cg = k => { try { return typeof cacheGet === 'function' ? cacheGet(k) : null; } catch (_) { return null; } };
   const cs = (k, v) => { try { if (typeof cacheSet === 'function') cacheSet(k, v); } catch (_) {} };
   const set = (id, v) => { $(id).textContent = v; };
   const d10 = v => String(v || '').slice(0, 10);
-  // light red tint + "N missed" line when something is overdue
-  const flag = (cardId, missed) => {
-    const el = $(cardId), sub = el.querySelector('.hs-s');
-    el.classList.toggle('hs-alert', missed > 0);
-    sub.hidden = !(missed > 0); sub.textContent = missed > 0 ? missed + ' missed' : '';
-  };
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const clock = t => { const m = String(t || '').match(/^(\d{1,2}):(\d{2})/); if (!m) return ''; const h = +m[1]; return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`; };
+  const dayLbl = iso => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
 
   function render() {
-    try { if (window.CVNotifs) CVNotifs.render($('ntList'), CVNotifs.evaluate(S, who, CVNotifs.keysFor(who))); } catch (e) { console.warn('Notices failed', e); }
+    const keys = window.CVWidgets ? CVWidgets.keysFor(who) : [];
+    try { if (window.CVNotifs) CVNotifs.render($('ntList'), CVNotifs.evaluate(S, keys)); } catch (e) { console.warn('Notices failed', e); }
     if (S.port) {
       const on = S.port.filter(c => c.tag === 'onhand');
       set('sumOnhand', on.length);
+      set('subOnhand', S.port.filter(c => c.tag === 'pending').length + ' pending');   // cards on a shipping task whose sale is not paid yet
       // cards on a shipping task that is not paid yet ("pending") keep their cost value until the sale receipt sets the price
       set('sumPort', php(S.port.filter(c => c.tag === 'onhand' || c.tag === 'pending').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0)));
     }
@@ -323,19 +376,27 @@ document.getElementById('chartsTile').addEventListener('click', e => {
       // count shipping TASKS, not cards: cards from one sale receipt share a groupKey and are one task
       const q = S.ship.toShip || [];
       const tasks = list => new Set(list.map(i => i.groupKey || ('c:' + i.id))).size;
+      const missed = tasks(q.filter(i => d10(i.scheduledDate) && d10(i.scheduledDate) < today));
       set('sumShipToday', tasks(q.filter(i => d10(i.scheduledDate) === today)));
-      flag('cntShip', tasks(q.filter(i => d10(i.scheduledDate) && d10(i.scheduledDate) < today)));
-    }
-    if (S.cr) {
-      const v = (S.cr.videos || []).filter(x => x.status === 'todo'), p = (S.cr.posts || []).filter(x => x.status === 'toedit');
-      set('sumVideos', v.length); flag('cntVideos', v.filter(x => d10(x.date) && d10(x.date) < today).length);
-      set('sumPosts', p.length); flag('cntPosts', p.filter(x => d10(x.scheduled) && d10(x.scheduled) < today).length);
+      $('subShip').innerHTML = tasks(q) + ' total to ship' + (missed ? ' &middot; <em>' + missed + ' missed</em>' : '');
+      $('cntShip').classList.toggle('hs-alert', missed > 0);
     }
     if (S.ev) {
-      const n = (S.ev.events || []).filter(e => d10(e.date) === today).length;
-      set('sumEvents', n); set('sumEventsLbl', n === 1 ? 'Event today' : 'Events today');
+      // events from the Calendar app: how many today, and which ones (name and time). With none today, show the next one coming up.
+      const evs = (S.ev.events || []).filter(e => d10(e.date)).sort((a, b) => (d10(a.date) + (a.time || '99:99')).localeCompare(d10(b.date) + (b.time || '99:99')));
+      const td = evs.filter(e => d10(e.date) === today);
+      set('sumEvents', td.length); set('sumEventsLbl', td.length === 1 ? 'Event today' : 'Events today');
+      const line = e => `<span class="hs-ev"><b>${esc(e.title)}</b> &middot; ${clock(e.time) || 'All day'}</span>`;
+      let html;
+      if (td.length) html = td.slice(0, 2).map(line).join('') + (td.length > 2 ? `<span class="hs-sub">+${td.length - 2} more</span>` : '');
+      else {
+        const nx = evs.find(e => d10(e.date) > today);
+        html = nx ? `<span class="hs-ev">Next: <b>${esc(nx.title)}</b> &middot; ${dayLbl(d10(nx.date))}${clock(nx.time) ? ', ' + clock(nx.time) : ''}</span>` : '<span class="hs-sub">No upcoming events</span>';
+      }
+      $('subEvents').innerHTML = html;
     }
     const c = computeBalance(S.bal, S.fin, S.cfg);
+    S.acct = c;
     if (c) {
       const liquid = c.cash + c.maribank, port = S.port ? S.port.filter(x => x.tag === 'onhand' || x.tag === 'pending').reduce((a, x) => a + (Number(x.purchaseCost) || 0), 0) : 0;
       set('sumSpend', php(liquid));
@@ -344,13 +405,17 @@ document.getElementById('chartsTile').addEventListener('click', e => {
     } else if (S.bal === null && S.fin) {
       ['sumSpend', 'sumRes', 'sumTotal'].forEach(id => set(id, '\u2014'));
     }
+    try {
+      const n = window.CVWidgets ? CVWidgets.render($('wgGrid'), S, who, keys) : 0;
+      $('wgSec').hidden = !n; set('wgCount', n);
+    } catch (e) { console.warn('Widgets failed', e); }
   }
 
   // instant draw from what the other pages already saved
   const cp = cg('portfolio'); if (cp && cp.cards) S.port = cp.cards;
   S.ship = cg('shipping'); S.cr = cg('creatives');
   const cal = cg('calendar'); if (cal && cal.ev) S.ev = cal.ev;
-  S.rc = cg('receipts'); S.bal = cg('balance'); S.fin = cg('finance'); if (cg('interest')) S.cfg = normInterest(cg('interest'));
+  S.cm = cg('cmLog'); S.bal = cg('balance'); S.fin = cg('finance'); if (cg('interest')) S.cfg = normInterest(cg('interest'));
   render();
 
   if (typeof CONFIG === 'undefined' || !CONFIG.portfolio || !CONFIG.portfolio.endpoint || typeof jsonp !== 'function') { $('homeRefresh').hidden = true; return; }
@@ -362,13 +427,14 @@ document.getElementById('chartsTile').addEventListener('click', e => {
   load('creatives', d => { S.cr = { videos: d.videos || [], posts: d.posts || [] }; cs('creatives', S.cr); }),
   load('events', d => { S.ev = d; }),
   load('finance', d => { S.fin = { toRecord: d.toRecord || [], recorded: d.recorded || [] }; S.freshFin = true; cs('finance', S.fin); }),
-  load('receipts', d => { S.rc = { receipts: (d.receipts || []).map(r => ({ id: r.id })) }; S.freshRc = true; cs('receipts', S.rc); }),
+  load('commercialLog', d => { S.cm = d.items || []; cs('cmLog', S.cm); }),
   load('balance', d => { S.bal = d.balance || null; if (S.bal) cs('balance', S.bal); if (d.interest) { S.cfg = normInterest(d.interest); cs('interest', S.cfg); } })
   ]);
-  if (window.CVNotifs) CVNotifs.load().then(render);
+  if (window.CVWidgets) CVWidgets.load().then(render);
   refresh();
   $('homeRefresh').onclick = async () => {
     const b = $('homeRefresh'); b.disabled = true; b.textContent = 'Refreshing\u2026';
+    if (window.CVAccess) CVAccess.refresh();
     await refresh();
     b.disabled = false; b.textContent = 'Refresh';
   };

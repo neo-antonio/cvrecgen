@@ -33,6 +33,7 @@
  *                   hand-made / merged task (ID = pc_<id>, Cards = pipe-separated card IDs that belong to it).
  *                   Status: todo | done | posted (videos); todo | posted (posts; edited is derived from the Edited column).
  *                   Platforms is JSON {fb,ig,yt,tt: {on,date,link}}. Edited = pipe-separated card IDs already edited (posts).
+ *   CommercialLog (A-H): At | CardID | Card | OldLow | OldHigh | NewLow | NewHigh | By   (one row per target price change made by setTargets; created automatically)
  *   Topics (A-K):   ID | Title | Body | AddedBy | Added | Status | Conclusion | ConcludedBy | Concluded | Comments | Updated   (Topic board, created automatically)
  *                   Status: open | resolved. Comments is a JSON array of {id, by, at, text}; every note, comment and conclusion records who wrote it and when.
  *   Users (A-C):    Username | Password | UpdatedAt   (created automatically with the five team logins; passwords are stored as plain text so the admin can view them)
@@ -46,7 +47,7 @@
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
  *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping,
- *               topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic
+ *               topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic, commercialLog
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
 
@@ -139,6 +140,7 @@ function doGet(e) {
     if (action === 'resolveTopic') return jsonpOut_(resolveTopic_(e.parameter), cb);
     if (action === 'reopenTopic') return jsonpOut_(reopenTopic_(e.parameter), cb);
     if (action === 'deleteTopic') return jsonpOut_(deleteTopic_(e.parameter), cb);
+    if (action === 'commercialLog') return jsonpOut_(getCommercialLog_(), cb);
     if (action === 'login') return jsonpOut_(login_(e.parameter), cb);
     if (action === 'changePassword') return jsonpOut_(changePassword_(e.parameter), cb);
     if (action === 'listUsers') return jsonpOut_(listUsers_(e.parameter), cb);
@@ -443,15 +445,39 @@ function setTargets_(p) {
   ensureCardsColumns_(cards);
   ensureTargetColumns_(cards);
   const rowOf = rowIndex_(cards);
+  const data = cards.getDataRange().getValues(), by = String(p.by || '').trim().toLowerCase().slice(0, 40), at = nowStamp_(), log = [];
   let n = 0;
   list.forEach(item => {
     const part = item.split(':'), idx = rowOf[part[0]];
     if (!idx) return;
     const lo = Math.round((Number(part[1]) || 0) * 100) / 100, hi = Math.round((Number(part[2]) || 0) * 100) / 100;
+    const newLo = lo > 0 ? lo : 0, newHi = lo > 0 && hi > lo ? hi : 0, row = data[idx - 1] || [], oldLo = Number(row[31]) || 0, oldHi = Number(row[32]) || 0;
     cards.getRange(idx, 32, 1, 2).setNumberFormat('0.00').setValues([[lo > 0 ? lo : '', lo > 0 && hi > lo ? hi : '']]);
+    if (oldLo !== newLo || oldHi !== newHi) log.push([at, String(part[0]), String(row[4] || ''), oldLo, oldHi, newLo, newHi, by]);   // only real changes are archived
     n++;
   });
+  if (log.length) appendRows_(cmLogSheet_(true), log);
   return { ok: true, updated: n };
+}
+// Archive of target price changes, shown behind the folder icon on the Commercial page and counted by the Home "Price edits" widget.
+const CMLOG_SHEET = 'CommercialLog';
+function cmLogSheet_(create) {
+  const ss = ss_();
+  let sh = ss.getSheetByName(CMLOG_SHEET);
+  if (!sh && create) {
+    sh = ss.insertSheet(CMLOG_SHEET);
+    sh.getRange(1, 1, 1, 8).setValues([['At', 'CardID', 'Card', 'OldLow', 'OldHigh', 'NewLow', 'NewHigh', 'By']]);
+    sh.getRange('A:B').setNumberFormat('@');
+  }
+  return sh;
+}
+function getCommercialLog_() {
+  const sh = cmLogSheet_(false);
+  if (!sh) return { ok: true, items: [] };
+  const rows = sh.getDataRange().getValues(); rows.shift();
+  const items = rows.filter(r => r[0]).reverse().slice(0, 300).map(r => ({ at: stampCell_(r[0]), cardId: String(r[1] || ''), name: String(r[2] || ''),
+    oldLo: Number(r[3]) || 0, oldHi: Number(r[4]) || 0, newLo: Number(r[5]) || 0, newHi: Number(r[6]) || 0, by: String(r[7] || '') }));
+  return { ok: true, items };
 }
 
 // Attach / clear the receipt on a standalone task (Finance ReceiptURL, col J). Receipt-derived

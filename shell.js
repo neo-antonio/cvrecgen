@@ -160,6 +160,46 @@
   var page = (location.pathname.split('/').pop() || '').toLowerCase();
   page = ALIAS[page] || page;
 
+  /* ---------- Home shortcuts (window.CVAccess) ----------
+     The apps ticked for a person in Organization (Apps) are their Home shortcuts, nothing more: everyone can still open and edit every app.
+     CVAccess.apps() -> assigned app ids, or null until they are known;  CVAccess.update(orgItems);  CVAccess.refresh()
+     Fires "cv:access" on document whenever the list changes. */
+  var access = { known: false, apps: [] };
+  var accessKey = function () { return 'cv:apps:' + curUser(); };
+  try { var ac = JSON.parse(localStorage.getItem(accessKey())); if (ac && Array.isArray(ac.apps)) { access.known = true; access.apps = ac.apps; } } catch (e) {}
+  // Commercial price edits are logged with who made them: add the login to setTargets (commercial.js does not send it)
+  try {
+    var sd = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+    if (sd && sd.set) Object.defineProperty(HTMLScriptElement.prototype, 'src', { configurable: true, enumerable: sd.enumerable, get: sd.get, set: function (v) {
+      if (/[?&]action=setTargets(&|$)/.test(String(v)) && !/[?&]by=/.test(String(v))) v = String(v) + '&by=' + encodeURIComponent(curUser());
+      sd.set.call(this, v);
+    } });
+  } catch (e) {}
+  // a login (neo, ariel...) is the person whose name is that login or starts with it, e.g. "Ariel Cruz"
+  var personApps = function (items) {
+    var u = curUser(), out = [];
+    (items || []).forEach(function (i) {
+      if (i.kind !== 'person') return;
+      var t = String(i.title || '').trim().toLowerCase();
+      if (u && (t === u || t.split(/\s+/)[0] === u)) (i.apps || []).forEach(function (a) { if (out.indexOf(a) < 0) out.push(a); });
+    });
+    return out;
+  };
+  var setApps = function (list) {
+    access.known = true; access.apps = list;
+    try { localStorage.setItem(accessKey(), JSON.stringify({ apps: list, at: Date.now() })); } catch (e) {}
+    document.dispatchEvent(new CustomEvent('cv:access', { detail: { apps: list.slice() } }));
+  };
+  var loadAccess = function () {
+    if (!curUser()) return Promise.resolve();
+    return call('organization').then(check).then(function (d) { setApps(personApps(d.items)); }).catch(function () {});
+  };
+  window.CVAccess = {
+    apps: function () { return access.known ? access.apps.slice() : null; },
+    update: function (items) { if (curUser()) setApps(personApps(items)); },
+    refresh: loadAccess
+  };
+
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   // sidebar number badges: page -> badge key (filled in by loadBadges below, or by other scripts through CVShell.setBadge)
   var BADGE = { 'shipping.html': 'shipping', 'creatives.html': 'creatives', 'finance.html': 'finance' };
@@ -289,6 +329,7 @@
       refreshBadges: loadBadges
     };
     loadBadges();
+    loadAccess();
     document.addEventListener('visibilitychange', function () { if (!document.hidden) loadBadges(); });
   }
 
