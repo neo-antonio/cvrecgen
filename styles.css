@@ -1065,3 +1065,7 @@ html[data-theme=dark] .pf-bl{background:#3b1018;border-color:#7a2a38;color:#ff9a
   .cal-cell.sel{transition:border-color .18s ease,box-shadow .18s ease,background-color .18s ease,transform .14s ease}
   #dayList>*{animation:fadeUp .22s ease backwards}
 }
+
+/* Creatives: edited-photo previews on a post task */
+.cr-prev{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px;margin:8px 0}
+.cr-prev img{width:100%;aspect-ratio:1/1;object-fit:cover;border:1px solid var(--line);border-radius:8px;background:#ececec;display:block}

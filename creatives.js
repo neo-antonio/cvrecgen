@@ -243,6 +243,30 @@ function cardRowHtml(g, c) {
       ${c.edited ? iconC('undo', 'pc-btn', 'Back to to-edit', c.id) : iconC('check', 'ok pc-btn', 'Mark edited', c.id)}
     </div>`;
 }
+/* edited-photo previews: pasted image links, up to 30 per post task */
+const MAX_PREV = 30;
+const prevStrip = g => (g.previews && g.previews.length)
+  ? `<div class="cr-prev">${g.previews.map(x => `<img src="${escC(x.t || x.u)}" alt="Edited photo preview" loading="lazy" class="cr-zoom" data-full="${escC(x.f || x.u)}">`).join('')}</div>` : '';
+const prevThumb = u => { const m = /drive\.google\.com/.test(u) && String(u).match(/[-\w]{25,}/); return m ? 'https://drive.google.com/thumbnail?id=' + m[0] + '&sz=w300' : u; };
+let prevList = [];
+function renderPrev() {
+  $c('pPrevGrid').innerHTML = prevList.map((u, i) => `<div class="img-tile"><img src="${escC(prevThumb(u))}" alt="" loading="lazy"><button type="button" class="img-x" data-i="${i}" aria-label="Remove preview">&times;</button></div>`).join('');
+  $c('pPrevCount').textContent = `${prevList.length}/${MAX_PREV}`;
+  $c('pPrevAdd').hidden = prevList.length >= MAX_PREV;
+}
+function addPrev() {
+  const v = $c('pPrevInput').value.trim(); if (!v) return;
+  if (!safeUrl(v)) return toast('Links must start with http:// or https://');
+  if (prevList.includes(v)) return toast('That link is already added.');
+  if (prevList.length >= MAX_PREV) return toast(`Up to ${MAX_PREV} previews.`);
+  prevList.push(v); $c('pPrevInput').value = ''; renderPrev();
+}
+$c('pPrevUse').onclick = addPrev;
+$c('pPrevInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addPrev(); } });
+$c('pPrevGrid').addEventListener('click', e => {
+  const x = e.target.closest('.img-x'); if (!x) return;
+  prevList.splice(+x.dataset.i, 1); renderPrev();
+});
 function groupHtml(g) {
   const st = g.status, finished = st !== 'toedit';
   const sub = [g.custom ? 'Combined task' : '', (g.cards.length ? `${g.editedCount} of ${nPlC(g.cards.length, 'card')} edited` : 'No cards')].filter(Boolean).join(' \u00b7 ');
@@ -253,6 +277,7 @@ function groupHtml(g) {
       </div>
       ${metaHtml(g, finished)}
       <div class="cr-cards">${g.cards.map(c => cardRowHtml(g, c)).join('')}</div>
+      ${prevStrip(g)}
       ${pills(g.platforms, POST_PLATS, st === 'posted')}
       ${g.caption ? `<p class="cr-notes"><small>Caption</small>${escC(g.caption)}</p>` : ''}
       ${g.notes ? `<p class="cr-notes"><small>Notes</small>${linkify(g.notes)}</p>` : ''}
@@ -262,7 +287,7 @@ function groupHtml(g) {
         ${st === 'edited' || (st === 'toedit' && !g.cards.length) ? iconC('send', 'ok p-post', 'Mark posted', g.id) : ''}
         ${st === 'posted' ? iconC('undo', 'p-unpost', 'Back to done', g.id) : ''}
         ${iconC('addcards', 'p-merge', 'Add / merge cards', g.id)}
-        ${iconC('doc', 'p-edit', 'Details', g.id)}
+        ${iconC('pencil', 'p-edit', 'Edit', g.id)}
         ${g.custom ? iconC('trash', 'danger p-del', 'Delete task', g.id) : ''}
       </div>
     </div>`;
@@ -343,7 +368,8 @@ function openPost(id) {
   const g = findP(id); if (!g) return;
   editPostId = id;
   const posted = g.status === 'posted';
-  $c('pHeading').textContent = 'Post details';
+  $c('pHeading').textContent = 'Edit post';
+  prevList = (g.previews || []).map(x => x.u); $c('pPrevInput').value = ''; renderPrev();
   $c('pTitle').value = g.label || '';
   $c('pDate').value = g.scheduled || ''; $c('pCaption').value = g.caption || ''; $c('pNotes').value = g.notes || '';
   $c('pPosted').checked = posted;
@@ -369,6 +395,11 @@ $c('pSave').onclick = async () => {
   const params = { id: g.id, date: g.scheduled, caption: g.caption, notes: g.notes, platforms: JSON.stringify(g.platforms), status: posted ? 'posted' : 'todo' };
   const newTitle = $c('pTitle').value.trim().replace(/\s+/g, ' ');
   if (newTitle && newTitle !== g.label) { g.label = newTitle; params.title = newTitle; params.renamed = '1'; }   // empty = keep the current title
+  const oldPrev = (g.previews || []).map(x => x.u);
+  if (JSON.stringify(oldPrev) !== JSON.stringify(prevList)) {
+    params.previews = JSON.stringify(prevList);
+    g.previews = prevList.map(u => ({ u, t: prevThumb(u), f: u }));
+  }
   const res = await save('saveCreative', params);
   btn.disabled = false; btn.textContent = 'Save';
   if (!res) return;

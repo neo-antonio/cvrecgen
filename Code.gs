@@ -1307,7 +1307,7 @@ function getReceipts_() {
 // Optional: only show post groups for receipts dated on/after this day (yyyy-mm-dd). '' = every receipt on record.
 const CREATIVES_POSTS_FROM = '';
 const CREATIVES_SHEET = 'Creatives';
-const CREATIVE_HEADERS = ['ID', 'Kind', 'ReceiptKey', 'Title', 'Date', 'Status', 'Platforms', 'Notes', 'Caption', 'Edited', 'Auto', 'Created', 'DoneDate', 'Cards'];
+const CREATIVE_HEADERS = ['ID', 'Kind', 'ReceiptKey', 'Title', 'Date', 'Status', 'Platforms', 'Notes', 'Caption', 'Edited', 'Auto', 'Created', 'DoneDate', 'Cards', 'Previews'];
 
 function creativesSheet_(create) {
   const ss = ss_();
@@ -1349,7 +1349,7 @@ function nowStamp_() { return Utilities.formatDate(new Date(), Session.getScript
 function stampCell_(v) { return v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(v || ''); }
 // Created (col L) is the task-created timestamp, 'yyyy-MM-dd HH:mm' (older rows hold the date only)
 function blankCreative_(id, kind, key) {
-  return [id, kind, key || '', '', '', 'todo', '', '', '', '', '', nowStamp_(), '', ''];
+  return [id, kind, key || '', '', '', 'todo', '', '', '', '', '', nowStamp_(), '', '', ''];
 }
 
 // A vlog task made automatically from a purchase / trade receipt.
@@ -1394,8 +1394,20 @@ function cardGroupId_(c) {
 function creativeObj_(r) {
   return { id: String(r[0]), kind: String(r[1]), receiptKey: String(r[2] || ''), title: String(r[3] || ''), date: fmtDateCell_(r[4]),
     status: r[5] === 'done' ? 'done' : r[5] === 'posted' ? 'posted' : 'todo', platforms: parsePlatforms_(r[6]), notes: String(r[7] || ''), caption: String(r[8] || ''),
-    edited: pipeIds_(r[9]), auto: r[10] === 'auto', titled: r[10] === 'titled', created: stampCell_(r[11]), doneDate: fmtDateCell_(r[12]), cardIds: pipeIds_(r[13]) };
+    edited: pipeIds_(r[9]), auto: r[10] === 'auto', titled: r[10] === 'titled', created: stampCell_(r[11]), doneDate: fmtDateCell_(r[12]), cardIds: pipeIds_(r[13]), previews: parsePreviews_(r[14]) };
 }
+
+// Post tasks: pasted image links of the edited photos (Previews column, JSON array, max 30).
+const MAX_PREVIEWS = 30;
+function parsePreviews_(cell) { try { const a = JSON.parse(cell || '[]'); return Array.isArray(a) ? a.filter(u => typeof u === 'string').slice(0, MAX_PREVIEWS) : []; } catch (err) { return []; } }
+function cleanPreviews_(json) {
+  let a = []; try { a = JSON.parse(json || '[]'); } catch (err) {}
+  if (!Array.isArray(a)) a = [];
+  const out = [];
+  a.forEach(u => { u = String(u || '').trim().slice(0, 600); if (/^https?:\/\//i.test(u) && out.indexOf(u) < 0 && out.length < MAX_PREVIEWS) out.push(u); });
+  return JSON.stringify(out);
+}
+function previewObjs_(list) { return (list || []).map(u => ({ u, t: toDisplayUrl_(u, 300), f: toDisplayUrl_(u, 1080) })); }
 
 function getCreatives_() {
   const sh = creativesSheet_(false);
@@ -1435,7 +1447,7 @@ function getCreatives_() {
     const done = {}; st.edited.forEach(x => done[x] = true);
     g.cards.forEach(c => c.edited = !!done[c.id]);
     const n = g.cards.filter(c => c.edited).length;
-    return Object.assign(g, { created: g.created || st.created, doneDate: st.doneDate, scheduled: st.date || g.date, platforms: st.platforms, notes: st.notes, caption: st.caption,
+    return Object.assign(g, { created: g.created || st.created, doneDate: st.doneDate, scheduled: st.date || g.date, platforms: st.platforms, notes: st.notes, caption: st.caption, previews: previewObjs_(st.previews),
       editedCount: n, status: st.status === 'posted' ? 'posted' : (g.cards.length && n === g.cards.length ? 'edited' : 'toedit') });
   };
   const posts = order.map(id => finish(groups[id], stored[id] || creativeObj_(blankCreative_(id, 'post', groups[id].receiptKey)))).reverse();
@@ -1480,6 +1492,7 @@ function saveCreative_(p) {
     if ('platforms' in p) row[6] = cleanPlatforms_(p.platforms);
     if ('notes' in p) row[7] = String(p.notes).trim().slice(0, 1000);
     if ('caption' in p) row[8] = String(p.caption).trim().slice(0, 1500);
+    if ('previews' in p && isPost) row[14] = cleanPreviews_(p.previews);
     writeCreativeRow_(sh, found ? found.idx : 0, row);
     return { ok: true, id };
   } finally { lock.releaseLock(); }
@@ -1582,7 +1595,7 @@ function savePostGroup_(p) {
     if (finalIds.some(x => !exists[x])) return { ok: false, error: 'a selected card no longer exists' };
     const keep = {}; finalIds.forEach(x => keep[x] = true);
 
-    const edited = {}, plats = {}, notes = [], caps = [], gone = [], oldIds = {};
+    const edited = {}, plats = {}, notes = [], caps = [], prevs = [], gone = [], oldIds = {};
     let target = null, primaryDate = '', primaryDone = '', wasPosted = false;
     sources.forEach((sid, n) => {
       const found = findRow_(sh, sid);
@@ -1594,6 +1607,7 @@ function savePostGroup_(p) {
       pipeIds_(found.row[9]).forEach(x => edited[x] = true);
       if (found.row[7] && notes.indexOf(String(found.row[7])) < 0) notes.push(String(found.row[7]));
       if (found.row[8] && caps.indexOf(String(found.row[8])) < 0) caps.push(String(found.row[8]));
+      parsePreviews_(found.row[14]).forEach(u => { if (prevs.indexOf(u) < 0) prevs.push(u); });
       const pl = parsePlatforms_(found.row[6]);
       Object.keys(pl).forEach(k => {
         const q = pl[k]; if (!q || !q.on) return;
@@ -1618,6 +1632,7 @@ function savePostGroup_(p) {
     row[8] = caps.join('\n\n').slice(0, 1500);
     row[9] = Object.keys(edited).filter(x => keep[x]).join('|');
     row[13] = finalIds.join('|');
+    row[14] = JSON.stringify(prevs.slice(0, MAX_PREVIEWS));
     writeCreativeRow_(sh, target ? target.idx : 0, row);
 
     // a card lives in one combined task only: take these cards out of any other
