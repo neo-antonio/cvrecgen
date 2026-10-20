@@ -327,7 +327,6 @@ body.home-body{padding-top:0}
 .bal-grid>div{background:#f2f2f2;border-radius:8px;padding:8px 10px;min-width:0}
 .bal-grid span{display:block;font:600 10px Inter,system-ui,sans-serif;letter-spacing:.3px;text-transform:uppercase;color:var(--mut)}
 .bal-grid b{display:block;font:600 13px/1.3 Inter,system-ui,sans-serif;overflow-wrap:anywhere}
-.bal-grid em{font:600 9px Inter,system-ui,sans-serif;font-style:normal;letter-spacing:.3px;background:#e2e2e2;border-radius:4px;padding:1px 5px;margin-left:4px;vertical-align:1px}
 .bal-grid>div:last-child:nth-child(odd){grid-column:1/-1}
 .bal-sub{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0 0;padding:10px 14px;background:#e9e9e9;border-radius:10px}
 .bal-sub span{font:600 11px Inter,system-ui,sans-serif;letter-spacing:.5px;text-transform:uppercase}
@@ -1022,3 +1021,47 @@ html[data-theme=dark] .pf-bl{background:#3b1018;border-color:#7a2a38;color:#ff9a
 .tp-link svg{width:14px;height:14px;flex:none}
 .tp-link span{overflow:hidden;text-overflow:ellipsis}
 .tp-hint{margin:4px 0 0;font-size:11px;line-height:1.4;color:var(--mut)}
+
+/* ===== Motion: smooth click / open / close animations (all pages) ===== */
+@media(prefers-reduced-motion:no-preference){
+  /* page-to-page navigation: soft crossfade (supported browsers only) */
+  @view-transition{navigation:auto}
+  ::view-transition-old(root),::view-transition-new(root){animation-duration:.18s;animation-timing-function:ease}
+
+  /* press feedback on every tappable control */
+  .ghost,.go,.tab,.chip,.tile,.hs-card,.back,.icon-btn,.sb-menu,.sb a,.sb button,.cal-cell,.cal-item,.rs-item,.so-item,.tp-link,.ms-btn{
+    transition:transform .14s cubic-bezier(.2,.8,.2,1),background-color .18s ease,color .18s ease,border-color .18s ease,box-shadow .18s ease,opacity .18s ease}
+  .ghost:active:not(:disabled),.go:active:not(:disabled),.tab:active,.chip:active,.back:active,.icon-btn:active,.sb-menu:active,.ms-btn:active{transform:scale(.95)}
+  .tile:active,.hs-card:active,.sb a:active,.sb button:active,.cal-item:active,.rs-item:active,.so-item:active,.tp-link:active{transform:scale(.97)}
+  .cal-cell:not(.blank):active{transform:scale(.93)}
+
+  /* selected state changes (radios, checkboxes, inputs) */
+  .rad span,.port-chk span,.pay-chips *,input,select,textarea{transition:background-color .18s ease,color .18s ease,border-color .18s ease,box-shadow .18s ease}
+
+  /* modals and sheets: fade/rise in, fade/sink out */
+  .modal{transition:opacity .2s ease,display .2s allow-discrete}
+  .modal[hidden]{opacity:0;pointer-events:none}
+  .modal:not([hidden]){animation:mdFade .2s ease backwards}
+  .modal .sheet{transition:opacity .2s ease,transform .2s ease}
+  .modal[hidden] .sheet{opacity:0;transform:translateY(14px) scale(.97)}
+  .modal:not([hidden]) .sheet{animation:mdPop .28s cubic-bezier(.2,.8,.2,1) backwards}
+  @keyframes mdFade{from{opacity:0}}
+  @keyframes mdPop{from{opacity:0;transform:translateY(16px) scale(.96)}}
+
+  /* toasts */
+  .toast{transition:opacity .22s ease,transform .22s ease,display .22s allow-discrete}
+  .toast[hidden]{opacity:0;transform:translateX(-50%) translateY(10px);pointer-events:none}
+  .toast:not([hidden]){animation:toastIn .28s cubic-bezier(.2,.8,.2,1) backwards}
+  @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(14px)}}
+
+  /* tab panels, dropdowns, expanding lot rows, banners */
+  main>div[id^="panel"]:not([hidden]),.ms-panel:not([hidden]),.lot-members:not([hidden]),.ship-alert:not([hidden]),.img-link:not([hidden]),.pay-extra>*,#payExtra>*,.vlog-join:not([hidden]),.ent-active:not([hidden]){
+    animation:fadeUp .24s cubic-bezier(.2,.8,.2,1) backwards}
+  .ms-panel:not([hidden]){transform-origin:top center;animation-name:dropIn}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}}
+  @keyframes dropIn{from{opacity:0;transform:translateY(-6px) scale(.98)}}
+
+  /* calendar: selected day and day list */
+  .cal-cell.sel{transition:border-color .18s ease,box-shadow .18s ease,background-color .18s ease,transform .14s ease}
+  #dayList>*{animation:fadeUp .22s ease backwards}
+}

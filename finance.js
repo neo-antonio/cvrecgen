@@ -521,12 +521,14 @@ function computeBalance() {
   return out;
 }
 
-// Portfolio value is not typed in: cards that are on hand (status "onhand" only, not ones already sold and waiting
-// to ship), valued at purchase cost.
+// Portfolio value is not typed in: it is the cost value of every card that is "onhand" or "pending"
+// (pending = on a shipping task whose sale has not been paid yet, so it is still valued at purchase cost).
+// Cards that are shipping, sold or traded are excluded.
 let portValue = null;
+const PORT_VALUE_TAGS = ['onhand', 'pending'];
 const portValueOf = d => {
   const cards = Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || []);
-  return cards.filter(c => c.tag === 'onhand').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
+  return cards.filter(c => PORT_VALUE_TAGS.includes(c.tag)).reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
 };
 
 let lastAuto = null;
