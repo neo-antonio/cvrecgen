@@ -1443,7 +1443,7 @@ function getCreatives_() {
     if (id.indexOf('pc_') !== 0) return;
     const st = stored[id];
     const cards = st.cardIds.filter(x => byId[x]).map(x => cardObj(byId[x]));
-    if (!cards.length) return;   // every card was deleted
+    if (!cards.length && st.cardIds.length) return;   // every card was deleted (a task made without cards stays)
     posts.push(finish({ id, receiptKey: '', type: 'custom', custom: true, label: st.title || 'Post', date: st.date, cards }, st));
   });
   return { ok: true, videos: videos.reverse(), posts };
@@ -1565,10 +1565,12 @@ function deleteCreative_(id) {
 // A card belongs to at most one combined task: it is removed from any other one that held it.
 function savePostGroup_(p) {
   const finalIds = splitIds_(p.cardIds).filter((x, i, a) => a.indexOf(x) === i);
-  if (!finalIds.length) return { ok: false, error: 'pick at least one card' };
   if (p.date && !cleanDate_(p.date)) return { ok: false, error: 'invalid date' };
   const id = String(p.id || '').trim();
   if (id && !/^p[gc]_/.test(id)) return { ok: false, error: 'not a post task' };
+  // a brand-new task (no id, nothing merged) may have no cards; editing or merging still needs at least one
+  if (!finalIds.length && (id || splitIds_(p.mergeIds).length)) return { ok: false, error: 'pick at least one card' };
+  if (!finalIds.length && !String(p.title || '').trim()) return { ok: false, error: 'missing title' };
   const sources = id ? [id] : [];
   splitIds_(p.mergeIds).forEach(x => { if (/^p[gc]_/.test(x) && sources.indexOf(x) < 0) sources.push(x); });
   const lock = LockService.getScriptLock();

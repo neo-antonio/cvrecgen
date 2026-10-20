@@ -245,7 +245,7 @@ function cardRowHtml(g, c) {
 }
 function groupHtml(g) {
   const st = g.status, finished = st !== 'toedit';
-  const sub = [g.custom ? 'Combined task' : '', `${g.editedCount} of ${nPlC(g.cards.length, 'card')} edited`].filter(Boolean).join(' \u00b7 ');
+  const sub = [g.custom ? 'Combined task' : '', (g.cards.length ? `${g.editedCount} of ${nPlC(g.cards.length, 'card')} edited` : 'No cards')].filter(Boolean).join(' \u00b7 ');
   return `<div class="cr-card${finished ? ' done' : ''}" data-id="${escC(g.id)}">
       <div class="cr-top">
         <div class="cr-main"><b>${escC(g.label || 'Cards')}</b><span>${escC(sub)}</span></div>
@@ -258,8 +258,8 @@ function groupHtml(g) {
       ${g.notes ? `<p class="cr-notes"><small>Notes</small>${linkify(g.notes)}</p>` : ''}
       <div class="cr-acts">
         ${iconC('copy', 'p-copy', 'Copy caption', g.id)}
-        ${st === 'toedit' ? iconC('checks', 'ok p-all', 'Mark all edited', g.id) : ''}
-        ${st === 'edited' ? iconC('send', 'ok p-post', 'Mark posted', g.id) : ''}
+        ${st === 'toedit' && g.cards.length ? iconC('checks', 'ok p-all', 'Mark all edited', g.id) : ''}
+        ${st === 'edited' || (st === 'toedit' && !g.cards.length) ? iconC('send', 'ok p-post', 'Mark posted', g.id) : ''}
         ${st === 'posted' ? iconC('undo', 'p-unpost', 'Back to done', g.id) : ''}
         ${iconC('addcards', 'p-merge', 'Add / merge cards', g.id)}
         ${iconC('doc', 'p-edit', 'Details', g.id)}
@@ -319,7 +319,7 @@ $c('pList').addEventListener('click', async e => {
     return openLinks('post', g);
   }
   if (e.target.closest('.p-unpost')) {
-    g.status = 'edited'; renderPosts();
+    g.status = g.cards.length ? 'edited' : 'toedit'; renderPosts();
     save('saveCreative', { id: g.id, status: 'todo' });
     return;
   }
@@ -423,7 +423,7 @@ function pickerCards() {
 function renderPicker() {
   const q = $c('mSearch').value.trim().toLowerCase();
   const list = pickerCards().filter(c => !q || String(c.name || '').toLowerCase().includes(q));
-  $c('mCount').textContent = `(${mState.sel.size} selected)`;
+  $c('mCount').textContent = mState.sel.size ? `(${mState.sel.size} selected)` : (mState.id ? '(none selected)' : '(optional)');
   if (mState.loading) { $c('mCards').innerHTML = '<p class="stub-note" style="margin:6px 0">Loading on-hand cards\u2026</p>'; return; }
   $c('mCards').innerHTML = list.length ? list.map(c => {
     const img = c.photo ? `<img src="${escC(c.photo)}" alt="" loading="lazy">` : '<div class="port-noimg">No photo</div>';
@@ -479,14 +479,17 @@ $c('mCards').addEventListener('change', e => {
   const cb = e.target.closest('input[data-id]'); if (!cb || !mState) return;
   if (cb.checked) mState.sel.add(cb.dataset.id); else mState.sel.delete(cb.dataset.id);
   cb.closest('.m-row').classList.toggle('on', cb.checked);
-  $c('mCount').textContent = `(${mState.sel.size} selected)`;
+  $c('mCount').textContent = mState.sel.size ? `(${mState.sel.size} selected)` : (mState.id ? '(none selected)' : '(optional)');
 });
 $c('mSave').onclick = async () => {
   if (!mState) return;
   const cardIds = [...mState.sel];
-  if (!cardIds.length) return toast('Pick at least one card.');
+  // a brand-new task may have no cards at all; when editing or merging, at least one card must stay
+  if (!cardIds.length && (mState.id || mState.merge.size)) return toast('Pick at least one card.');
   const first = pickerCards().find(c => c.id === cardIds[0]);
-  const title = $c('mTitle').value.trim().replace(/\s+/g, ' ') || ('Post: ' + (first ? first.name : 'cards') + (cardIds.length > 1 ? ` +${cardIds.length - 1}` : ''));
+  const typed = $c('mTitle').value.trim().replace(/\s+/g, ' ');
+  if (!cardIds.length && !typed) return toast('Give the task a title.');
+  const title = typed || ('Post: ' + (first ? first.name : 'cards') + (cardIds.length > 1 ? ` +${cardIds.length - 1}` : ''));
   const btn = $c('mSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
   const res = await save('savePostGroup', { id: mState.id, title, date: $c('mDate').value || todayC(), cardIds: cardIds.join(','), mergeIds: [...mState.merge].join(',') });
   btn.disabled = false; btn.textContent = 'Save';
