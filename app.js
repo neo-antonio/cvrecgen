@@ -1040,6 +1040,7 @@ function render(d, logo) {
 }
 
 async function generate() {
+  refreshDateTime();   // untouched date/time = the moment of generating, not the moment the page was opened
   const d = collect();
   if (d.mode === 'transfer') {
     if (!(d.amount > 0)) return toast('Enter the amount transferred.');
@@ -1177,8 +1178,15 @@ $('#party').addEventListener('change', () => {
 });
 
 /* ---------- Init ---------- */
-$('#date').value = todayStr();
-$('#time').value = nowTimeStr();   // time the page was loaded; editable
+// Date and time default to "now", and stay editable. The installed app can sit open for hours, so the defaults are refreshed whenever the
+// page comes back to the front and again at the moment the receipt is generated, unless the date or time was changed by hand. Otherwise a
+// receipt keeps the time the page was opened, looks older than the last balance update, and is left out of the balance.
+let dtEdited = false;
+['#date', '#time'].forEach(s => $(s).addEventListener('input', () => { dtEdited = true; }));
+function refreshDateTime() { if (dtEdited) return; $('#date').value = todayStr(); $('#time').value = nowTimeStr(); }
+refreshDateTime();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshDateTime(); });
+window.addEventListener('pageshow', refreshDateTime);
 const qTask = new URLSearchParams(location.search).get('task');
 setMode(qTask ? 'sold' : 'purchase').then(() => { if (qTask && shipTasks.some(t => t.id === qTask)) { $('#shipTask').value = qTask; applyTask(qTask); } });
 resumeOutbox().catch(err => console.warn('Outbox resume failed', err));
