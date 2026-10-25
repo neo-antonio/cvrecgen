@@ -598,6 +598,40 @@ function taskImages_(row) {
   return list.slice(0, MAX_TASK_IMAGES);
 }
 
+// ONE-TIME REPAIR (run it by hand from the Apps Script editor: pick repairSafekeepSales > Run, then read View > Logs).
+// A safekeep card is sold and paid, so its sale must be an inflow in Finance. This adds the missing "sale" inflow for any safekeep card
+// that has none, in the same account the rest of its sale receipt was received in. A card whose account cannot be told is listed in the
+// log instead of guessed: add that one with "+ Add task" in Finance. Safe to run again: cards that already have a sale row are skipped.
+function repairSafekeepSales() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const cRows = cardsSheet_().getDataRange().getValues(); cRows.shift();
+    const fin = financeSheet_();
+    ensureFinanceColumns_(fin);
+    const fRows = fin.getDataRange().getValues(); fRows.shift();
+    const hasSale = {}, payOfReceipt = {};
+    fRows.forEach(r => {
+      if (String(r[2]) !== 'sale') return;
+      if (r[1]) hasSale[String(r[1])] = true;
+      const k = fileKey_(r[9]);
+      if (k && r[6] && !payOfReceipt[k]) payOfReceipt[k] = String(r[6]);
+    });
+    const rows = [], skipped = [];
+    cRows.forEach(c => {
+      if (!c[0] || String(c[9]) !== 'safekeep' || hasSale[String(c[0])]) return;
+      const price = Number(c[12]) || 0;
+      if (price <= 0) return;
+      const pay = payOfReceipt[fileKey_(c[22])];
+      if (!pay) { skipped.push(String(c[4]) + ' (' + price + ')'); return; }
+      rows.push([newId_('f'), c[0], 'sale', fmtDateCell_(c[10]) || todayStr_(), 'Sale: ' + (c[4] || '(unnamed item)'), price, pay, false, '', c[22] || '', 'inflow', '', 'Added by the safekeep repair']);
+    });
+    appendRows_(fin, rows);
+    Logger.log('Added ' + rows.length + ' sale inflow(s). Could not tell the account for: ' + (skipped.join('; ') || 'none'));
+    return { ok: true, added: rows.length, skipped };
+  } finally { lock.releaseLock(); }
+}
+
 // A standalone Finance task: no card, no receipt — nothing else in the sheet is touched.
 function addFinance_(p) {
   const description = String(p.description || '').trim().slice(0, 300);

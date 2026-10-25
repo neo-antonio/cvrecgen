@@ -664,6 +664,7 @@ function parsePR(t) {
   return null;
 }
 const prAll = () => finAll().map(parsePR).filter(Boolean);
+const prImages = id => { const loan = finAll().find(t => String(t.id) === String(id) + '01'); return loan ? (loan.images || []) : []; };
 function prTotals() {
   let pay = 0, rec = 0;
   prAll().forEach(r => { if (r.status === 'settled') return; const a = Number(r.amount) || 0; if (r.kind === 'payable') pay += a; else rec += a; });
@@ -697,6 +698,11 @@ const moneyTaskBody = (id, flow, amount, at, payMethod, title, notes) => ({
   flow, amount, date: at.slice(0, 10), time: at.slice(11, 16), payMethod
 });
 
+// the loan itself: an inflow (borrowed) or outflow (lent) in the chosen account, with the reference files. Posted as new, or as an update when it exists.
+const loanBody = (id, kind, who, amount, at, acct, notes, refs) => Object.assign(moneyTaskBody(id + '01', kind === 'payable' ? 'inflow' : 'outflow', amount, at, acct,
+  kind === 'payable' ? 'Borrowed from ' + who : 'Lent to ' + who, (kind === 'payable' ? 'Payable' : 'Receivable') + ' \u2014 ' + who + (notes ? '\n' + notes : '')),
+  { isNew: !findTask(id + '01'), images: refs });
+
 let prStatus = 'open', prKind = 'all';
 const $prList = $ts('prList'), $prState = $ts('prState'), $prCount = $ts('prCount');
 function prRowHtml(r) {
@@ -704,16 +710,19 @@ function prRowHtml(r) {
   const meta = [pay ? 'Payable' : 'Receivable', fmtStamp(r.at), done ? 'Settled' : 'Open'].join(' \u00b7 ');
   const lines = [];
   if (r.acct) lines.push(pay ? 'Borrowed into ' + r.acct : 'Borrowed from ' + r.acct);
+  else lines.push('Not in the balance or Archive yet \u2014 tap edit and choose an account.');
   if (done) lines.push((pay ? 'Paid from ' : 'Received into ') + (r.setAcct || '\u2014') + ' \u00b7 ' + fmtStamp(r.setAt));
   if (done && r.setNote) lines.push(r.setNote);
   if (r.notes) lines.push(r.notes);
   const detail = lines.length ? `<div class="fin-cl">${lines.map(l => `<div class="fin-plain">${escFin(l)}</div>`).join('')}</div>` : '';
+  const imgs = prImages(r.id);   // reference files live on the loan task, so they show here and in the Archive
+  const thumbs = imgs.length ? `<div class="fin-thumbs">${imgs.map((im, i) => `<button type="button" class="fin-thumb" data-id="${r.id}01" data-i="${i}" aria-label="View reference ${i + 1}"><img src="${escFin(im.thumb)}" alt="" loading="lazy"></button>`).join('')}</div>` : '';
   const main = done
     ? `<button type="button" class="ghost sm pr-reopen" data-id="${r.id}">Reopen</button>`
     : `<button type="button" class="go sm pr-settle" data-id="${r.id}">${pay ? 'Mark paid' : 'Mark received'}</button>`;
   const acts = finIcon('pencil', 'pr-edit', 'Edit', r.id) + finIcon('trash', 'pr-del danger', 'Delete', r.id);
   return `<div class="fin-item fin-line nochk${done ? ' pr-done' : ''}" data-id="${r.id}">
-      <div class="port-info"><b>${escFin(r.who)}</b><span>${escFin(meta)}</span>${detail}<div class="pr-main">${main}</div></div>
+      <div class="port-info"><b>${escFin(r.who)}</b><span>${escFin(meta)}</span>${detail}${thumbs}<div class="pr-main">${main}</div></div>
       <div class="fin-right">
         <div class="fin-amt ${pay ? 'amt-out' : 'amt-in'}">${pay ? '\u2212' : ''}${finPhp(r.amount)}</div>
         <div class="fin-line-acts">${acts}</div>
@@ -759,13 +768,18 @@ function openPR(id) {
   pe = { id: rec ? rec.id : 'f_' + newBaseId(), isNew: !rec, rec };
   $ts('prHeading').textContent = rec ? 'Edit ' + rec.kind : 'Add payable / receivable';
   $ts('prHint').hidden = !rec;
+  $ts('prHint').textContent = rec && !rec.acct ? 'This record is not in your balance or Archive yet. Choose the account the money went through and save to book it. Who, notes and reference files can be edited.'
+    : 'Who, notes and reference files can be edited. Type, amount, date and account stay as recorded \u2014 delete and re-add to change them.';
+  pri = rec ? prImages(rec.id).map(im => ({ kind: 'keep', src: im.raw, thumb: im.thumb })) : [];
+  priClose(); priRender();
   document.querySelector(`input[name=prKind][value=${rec ? rec.kind : 'payable'}]`).checked = true;
   $ts('prWho').value = rec ? rec.who : '';
   $ts('prAmt').value = rec ? rec.amount : '';
   $ts('prAt').value = prLocal(rec && rec.at);
-  acctWrite('prAcct', 'prAcctOther', rec ? rec.acct : '');
+  acctWrite('prAcct', 'prAcctOther', rec ? (rec.acct || 'Cash') : 'Cash');
   $ts('prNotes').value = rec ? (rec.notes || '') : '';
-  ['prAmt', 'prAt', 'prAcct', 'prAcctOther'].forEach(k => $ts(k).disabled = !!rec);
+  ['prAmt', 'prAt'].forEach(k => $ts(k).disabled = !!rec);
+  ['prAcct', 'prAcctOther'].forEach(k => $ts(k).disabled = !!(rec && rec.acct));
   document.querySelectorAll('input[name=prKind]').forEach(r => r.disabled = !!rec);
   $ts('prSave').textContent = rec ? 'Save changes' : 'Add';
   syncPrKind();
@@ -788,9 +802,12 @@ $ts('prSave').onclick = async () => {
     const kind = prKindVal(), acct = acctRead('prAcct', 'prAcctOther');
     rec = { v: 1, kind, who, amount, at, notes, acct, status: 'open' };
     extra = { flow: 'none', amount: 0, date: at.slice(0, 10), time: at.slice(11, 16), payMethod: '' };
-    if (acct) loan = moneyTaskBody(pe.id + '01', kind === 'payable' ? 'inflow' : 'outflow', amount, at, acct,
-      kind === 'payable' ? 'Borrowed from ' + who : 'Lent to ' + who, (kind === 'payable' ? 'Payable' : 'Receivable') + ' \u2014 ' + who + (notes ? '\n' + notes : ''));
-  } else rec = Object.assign({}, pe.rec, { who, notes });
+    loan = loanBody(pe.id, kind, who, amount, at, acct, notes, priBody());   // always booked: the money moves the chosen account and shows in the Archive
+  } else {
+    const acct = pe.rec.acct || acctRead('prAcct', 'prAcctOther');   // a record made before accounts were required can be given one now
+    rec = Object.assign({}, pe.rec, { who, notes, acct });
+    loan = loanBody(pe.id, rec.kind, who, rec.amount, rec.at, acct, notes, priBody());
+  }
   btn.disabled = true; btn.textContent = 'Saving\u2026';
   try {
     let ok = await postFinance(recBody(pe.id, wasNew, rec, extra));
@@ -800,6 +817,61 @@ $ts('prSave').onclick = async () => {
   } catch (err) { toast('Could not save: ' + err.message); }
   btn.disabled = false; btn.textContent = wasNew ? 'Add' : 'Save changes';
 };
+
+/* reference files for a payable / receivable: upload, an archived receipt, or a pasted link (same item shapes as the task editor) */
+let pri = [];
+const priRoom = () => MAX_IMG - pri.length;
+const priBody = () => pri.map(im => im.kind === 'receipt' ? { kind: 'receipt', receiptId: im.receiptId } : { kind: im.kind, src: im.src });
+function priClose() { $ts('prImgLinkField').hidden = true; $ts('prImgLinkInput').value = ''; $ts('prRsList').hidden = true; $ts('prRsList').innerHTML = ''; }
+function priRender() {
+  $ts('prImgGrid').innerHTML = pri.map((im, i) => `<div class="img-tile"><img src="${escFin(im.thumb)}" alt=""><button type="button" class="img-x" data-i="${i}" aria-label="Remove image">&times;</button></div>`).join('');
+  $ts('prImgCount').textContent = `${pri.length}/${MAX_IMG}`;
+  $ts('prImgAdd').hidden = priRoom() <= 0;
+  if (priRoom() <= 0) priClose();
+}
+$ts('prImgGrid').addEventListener('click', e => { const x = e.target.closest('.img-x'); if (!x) return; pri.splice(+x.dataset.i, 1); priRender(); });
+$ts('prImgUpload').onclick = () => $ts('prFileUpload').click();
+$ts('prFileUpload').addEventListener('change', async e => {
+  const files = Array.from(e.target.files || []); e.target.value = '';
+  if (!files.length) return;
+  const take = files.slice(0, Math.max(0, priRoom()));
+  if (files.length > take.length) toast(`Only ${MAX_IMG} files per record \u2014 extra files skipped.`);
+  for (const f of take) {
+    try { const src = await shrinkImage(f); pri.push({ kind: 'upload', src, thumb: src }); }
+    catch (_) { toast('Could not read one of the images.'); }
+  }
+  priRender();
+});
+$ts('prImgLink').onclick = () => { $ts('prRsList').hidden = true; $ts('prImgLinkField').hidden = false; $ts('prImgLinkInput').focus(); };
+$ts('prImgLinkUse').onclick = () => {
+  const url = $ts('prImgLinkInput').value.trim();
+  if (!/^https?:\/\//i.test(url)) return toast('Paste a full address starting with http.');
+  if (priRoom() <= 0) return;
+  pri.push({ kind: 'link', src: url, thumb: url });
+  $ts('prImgLinkInput').value = ''; $ts('prImgLinkField').hidden = true;
+  priRender();
+};
+$ts('prImgExisting').onclick = async () => {
+  const list = $ts('prRsList');
+  $ts('prImgLinkField').hidden = true;
+  list.hidden = false; list.innerHTML = '<p class="stub-note" style="margin:6px 0">Loading receipts\u2026</p>';
+  try {
+    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=receipts&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    if (!data.ok) throw new Error(data.error || 'Request failed');
+    const rs = (data.receipts || []).slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    list.innerHTML = rs.length ? rs.map(r => `<button type="button" class="rs-item" data-rid="${escFin(r.id)}" data-thumb="${escFin(r.url)}">
+        <img src="${escFin(r.url)}" alt="" loading="lazy">
+        <div><b>${escFin(r.description || 'Receipt')}</b><span>${fmtDay(r.date)}</span></div></button>`).join('')
+      : '<p class="stub-note" style="margin:6px 0">No receipts archived yet.</p>';
+  } catch (err) { list.innerHTML = `<p class="stub-note" style="margin:6px 0">Couldn't load receipts.</p>`; }
+};
+$ts('prRsList').addEventListener('click', e => {
+  const item = e.target.closest('.rs-item');
+  if (!item || priRoom() <= 0) return;
+  if (pri.some(im => im.kind === 'receipt' && im.receiptId === item.dataset.rid)) return toast('That receipt is already added.');
+  pri.push({ kind: 'receipt', receiptId: item.dataset.rid, thumb: item.dataset.thumb });
+  priClose(); priRender();
+});
 
 /* mark paid / received */
 let se = null;
@@ -839,6 +911,7 @@ $ts('prSetSave').onclick = async () => {
 
 /* list actions: settle, reopen, edit, delete */
 $prList.addEventListener('click', async e => {
+  const th = e.target.closest('.fin-thumb'); if (th) return openImgView(th.dataset.id, +th.dataset.i);
   const s = e.target.closest('.pr-settle'); if (s) return openSettle(s.dataset.id);
   const ed2 = e.target.closest('.pr-edit'); if (ed2) return openPR(ed2.dataset.id);
   const reopen = e.target.closest('.pr-reopen');
