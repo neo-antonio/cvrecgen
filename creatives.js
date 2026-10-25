@@ -213,7 +213,11 @@ $c('vList').addEventListener('change', e => {
   if (e.target.classList.contains('v-tick')) {
     setVStatus(v, e.target.checked ? 'done' : 'todo');
   } else if (e.target.classList.contains('v-date')) {
-    v.date = e.target.value; save('saveCreative', { id: v.id, date: v.date }); toast('Rescheduled.');
+    const nd = e.target.value, prev = v.date;
+    if (!nd) { e.target.value = prev || ''; return toast('Pick a date to reschedule.'); }   // a cleared field would blank the date
+    if (nd === prev) return;
+    v.date = nd; renderVideo();   // re-sort so the task moves to its new spot
+    save('saveCreative', { id: v.id, date: nd }).then(res => { if (res) toast('Rescheduled to ' + fmtDayC(nd) + '.'); });
   }
 });
 $c('vList').addEventListener('click', async e => {
@@ -317,8 +321,11 @@ function refreshGroup(g) {
 $c('pList').addEventListener('change', e => {
   if (!e.target.classList.contains('p-date')) return;
   const g = findP(e.target.closest('.cr-card').dataset.id); if (!g) return;
-  g.scheduled = e.target.value;
-  save('saveCreative', { id: g.id, date: g.scheduled }); toast('Rescheduled.');
+  const nd = e.target.value;
+  if (!nd) { e.target.value = g.scheduled || ''; return toast('Pick a date to reschedule.'); }
+  if (nd === g.scheduled) return;
+  g.scheduled = nd; renderPosts();
+  save('saveCreative', { id: g.id, date: nd }).then(res => { if (res) toast('Rescheduled to ' + fmtDayC(nd) + '.'); });
 });
 $c('pList').addEventListener('click', async e => {
   const zoom = e.target.closest('.cr-zoom');
