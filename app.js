@@ -85,6 +85,9 @@ function taskEntries(t) {
   });
   return out;
 }
+// "Safekeep" in the shipping method and the "Hold for safekeep" box are one choice: each sets the other
+let lastMethod = 'LBC';
+function fixSafekeepMethod() { const m = $('#method'); if (m.value === 'Safekeep' && !$('#safekeep').checked) m.value = lastMethod; }
 function setMethodUI(v) {
   v = String(v || '').trim();
   const known = ['LBC', 'Lalamove', 'Grab', 'Meet-up'].includes(v);
@@ -100,6 +103,7 @@ function applyTask(id) {
   $('#taskHint').hidden = !t;
   const sk = $('#safekeep'); sk.disabled = !!(t && t.shipped); if (sk.disabled) sk.checked = false;   // already shipped before its receipt: cannot be held for safekeep
   $('#safekeepNote').hidden = !sk.disabled;
+  fixSafekeepMethod();
   if (prev && !t) {   // back to a plain sale: take out what the task had filled in
     if ($('#shipAddr').value.trim() === prev.address) $('#shipAddr').value = '';
     if ($('#shipContact').value.trim() === prev.contact) $('#shipContact').value = '';
@@ -570,7 +574,7 @@ async function setMode(m) {
   $('#items').innerHTML = ''; $('#tradedItems').innerHTML = ''; $('#receivedItems').innerHTML = '';
   itemSeq = 0;
   linkedTask = null; $('#soldPicker').style.display = ''; $('#taskHint').hidden = true;
-  $('#safekeep').checked = false; $('#safekeep').disabled = false; $('#safekeepNote').hidden = true;
+  $('#safekeep').checked = false; $('#safekeep').disabled = false; $('#safekeepNote').hidden = true; fixSafekeepMethod();
   lots = {}; $('#payExtra').innerHTML = ''; $('#payAmt').value = '';
   if (m === 'sold' || m === 'trade') {
     const loading = '<p class="stub-note">Loading onhand cards\u2026</p>';
@@ -630,6 +634,19 @@ function update() {
 ['#ship', '#pack', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod', '#trFrom', '#trTo', '#trAmt', '#trFee', '#payAmt'].forEach(s => $(s).addEventListener('input', update));
 $$('input[name=st]').forEach(r => r.addEventListener('change', update));
 $('#safekeep').addEventListener('change', update);
+$('#method').addEventListener('input', () => {
+  const sk = $('#safekeep'), m = $('#method');
+  if (m.value === 'Safekeep') {
+    if (sk.disabled) m.value = lastMethod;            // already shipped before its receipt: cannot be held for safekeep
+    else sk.checked = true;
+  } else { lastMethod = m.value; if (sk.checked && !sk.disabled) sk.checked = false; }
+  update();
+});
+$('#safekeep').addEventListener('change', () => {
+  const m = $('#method');
+  if ($('#safekeep').checked) m.value = 'Safekeep'; else if (m.value === 'Safekeep') m.value = lastMethod;
+  update();
+});
 $$('input[name=cashDir]').forEach(r => r.addEventListener('change', update));
 
 $('#sched').addEventListener('click', e => { if (!e.target.value) { e.target.value = todayStr(); try { e.target.showPicker(); } catch (_) {} } });
@@ -1076,7 +1093,7 @@ function resetAfterCardReceipt(d) {
     $('#items').innerHTML = ''; refreshPicker('sold');
     $('#payExtra').innerHTML = ''; $('#payAmt').value = '';   // split amounts belonged to that sale's total
     $('#pack').value = ''; $('#shipAddr').value = ''; $('#shipContact').value = '';   // per-sale fields: never carry one buyer's over to the next sale
-    $('#safekeep').checked = false;
+    $('#safekeep').checked = false; fixSafekeepMethod();
     if (d.shipTaskId) {   // the task now has its receipt: drop it from the list and clear what it had filled in
       shipTasks = shipTasks.filter(t => t.id !== d.shipTaskId);
       linkedTask = null; $('#soldPicker').style.display = ''; $('#taskHint').hidden = true;

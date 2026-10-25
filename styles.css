@@ -1216,7 +1216,6 @@ html[data-theme=dark] .tile:hover,html[data-theme=dark] .hs-card:hover{box-shado
 input[type=checkbox]:checked{animation:m-pop .3s var(--spring)}
 .mg-item.on,.m-row.on,.cc-row.changed,.fin-line.fin-picked,.cr-pc.edited{transition:background-color .3s var(--ease),border-color .3s var(--ease)}
 .cr-card{transition:opacity .35s var(--ease),border-color .22s}
-.cal-cell.today .cal-num{animation:m-ring 1.8s ease-out .8s 2}
 .lot-chev{transition:transform .3s var(--ease),margin .3s var(--ease)}
 .sb-pin svg{transition:transform .35s var(--spring)}
 

@@ -105,7 +105,7 @@ function lotHtml(g) {
     ? `<div class="port-cost">${php(m.sale)}</div><span class="cm-tgt">${tgtLine(m)}</span>${m.priced ? statusChip(m.status, m.range) : ''}${chip(m)}`
     : `<div class="port-cost">${m.priced ? rangeTxt(m.tLo, m.tHi) : '<span class="cm-tgt">No target</span>'}</div>${m.priced ? '<span class="cm-tgt">Target</span>' + chip(m) : ''}`;
   const acts = icon('target', 'cm-lot-target', 'Set lot target price', g.id)
-    + (sold || pend ? '' : icon('pencil', 'cm-lot-rename', 'Rename lot', g.id) + icon('plus', 'cm-lot-add', 'Add cards to lot', g.id) + icon('unlink', 'cm-lot-ungroup', 'Ungroup lot', g.id));
+    + (sold ? '' : (pend ? '' : icon('pencil', 'cm-lot-rename', 'Rename lot', g.id)) + icon('plus', 'cm-lot-add', 'Add cards to lot', g.id) + (pend ? '' : icon('unlink', 'cm-lot-ungroup', 'Ungroup lot', g.id)));
   return `<div class="port-card lot-group" data-lot="${esc(g.id)}">
       <div class="port-card-main lot-head" data-lot="${esc(g.id)}">
         <div class="port-thumb">${first ? `<img src="${esc(first.photo)}" alt="" loading="lazy">` : '<div class="port-noimg">No photo</div>'}</div>
@@ -120,7 +120,7 @@ function lotHtml(g) {
 function render() {
   const sold = tab === 'sold';
   $('cmFilters').hidden = !sold;
-  $('cmNewLot').hidden = sold || tab === 'pending';
+  $('cmNewLot').hidden = sold;
   $('cmLabel').textContent = sold ? 'Total profit' : tab === 'pending' ? 'Pending target value' : 'Target value';
   let list = data.cards.filter(c => c.tag === tab);   // tab is onhand, pending or sold: the same names as the card tags
   if (query) list = list.filter(c => String(c.name || '').toLowerCase().includes(query) || String(c.lotName || '').toLowerCase().includes(query));
@@ -250,12 +250,22 @@ $('tgtClear').onclick = () => saveTargets(true);
 
 /* ---------- lots: create, add cards, remove a card, rename, ungroup ---------- */
 let lotAddId = null, lotCreate = false; const lotAddSel = new Set();
+const LOT_OK = c => c.tag === 'onhand' || c.tag === 'pending';   // cards that can be grouped: onhand and pending
 function lotAddRender() {
   const q = $('lotAddSearch').value.trim().toLowerCase();
-  const cand = data.cards.filter(c => c.tag === 'onhand' && !c.lotId && (!q || String(c.name || '').toLowerCase().includes(q)));
+  const seen = new Set();   // a card is listed once, never twice
+  const cand = data.cards.filter(c => {
+    const id = String(c.id);
+    if (seen.has(id) || !LOT_OK(c)) return false;
+    if (lotCreate ? c.lotId : (c.lotId && String(c.lotId) === String(lotAddId))) return false;   // new lot: loose cards only; existing lot: skip cards already in it
+    if (q && !String(c.name || '').toLowerCase().includes(q) && !String(c.lotName || '').toLowerCase().includes(q)) return false;
+    seen.add(id); return true;
+  }).sort((a, b) => (a.lotId ? 1 : 0) - (b.lotId ? 1 : 0));   // loose cards first, then cards from other lots
+  const note = document.querySelector('#lotAddSheet .stub-note');
+  if (note) note.textContent = lotCreate ? 'Onhand and pending cards that are not in a lot yet.' : 'Onhand and pending cards. Cards already in another lot are moved into this one.';
   $('lotAddList').innerHTML = cand.length
-    ? cand.map(c => `<label class="chk"><input type="checkbox" value="${esc(c.id)}"${lotAddSel.has(String(c.id)) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${esc(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${esc(c.name)} <small>\u2014 bought ${php(c.purchaseCost)}</small></span></label>`).join('')
-    : '<p class="stub-note" style="margin:10px 0 4px">No loose onhand cards to add.</p>';
+    ? cand.map(c => `<label class="chk"><input type="checkbox" value="${esc(c.id)}"${lotAddSel.has(String(c.id)) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${esc(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${esc(c.name)} <small>\u2014 bought ${php(c.purchaseCost)}${c.tag === 'pending' ? ' \u00b7 Pending' : ''}${c.lotId ? ' \u00b7 in lot \u201c' + esc(c.lotName || 'Lot') + '\u201d' : ''}</small></span></label>`).join('')
+    : '<p class="stub-note" style="margin:10px 0 4px">No onhand or pending cards available to add.</p>';
   const n = lotAddSel.size;
   $('lotAddSave').textContent = lotCreate ? (n ? `Create lot of ${n}` : 'Create lot') : (n ? `Add ${n} card${n > 1 ? 's' : ''}` : 'Add to lot');
 }
@@ -272,9 +282,10 @@ $('lotAddList').addEventListener('change', e => { if (e.target.matches('input[ty
 $('lotAddCancel').onclick = closeLotSheet;
 $('cmNewLot').onclick = () => openLotSheet(true);
 $('lotAddSave').onclick = async () => {
-  const ids = [...lotAddSel], btn = $('lotAddSave');
+  const okIds = new Set(data.cards.filter(c => LOT_OK(c) && (lotCreate ? !c.lotId : !(c.lotId && String(c.lotId) === String(lotAddId)))).map(c => String(c.id)));
+  const ids = [...new Set([...lotAddSel].map(String))].filter(x => okIds.has(x)), btn = $('lotAddSave');   // unique, still valid, not already in this lot
   if (lotCreate && ids.length < 2) return toast('Pick at least two cards for a lot.');
-  if (!ids.length) return toast('Pick at least one card.');
+  if (!ids.length) return toast(lotCreate ? 'Pick at least one card.' : 'Pick at least one card that is not already in this lot.');
   let id = lotAddId, name;
   if (lotCreate) { id = 'lot_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); name = $('lotAddName').value.trim() || `Lot of ${ids.length} cards`; }
   else name = (allLotCards(id)[0] || {}).lotName || '';

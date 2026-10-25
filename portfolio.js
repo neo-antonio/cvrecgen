@@ -282,12 +282,22 @@ async function lotBatches(action, ids, extra) {   // keep each request URL short
   for (let i = 0; i < ids.length; i += 25) await lotCall(action, Object.assign({ cardIds: ids.slice(i, i + 25).join(',') }, extra || {}));
 }
 let lotAddId = null, lotCreate = false; const lotAddSel = new Set();
+const LOT_OK = c => c.tag === 'onhand' || c.tag === 'pending';   // cards that can be grouped: onhand and pending
 function lotAddRender() {
   const q = document.getElementById('lotAddSearch').value.trim().toLowerCase();
-  const cand = portData.cards.filter(c => c.tag === 'onhand' && !c.lotId && (!q || String(c.name || '').toLowerCase().includes(q)));
+  const seen = new Set();   // a card is listed once, never twice
+  const cand = portData.cards.filter(c => {
+    const id = String(c.id);
+    if (seen.has(id) || !LOT_OK(c)) return false;
+    if (lotCreate ? c.lotId : (c.lotId && String(c.lotId) === String(lotAddId))) return false;   // new lot: loose cards only; existing lot: skip cards already in it
+    if (q && !String(c.name || '').toLowerCase().includes(q) && !String(c.lotName || '').toLowerCase().includes(q)) return false;
+    seen.add(id); return true;
+  }).sort((a, b) => (a.lotId ? 1 : 0) - (b.lotId ? 1 : 0));   // loose cards first, then cards from other lots
+  const note = document.querySelector('#lotAddSheet .stub-note');
+  if (note) note.textContent = lotCreate ? 'Onhand and pending cards that are not in a lot yet.' : 'Onhand and pending cards. Cards already in another lot are moved into this one.';
   document.getElementById('lotAddList').innerHTML = cand.length
-    ? cand.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${lotAddSel.has(String(c.id)) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${escHtml(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${escHtml(c.name)} <small>\u2014 bought ${portPhp(c.purchaseCost)}</small></span></label>`).join('')
-    : '<p class="stub-note" style="margin:10px 0 4px">No loose onhand cards to add.</p>';
+    ? cand.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${lotAddSel.has(String(c.id)) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${escHtml(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${escHtml(c.name)} <small>\u2014 bought ${portPhp(c.purchaseCost)}${c.tag === 'pending' ? ' \u00b7 Pending' : ''}${c.lotId ? ' \u00b7 in lot \u201c' + escHtml(c.lotName || 'Lot') + '\u201d' : ''}</small></span></label>`).join('')
+    : '<p class="stub-note" style="margin:10px 0 4px">No onhand or pending cards available to add.</p>';
   const n = lotAddSel.size;
   document.getElementById('lotAddSave').textContent = lotCreate ? (n ? `Create lot of ${n}` : 'Create lot') : (n ? `Add ${n} card${n > 1 ? 's' : ''}` : 'Add to lot');
 }
@@ -306,7 +316,9 @@ document.getElementById('lotAddCancel').onclick = closeLotAdd;
 document.getElementById('lotAddSave').onclick = async () => {
   if (lotCreate && lotAddSel.size < 2) return toast('Pick at least two cards for a lot.');
   if (!lotAddSel.size) return toast('Pick at least one card.');
-  const ids = [...lotAddSel], btn = document.getElementById('lotAddSave');
+  const okIds = new Set(portData.cards.filter(c => LOT_OK(c) && (lotCreate ? !c.lotId : !(c.lotId && String(c.lotId) === String(lotAddId)))).map(c => String(c.id)));
+  const ids = [...new Set([...lotAddSel].map(String))].filter(x => okIds.has(x)), btn = document.getElementById('lotAddSave');   // unique, still valid, not already in this lot
+  if (!ids.length) return toast('Those cards are already in this lot.');
   const id = lotCreate ? 'lot_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) : lotAddId;
   const name = lotCreate ? (document.getElementById('lotAddName').value.trim() || `Lot of ${ids.length} cards`) : ((allLotCards(id)[0] || {}).lotName || '');
   btn.disabled = true;
