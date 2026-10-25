@@ -40,6 +40,8 @@
 .hs-row:first-child{border-top:0}
 .hs-row b{font:600 17px Inter,system-ui,sans-serif;text-align:right;white-space:nowrap}
 .hs-total b{font-size:20px}
+.hs-fin b.hs-neg{color:#c0392b}
+.hs-hide .hs-fin b.hs-neg{color:inherit}
 .hs-btns{display:flex;gap:8px;flex:none}
 .hs-eye{width:40px;padding:0;display:flex;align-items:center;justify-content:center}
 .hs-eye svg{width:20px;height:20px}
@@ -112,6 +114,8 @@ html[data-theme=dark] .wg-bar,html[data-theme=dark] .wg-badge{background:#2a2a2c
     <div class="hs-row"><span class="hs-l">Spendable money</span><b id="sumSpend">&hellip;</b></div>
     <div class="hs-row"><span class="hs-l">Portfolio value</span><b id="sumPort">&hellip;</b></div>
     <div class="hs-row"><span class="hs-l">Cash reserves</span><b id="sumRes">&hellip;</b></div>
+    <div class="hs-row"><span class="hs-l">Receivables</span><b id="sumRec">&hellip;</b></div>
+    <div class="hs-row"><span class="hs-l">Payables</span><b id="sumPay">&hellip;</b></div>
     <div class="hs-row hs-total"><span class="hs-l">Total business value</span><b id="sumTotal">&hellip;</b></div>
   </a>
   <div class="wg-sec" id="wgSec" hidden>
@@ -353,6 +357,18 @@ document.getElementById('chartsTile').addEventListener('click', e => {
     return out;
   }
 
+  // payables / receivables: Finance tasks (no cash effect) whose notes carry this marker + JSON record, same as the Finance page
+  const PR_MARK = '[[PR1]]';
+  const prTotals = fin => {
+    let pay = 0, rec = 0;
+    ((fin && fin.toRecord) || []).concat((fin && fin.recorded) || []).forEach(t => {
+      const n = String((t && t.notes) || '');
+      if (n.indexOf(PR_MARK) !== 0) return;
+      try { const o = JSON.parse(n.slice(PR_MARK.length)); if (!o || o.status === 'settled') return; const a = Number(o.amount) || 0; if (o.kind === 'payable') pay += a; else if (o.kind === 'receivable') rec += a; } catch (_) {}
+    });
+    return { pay: r2(pay), rec: r2(rec) };
+  };
+
   const S = { ship: null, cr: null, ev: null, bal: null, fin: null, port: null, cm: null, acct: null, freshFin: false, cfg: normInterest(null) };
   const cg = k => { try { return typeof cacheGet === 'function' ? cacheGet(k) : null; } catch (_) { return null; } };
   const cs = (k, v) => { try { if (typeof cacheSet === 'function') cacheSet(k, v); } catch (_) {} };
@@ -395,13 +411,19 @@ document.getElementById('chartsTile').addEventListener('click', e => {
       }
       $('subEvents').innerHTML = html;
     }
+    const pr = prTotals(S.fin);
+    if (S.fin) {
+      set('sumRec', php(pr.rec));
+      set('sumPay', pr.pay ? '\u2212' + php(pr.pay) : php(0));
+      $('sumPay').classList.toggle('hs-neg', pr.pay > 0);
+    }
     const c = computeBalance(S.bal, S.fin, S.cfg);
     S.acct = c;
     if (c) {
       const liquid = c.cash + c.maribank, port = S.port ? S.port.filter(x => x.tag === 'onhand' || x.tag === 'pending').reduce((a, x) => a + (Number(x.purchaseCost) || 0), 0) : 0;
       set('sumSpend', php(liquid));
       set('sumRes', php(c.reserves));
-      set('sumTotal', S.port ? php(liquid + c.reserves + port + c.others) : '\u2014');
+      set('sumTotal', S.port ? php(liquid + c.reserves + port + c.others + pr.rec - pr.pay) : '\u2014');
     } else if (S.bal === null && S.fin) {
       ['sumSpend', 'sumRes', 'sumTotal'].forEach(id => set(id, '\u2014'));
     }

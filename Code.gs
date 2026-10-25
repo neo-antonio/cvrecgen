@@ -240,6 +240,7 @@ function handleSell_(body) {
   // A shipping task made before this receipt (customer about to pay / paid at shipping) is linked by its batch ID: its cards keep
   // that batch, and cards that already shipped stay shipped.
   const taskId = String(body.shippingTaskId || '').trim();
+  const holdKeep = body.safekeep === true || body.safekeep === 'true';   // paid, but the cards stay with us for the buyer: status safekeep, no shipping task
   const data = cards.getDataRange().getValues();
   const linked = !!taskId && data.slice(1).some(r => String(r[23]) === taskId && pendingSale_(r));
   const batchId = linked ? taskId : newId_('b');
@@ -260,14 +261,15 @@ function handleSell_(body) {
     // Every sale — shipped or not — goes into the "shipping" queue so it shows up under To ship.
     const was = data[found.idx - 1], keep = linked && was[9] === 'shipped' && String(was[23]) === taskId;   // already shipped before its receipt: stays shipped
     if (keep && !shippedCard) shippedCard = String(it.cardId);
-    cards.getRange(found.idx, 10, 1, 1).setValue(keep ? 'shipped' : 'shipping'); // Status (col J)
+    const safe = holdKeep && !keep;   // a card that already shipped cannot be held back
+    cards.getRange(found.idx, 10, 1, 1).setValue(keep ? 'shipped' : safe ? 'safekeep' : 'shipping'); // Status (col J)
     cards.getRange(found.idx, 11, 1, 8).setValues([[           // SoldDate..ShippingScheduledDate (cols K-R)
       body.date || '', buyer, Number(it.cost) || 0,
       body.shipType || '', body.shipMethod || '', noShip ? 0 : perFee,
-      body.shipDeductFrom || '', body.shipSched || ''
+      body.shipDeductFrom || '', safe ? '' : (body.shipSched || '')   // a safekeep card has no schedule until it gets its own shipping task
     ]]);
     cards.getRange(found.idx, 23, 1, 1).setValue(receiptUrl); // SaleReceiptURL (col W)
-    cards.getRange(found.idx, 24, 1, 2).setValues([[batchId, address]]); // ShipBatchID, ShippingAddress (cols X-Y)
+    cards.getRange(found.idx, 24, 1, 2).setValues([[safe ? '' : batchId, address]]); // ShipBatchID (blank for safekeep: not on a task), ShippingAddress (cols X-Y)
     cards.getRange(found.idx, 27, 1, 2).setNumberFormat('@').setValues([[contact, saleNotes]]); // ShippingContact, SaleNotes (cols AA-AB); text format keeps a leading 0
     finRows.push([newId_('f'), it.cardId, 'sale', body.date || '', 'Sale: ' + (it.name || '(unnamed item)'), Number(it.cost) || 0, body.pay || '', false, '', receiptUrl, 'inflow']);
   });
@@ -291,7 +293,7 @@ function handleSell_(body) {
   appendRows_(fin, finOut);
   let creatives = 0;
   if (body.vlog) { try { addVlog_(body, 'Sale to ' + (buyer || '\u2014'), body.date || todayStr_(), receiptUrl); creatives = 1; } catch (err) {} }
-  return { ok: true, receipt: receiptSaved, cards: moved, finance: finOut.length, creatives, linked };
+  return { ok: true, receipt: receiptSaved, cards: moved, finance: finOut.length, creatives, linked, safekeep: holdKeep };
 }
 
 // Proof of shipment for one card, or (cardIds) for every card of a grouped shipping task.
@@ -1048,9 +1050,10 @@ function cancelShipping_(cardIds) {
   } finally { lock.releaseLock(); }
 }
 
-// Safekeep: a card that is sold and paid but stays with us for the buyer. Only paid cards still waiting to ship can be moved there (a pending task
-// is not paid; shipped cards are gone). The card keeps buyer, price and sale receipt; it leaves its shipping task (batch and schedule are cleared),
-// so the rest of that task can ship and have its shipping Finance entry made without waiting for it.
+// Safekeep: a card that is sold and paid but stays with us for the buyer. Works on paid cards still waiting to ship AND on sold (shipped) cards;
+// a pending task is not paid, so it is refused. The card keeps buyer, price and sale receipt but leaves its shipping task: batch, schedule and, for a
+// sold card, the shipped date/time/by are cleared. A shipping Finance entry that covered it is removed and, if other cards of that task are still
+// shipped, made again for them alone, so the rest of the task is not left without its entry.
 function setSafekeep_(cardIds) {
   const ids = splitIds_(cardIds);
   if (!ids.length) return { ok: false, error: 'missing cardId' };
@@ -1060,13 +1063,34 @@ function setSafekeep_(cardIds) {
     const cards = cardsSheet_(), data = cards.getDataRange().getValues(), rowOf = {};
     for (let r = 1; r < data.length; r++) if (data[r][0] !== '') rowOf[String(data[r][0])] = r + 1;
     if (ids.some(id => !rowOf[id])) return { ok: false, error: 'not found' };
-    if (ids.some(id => { const r = data[rowOf[id] - 1]; return r[9] !== 'shipping' || pendingSale_(r); })) return { ok: false, error: 'only paid cards still waiting to ship can be moved to safekeep' };
+    const rowFor = id => data[rowOf[id] - 1];
+    if (ids.some(id => { const r = rowFor(id); return (r[9] !== 'shipping' && r[9] !== 'shipped') || pendingSale_(r); })) return { ok: false, error: 'only paid cards (waiting to ship or sold) can be moved to safekeep' };
+    ensureCardsColumns_(cards);
+    const moved = {}, oldBatches = {}, finKeys = [];
     ids.forEach(id => {
-      const idx = rowOf[id];
-      cards.getRange(idx, 10, 1, 1).setValue('safekeep');   // Status (col J)
-      cards.getRange(idx, 18, 1, 1).setValue('');           // ShippingScheduledDate (col R)
-      cards.getRange(idx, 24, 1, 1).setValue('');           // ShipBatchID (col X)
+      const r = rowFor(id), idx = rowOf[id];
+      moved[id] = true;
+      if (r[9] === 'shipped') { finKeys.push(r[23] || r[0]); finKeys.push(r[0]); }
+      if (r[23]) oldBatches[String(r[23])] = true;
+      cards.getRange(idx, 10, 1, 1).setValue('safekeep');          // Status (col J)
+      cards.getRange(idx, 18, 1, 2).setValues([['', '']]);       // ShippingScheduledDate, ShippedDate (cols R-S)
+      cards.getRange(idx, 21, 1, 1).setValue(false);               // ShippingRecorded (col U)
+      cards.getRange(idx, 24, 1, 1).setValue('');                  // ShipBatchID (col X)
+      cards.getRange(idx, 26, 1, 1).setNumberFormat('@').setValue('');   // ShippedTime (col Z)
+      cards.getRange(idx, 31, 1, 1).setValue('');                  // ShippedBy (col AE)
     });
+    if (finKeys.length) {
+      const fin = financeSheet_();
+      findShippingFinance_(fin, finKeys).map(f => f.idx).sort((x, y) => y - x).forEach(i => fin.deleteRow(i));
+      // the cards that stayed in those tasks and are all shipped still need their (now smaller) shipping entry
+      Object.keys(oldBatches).forEach(b => {
+        const left = data.slice(1).filter(r => String(r[23]) === b && !moved[String(r[0])]);
+        if (left.length && left.every(r => r[9] === 'shipped')) {
+          const last = left.slice().sort((x, y) => fmtDateCell_(y[18]) < fmtDateCell_(x[18]) ? -1 : 1)[0];
+          maybeCreateBatchFinance_(b, fmtDateCell_(last[18]), fmtTimeCell_(last[25]));
+        }
+      });
+    }
     return { ok: true, updated: ids.length };
   } finally { lock.releaseLock(); }
 }

@@ -118,6 +118,12 @@
   <div class="sum" id="subRow" data-only="purchase sold" hidden><span>Item subtotal</span><b id="subVal">PHP 0.00</b></div>
 
   <div class="field" data-only="sold" hidden>
+    <label class="port-chk"><input type="checkbox" id="safekeep"><span>Hold for safekeep <small>(paid, the cards stay with us for the buyer)</small></span></label>
+    <p class="stub-note" style="margin:0;font-size:12px">Goes to Safekeep in Portfolio instead of To ship, and still counts as sold in Commercial. Give it its own shipping task later from Shipping. Method, address and contact are kept for then.</p>
+    <p class="stub-note" id="safekeepNote" style="margin:6px 0 0;font-size:12px" hidden>This task already shipped before its receipt, so it cannot be held for safekeep.</p>
+  </div>
+
+  <div class="field" data-only="sold" hidden>
     <label for="method">Shipping method</label>
     <select id="method">
       <option>LBC</option><option>Lalamove</option><option>Grab</option><option>Meet-up</option><option>Others</option>

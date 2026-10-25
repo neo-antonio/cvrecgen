@@ -176,7 +176,7 @@ function renderArchive() {
   document.getElementById('finAdd').hidden = arcType === 'interest';
   document.getElementById('finSearchWrap').hidden = arcType === 'interest';   // interest rows are not tasks
   if (arcType === 'interest') return renderInterest(lo, hi);
-  const all = finAll();
+  const all = finAll().filter(t => !parsePR(t));   // payable / receivable records live in their own tab
   let items = all;
   if (lo || hi) items = items.filter(t => { const d = String(t.date || '').slice(0, 10); return d && (!lo || d >= lo) && (!hi || d <= hi); });
   const q = $finSearch.value.trim().toLowerCase();
@@ -197,7 +197,7 @@ function renderArchive() {
   $finList.innerHTML = groups.map(groupHtml).join('');
   $finState.hidden = true; $finList.hidden = false;
 }
-const renderTab = renderArchive;
+const renderTab = () => { renderArchive(); renderPR(); };
 
 let finFirst = true;
 async function loadFinance() {
@@ -225,6 +225,7 @@ function setFinTab(name) {
   document.querySelectorAll('.tab[data-ftab]').forEach(x => x.classList.toggle('active', x.dataset.ftab === name));
   finTab = name;
   document.getElementById('panelBalance').hidden = name !== 'balance';
+  document.getElementById('panelPR').hidden = name !== 'pr';
   document.getElementById('panelArchive').hidden = name !== 'archive';
 }
 document.querySelectorAll('.tab[data-ftab]').forEach(t => t.onclick = () => setFinTab(t.dataset.ftab));
@@ -431,7 +432,7 @@ $ts('taskSave').onclick = async () => {
     try { localStorage.setItem('cv:finRebase:' + String((window.CVAuth && CVAuth.user()) || '').trim().toLowerCase(), '1'); } catch (_) {}
     if (confirmed) { toast(wasNew ? 'Task added.' : 'Task updated.'); await loadFinance(); }
     else { toast('Sent \u2014 refreshing in a moment\u2026'); await new Promise(r => setTimeout(r, 3000)); await loadFinance(); }
-    if (wasNew) setFinTab('torecord');
+    if (wasNew) setFinTab('archive');
   } catch (err) {
     toast('Could not save: ' + err.message);
   }
@@ -540,12 +541,16 @@ function renderBalance() {
   set('balPort', portValue != null ? finNum(portValue) : '\u2014');
   set('balRes', c ? finNum(c.reserves) : '\u2014');
   set('balOth', c ? finNum(c.others) : '\u2014');
+  const pr = prTotals();
+  set('balRec', finNum(pr.rec));
+  set('balPay', pr.pay ? '\u2212' + finNum(pr.pay) : finNum(0));
+  document.getElementById('balPay').classList.toggle('neg', pr.pay > 0);
   document.getElementById('balSub').hidden = !c;
   document.getElementById('balTotal').hidden = !c;
   if (c) {
     const liquid = c.cash + c.maribank;
     set('balSubVal', finPhp(liquid));
-    set('balTotalVal', finPhp(liquid + c.reserves + (+portValue || 0) + c.others));
+    set('balTotalVal', finPhp(liquid + c.reserves + (+portValue || 0) + c.others + pr.rec - pr.pay));   // receivables count in, payables come off
   }
   const auto = document.getElementById('balAuto');
   const bits = c ? [c.inSum ? `+${finPhp(c.inSum)} in` : '', c.outSum ? `\u2212${finPhp(c.outSum)} out` : '', c.interest ? `+${finPhp(c.interest)} interest (after ${interestCfg.tax}% tax)` : ''].filter(Boolean) : [];
@@ -554,7 +559,7 @@ function renderBalance() {
   document.getElementById('balNote').hidden = !(b && b.note);
   if (b && b.note) document.getElementById('balNote').textContent = b.note;
   if (arcType === 'interest') renderArchive();
-  set('balMeta', b ? 'Starting point set ' + fmtStamp(b.updatedAt) + ' \u00b7 updates automatically from tasks and interest \u00b7 Portfolio is pulled live' : 'Not set yet \u2014 tap Update to enter what each account holds. Tasks and interest are added on top from then on.');
+  set('balMeta', b ? 'Starting point set ' + fmtStamp(b.updatedAt) + ' \u00b7 updates automatically from tasks and interest \u00b7 Portfolio is pulled live \u00b7 Total includes receivables less payables' : 'Not set yet \u2014 tap Update to enter what each account holds. Tasks and interest are added on top from then on.');
 }
 let portFirstFin = true;
 async function loadPortValue() {
@@ -643,6 +648,224 @@ $i('intSave').onclick = async () => {
     toast('Interest settings saved.');
   } catch (err) { toast('Saved on this device only: ' + err.message); }
 };
+
+
+/* ---------- Payables & receivables ----------
+   Stored as Finance tasks with no cash effect (flow "none") whose notes hold a marker + JSON record, so they sync like everything
+   else and need no backend change. The money itself is real tasks: the account picked when the record is made books an
+   inflow (payable: you borrowed, it came in) or outflow (receivable: you lent, it went out); marking it paid / received books
+   the opposite. Those tasks land in the Archive and in the balance through the normal maths. Task IDs derive from the record ID
+   (...01 = loan, ...02 = settlement) so a blind retry can never double-book. */
+const PR_MARK = '[[PR1]]';
+function parsePR(t) {
+  const n = String((t && t.notes) || '');
+  if (n.indexOf(PR_MARK) !== 0) return null;
+  try { const o = JSON.parse(n.slice(PR_MARK.length)); if (o && (o.kind === 'payable' || o.kind === 'receivable')) return Object.assign(o, { id: t.id }); } catch (_) {}
+  return null;
+}
+const prAll = () => finAll().map(parsePR).filter(Boolean);
+function prTotals() {
+  let pay = 0, rec = 0;
+  prAll().forEach(r => { if (r.status === 'settled') return; const a = Number(r.amount) || 0; if (r.kind === 'payable') pay += a; else rec += a; });
+  return { pay: Math.round(pay * 100) / 100, rec: Math.round(rec * 100) / 100 };
+}
+const PR_ACCTS = ['Cash', 'Maribank', 'Cash reserves'];
+const newBaseId = () => Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, '0')).join('');
+const prLocal = stamp => String(stamp || nowStamp()).replace(' ', 'T').slice(0, 16);     // 'YYYY-MM-DD HH:mm' -> datetime-local value
+const prStamp = local => String(local || '').replace('T', ' ').slice(0, 16);             // and back
+const markRebase = () => { try { localStorage.setItem('cv:finRebase:' + String((window.CVAuth && CVAuth.user()) || '').trim().toLowerCase(), '1'); } catch (_) {} };
+function acctRead(selId, otherId) { const v = $ts(selId).value; return v === 'Others' ? ($ts(otherId).value.trim() || 'Others') : v; }
+function acctWrite(selId, otherId, value) {
+  const std = !value || PR_ACCTS.includes(value);
+  $ts(selId).value = std ? (value || '') : 'Others';
+  $ts(otherId).value = std || value === 'Others' ? '' : value;
+  $ts(otherId).hidden = $ts(selId).value !== 'Others';
+}
+async function delFinance(id) {
+  const data = await jsonp(CONFIG.portfolio.endpoint + '?action=deleteFinance&financeId=' + encodeURIComponent(id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+  if (!data.ok) throw new Error(data.error || 'Request failed');
+}
+// a save whose answer could not be read: give the backend a moment before reloading
+async function settleWait(confirmed) { if (!confirmed) { toast('Sent \u2014 refreshing in a moment\u2026'); await new Promise(r => setTimeout(r, 3000)); } }
+const recBody = (id, isNew, rec, extra) => Object.assign({
+  action: 'saveFinance', secret: CONFIG.portfolio.secret, financeId: id, isNew, images: [],
+  title: (rec.kind === 'payable' ? 'Payable' : 'Receivable') + ' \u2014 ' + rec.who,
+  notes: PR_MARK + JSON.stringify(Object.fromEntries(Object.entries(rec).filter(([k]) => k !== 'id')))
+}, extra || {});
+const moneyTaskBody = (id, flow, amount, at, payMethod, title, notes) => ({
+  action: 'saveFinance', secret: CONFIG.portfolio.secret, financeId: id, isNew: true, images: [], title, notes: notes || '',
+  flow, amount, date: at.slice(0, 10), time: at.slice(11, 16), payMethod
+});
+
+let prStatus = 'open', prKind = 'all';
+const $prList = $ts('prList'), $prState = $ts('prState'), $prCount = $ts('prCount');
+function prRowHtml(r) {
+  const pay = r.kind === 'payable', done = r.status === 'settled';
+  const meta = [pay ? 'Payable' : 'Receivable', fmtStamp(r.at), done ? 'Settled' : 'Open'].join(' \u00b7 ');
+  const lines = [];
+  if (r.acct) lines.push(pay ? 'Borrowed into ' + r.acct : 'Borrowed from ' + r.acct);
+  if (done) lines.push((pay ? 'Paid from ' : 'Received into ') + (r.setAcct || '\u2014') + ' \u00b7 ' + fmtStamp(r.setAt));
+  if (done && r.setNote) lines.push(r.setNote);
+  if (r.notes) lines.push(r.notes);
+  const detail = lines.length ? `<div class="fin-cl">${lines.map(l => `<div class="fin-plain">${escFin(l)}</div>`).join('')}</div>` : '';
+  const main = done
+    ? `<button type="button" class="ghost sm pr-reopen" data-id="${r.id}">Reopen</button>`
+    : `<button type="button" class="go sm pr-settle" data-id="${r.id}">${pay ? 'Mark paid' : 'Mark received'}</button>`;
+  const acts = finIcon('pencil', 'pr-edit', 'Edit', r.id) + finIcon('trash', 'pr-del danger', 'Delete', r.id);
+  return `<div class="fin-item fin-line nochk${done ? ' pr-done' : ''}" data-id="${r.id}">
+      <div class="port-info"><b>${escFin(r.who)}</b><span>${escFin(meta)}</span>${detail}<div class="pr-main">${main}</div></div>
+      <div class="fin-right">
+        <div class="fin-amt ${pay ? 'amt-out' : 'amt-in'}">${pay ? '\u2212' : ''}${finPhp(r.amount)}</div>
+        <div class="fin-line-acts">${acts}</div>
+      </div>
+    </div>`;
+}
+function renderPR() {
+  const all = prAll(), t = prTotals();
+  let list = all.filter(r => (prStatus === 'all' || (prStatus === 'settled') === (r.status === 'settled')) && (prKind === 'all' || r.kind === prKind));
+  list.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  $prCount.textContent = all.length ? `Open: receivables ${finPhp(t.rec)} \u00b7 payables \u2212${finPhp(t.pay)}` : '';
+  if (!list.length) {
+    $prState.textContent = !all.length ? 'Nothing yet. Tap \u201c+ Add payable / receivable\u201d.' : 'Nothing in this view.';
+    $prState.hidden = false; $prList.hidden = true;
+    return;
+  }
+  $prList.innerHTML = `<section class="fin-group">${list.map(prRowHtml).join('')}</section>`;
+  $prState.hidden = true; $prList.hidden = false;
+}
+function syncPrChips() {
+  document.querySelectorAll('#prStatus .chip').forEach(x => x.classList.toggle('active', x.dataset.s === prStatus));
+  document.querySelectorAll('#prKinds .chip').forEach(x => x.classList.toggle('active', x.dataset.k === prKind));
+}
+$ts('prStatus').addEventListener('click', e => { const c = e.target.closest('.chip'); if (!c) return; prStatus = c.dataset.s; syncPrChips(); renderPR(); });
+$ts('prKinds').addEventListener('click', e => { const c = e.target.closest('.chip'); if (!c) return; prKind = c.dataset.k; syncPrChips(); renderPR(); });
+$ts('balRecBtn').onclick = () => { prKind = 'receivable'; prStatus = 'open'; syncPrChips(); setFinTab('pr'); renderPR(); };
+$ts('balPayBtn').onclick = () => { prKind = 'payable'; prStatus = 'open'; syncPrChips(); setFinTab('pr'); renderPR(); };
+
+/* add / edit */
+let pe = { id: null, isNew: true, rec: null };
+const prKindVal = () => document.querySelector('input[name=prKind]:checked').value;
+function syncPrKind() {
+  const pay = prKindVal() === 'payable';
+  $ts('prAcctLbl').textContent = pay ? 'Borrowed into (your account)' : 'Borrowed from (your account)';
+  $ts('prAcctHint').textContent = pay
+    ? 'The account the borrowed money went into. It is added to that balance now, and the payable offsets it.'
+    : 'The account the money was taken from. It is deducted from that balance now, and the receivable offsets it.';
+}
+document.querySelectorAll('input[name=prKind]').forEach(r => r.addEventListener('change', syncPrKind));
+$ts('prAcct').addEventListener('change', () => { $ts('prAcctOther').hidden = $ts('prAcct').value !== 'Others'; });
+function openPR(id) {
+  const rec = id ? prAll().find(r => String(r.id) === String(id)) : null;
+  pe = { id: rec ? rec.id : 'f_' + newBaseId(), isNew: !rec, rec };
+  $ts('prHeading').textContent = rec ? 'Edit ' + rec.kind : 'Add payable / receivable';
+  $ts('prHint').hidden = !rec;
+  document.querySelector(`input[name=prKind][value=${rec ? rec.kind : 'payable'}]`).checked = true;
+  $ts('prWho').value = rec ? rec.who : '';
+  $ts('prAmt').value = rec ? rec.amount : '';
+  $ts('prAt').value = prLocal(rec && rec.at);
+  acctWrite('prAcct', 'prAcctOther', rec ? rec.acct : '');
+  $ts('prNotes').value = rec ? (rec.notes || '') : '';
+  ['prAmt', 'prAt', 'prAcct', 'prAcctOther'].forEach(k => $ts(k).disabled = !!rec);
+  document.querySelectorAll('input[name=prKind]').forEach(r => r.disabled = !!rec);
+  $ts('prSave').textContent = rec ? 'Save changes' : 'Add';
+  syncPrKind();
+  $ts('prSheet').hidden = false;
+  if (!rec) $ts('prWho').focus();
+}
+const closePR = () => $ts('prSheet').hidden = true;
+$ts('prAdd').onclick = () => openPR(null);
+$ts('prCancel').onclick = closePR;
+$ts('prSheet').addEventListener('click', e => { if (e.target.id === 'prSheet') closePR(); });
+$ts('prSave').onclick = async () => {
+  if (!CONFIG.portfolio.endpoint) return toast("Sync isn't set up yet.");
+  const who = $ts('prWho').value.trim(), notes = $ts('prNotes').value.trim().slice(0, 1000);   // the backend keeps 2000 characters of notes in total, and the record's details share them
+  if (!who) return toast('Add who it is with.');
+  const btn = $ts('prSave'), wasNew = pe.isNew;
+  let rec, extra = null, loan = null;
+  if (wasNew) {
+    const amount = Math.round(parseFloat($ts('prAmt').value) * 100) / 100, at = prStamp($ts('prAt').value) || nowStamp();
+    if (!isFinite(amount) || amount <= 0) return toast('Enter an amount above zero.');
+    const kind = prKindVal(), acct = acctRead('prAcct', 'prAcctOther');
+    rec = { v: 1, kind, who, amount, at, notes, acct, status: 'open' };
+    extra = { flow: 'none', amount: 0, date: at.slice(0, 10), time: at.slice(11, 16), payMethod: '' };
+    if (acct) loan = moneyTaskBody(pe.id + '01', kind === 'payable' ? 'inflow' : 'outflow', amount, at, acct,
+      kind === 'payable' ? 'Borrowed from ' + who : 'Lent to ' + who, (kind === 'payable' ? 'Payable' : 'Receivable') + ' \u2014 ' + who + (notes ? '\n' + notes : ''));
+  } else rec = Object.assign({}, pe.rec, { who, notes });
+  btn.disabled = true; btn.textContent = 'Saving\u2026';
+  try {
+    let ok = await postFinance(recBody(pe.id, wasNew, rec, extra));
+    if (loan) ok = (await postFinance(loan)) && ok;
+    closePR(); markRebase(); await settleWait(ok); await loadFinance();
+    toast(wasNew ? 'Saved.' : 'Updated.');
+  } catch (err) { toast('Could not save: ' + err.message); }
+  btn.disabled = false; btn.textContent = wasNew ? 'Add' : 'Save changes';
+};
+
+/* mark paid / received */
+let se = null;
+$ts('prSetAcct').addEventListener('change', () => { $ts('prSetOther').hidden = $ts('prSetAcct').value !== 'Others'; });
+function openSettle(id) {
+  const rec = prAll().find(r => String(r.id) === String(id));
+  if (!rec) return;
+  se = rec;
+  const pay = rec.kind === 'payable';
+  $ts('prSetHeading').textContent = pay ? 'Mark as paid' : 'Mark as received';
+  $ts('prSetInfo').textContent = `${rec.who} \u00b7 ${pay ? '\u2212' : ''}${finPhp(rec.amount)}`;
+  $ts('prSetAcctLbl').textContent = pay ? 'Paid from (your account)' : 'Received into (your account)';
+  acctWrite('prSetAcct', 'prSetOther', rec.acct || 'Cash');
+  $ts('prSetAt').value = prLocal();
+  $ts('prSetNote').value = '';
+  $ts('prSettle').hidden = false;
+}
+const closeSettle = () => $ts('prSettle').hidden = true;
+$ts('prSetCancel').onclick = closeSettle;
+$ts('prSettle').addEventListener('click', e => { if (e.target.id === 'prSettle') closeSettle(); });
+$ts('prSetSave').onclick = async () => {
+  if (!se || !CONFIG.portfolio.endpoint) return toast("Sync isn't set up yet.");
+  const pay = se.kind === 'payable', acct = acctRead('prSetAcct', 'prSetOther'), at = prStamp($ts('prSetAt').value) || nowStamp(), note = $ts('prSetNote').value.trim();
+  if (!acct) return toast('Choose an account.');
+  const btn = $ts('prSetSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
+  try {
+    const payTask = moneyTaskBody(se.id + '02', pay ? 'outflow' : 'inflow', Number(se.amount), at, acct,
+      pay ? 'Paid ' + se.who : 'Received from ' + se.who, (pay ? 'Payable' : 'Receivable') + ' settled' + (note ? '\n' + note : ''));
+    let ok = await postFinance(payTask);
+    const rec = Object.assign({}, se, { status: 'settled', setAcct: acct, setAt: at, setNote: note });
+    ok = (await postFinance(recBody(se.id, false, rec))) && ok;
+    closeSettle(); markRebase(); await settleWait(ok); await loadFinance();
+    toast(pay ? 'Marked as paid.' : 'Marked as received.');
+  } catch (err) { toast('Could not save: ' + err.message); }
+  btn.disabled = false; btn.textContent = 'Confirm';
+};
+
+/* list actions: settle, reopen, edit, delete */
+$prList.addEventListener('click', async e => {
+  const s = e.target.closest('.pr-settle'); if (s) return openSettle(s.dataset.id);
+  const ed2 = e.target.closest('.pr-edit'); if (ed2) return openPR(ed2.dataset.id);
+  const reopen = e.target.closest('.pr-reopen');
+  if (reopen) {
+    const rec = prAll().find(r => String(r.id) === String(reopen.dataset.id)); if (!rec) return;
+    if (!confirm('Reopen this record? The payment entry it created is removed from the balance.')) return;
+    reopen.disabled = true;
+    try {
+      try { await delFinance(rec.id + '02'); } catch (_) {}    // already gone is fine
+      const next = Object.assign({}, rec, { status: 'open' }); ['setAcct', 'setAt', 'setNote'].forEach(k => delete next[k]);
+      const ok = await postFinance(recBody(rec.id, false, next));
+      markRebase(); await settleWait(ok); await loadFinance(); toast('Reopened.');
+    } catch (err) { reopen.disabled = false; toast('Could not reopen: ' + err.message); }
+    return;
+  }
+  const del = e.target.closest('.pr-del');
+  if (del) {
+    const rec = prAll().find(r => String(r.id) === String(del.dataset.id)); if (!rec) return;
+    if (!confirm('Delete this record? The balance entries it created (the loan and any payment) are deleted too.')) return;
+    del.disabled = true;
+    try {
+      await delFinance(rec.id);
+      for (const suffix of ['01', '02']) { try { await delFinance(rec.id + suffix); } catch (_) {} }
+      markRebase(); await loadFinance(); toast('Deleted.');
+    } catch (err) { del.disabled = false; toast('Could not delete: ' + err.message); }
+  }
+});
 
 // Refresh reloads both the task list and the balance (your ticks are kept)
 const refreshAll = () => { loadFinance(); loadBalance(); loadPortValue(); };

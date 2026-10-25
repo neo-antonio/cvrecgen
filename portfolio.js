@@ -21,7 +21,7 @@ const isOwned = it => it.tag === 'onhand' || it.tag === 'shipping' || it.tag ===
 // "shipped" no longer exists as a separate state: once shipped, a card is sold (older Code.gs / cached copies still send "shipped")
 const normPort = d => ({ cards: (Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || [])).map(c => c.tag === 'shipped' ? Object.assign({}, c, { tag: 'sold' }) : c) });
 
-const TAG_LABEL = { onhand: 'Onhand', pending: 'Pending', shipping: 'Shipping', safekeep: 'Safekeep', shipped: 'Shipped', sold: 'Sold', traded: 'Traded' };
+const TAG_LABEL = { onhand: 'Onhand', pending: 'Pending', shipping: 'Shipping', shipped: 'Shipped', sold: 'Sold', safekeep: 'Safekeep', traded: 'Traded' };
 
 function toast(m) {
   const t = document.getElementById('portToast'); t.textContent = m; t.hidden = false;
@@ -79,7 +79,7 @@ function cardHtml(it, inLot) {
   const photoBtn = icon('camera', 'port-photo', it.photo ? 'Change photo' : 'Add photo', it.id);
   const receiptBtn = rcpts.length ? icon('doc', 'port-receipt', rcpts.length > 1 ? 'Receipts' : 'Receipt', it.id) : '';
   const revertBtn = (it.tag === 'shipping' || it.tag === 'pending' || it.tag === 'safekeep' || it.tag === 'shipped' || it.tag === 'traded') ? icon('undo', 'port-revert', 'Revert to onhand', it.id) : '';
-  const safeBtn = it.tag === 'shipping' ? icon('box', 'port-safekeep', 'Move to safekeep (paid, kept for the buyer)', it.id) : '';   // paid and waiting to ship only; pending tasks are not paid
+  const safeBtn = (it.tag === 'shipping' || it.tag === 'sold') ? icon('box', 'port-safekeep', 'Move to safekeep (paid, kept for the buyer)', it.id) : '';   // paid cards only (waiting to ship, or sold); pending tasks are not paid
   const unlotBtn = inLot ? icon('unlink', 'port-unlot', 'Remove from lot', it.id) : '';
   const deleteBtn = icon('trash', 'port-delete danger', 'Delete card', it.id);
   return `<div class="port-card" data-id="${it.id}">
@@ -240,7 +240,8 @@ $portList.addEventListener('click', async e => {
 
   const safeBtn = e.target.closest('.port-safekeep');
   if (safeBtn) {
-    if (!confirm('Move this card to safekeep? It is already paid and stays with you for the buyer. It leaves its shipping task; you can give it its own shipping task later from Shipping.')) return;
+    const sc = findCard(safeBtn.dataset.id), wasSold = sc && sc.tag === 'sold';
+    if (!confirm('Move this card to safekeep? It is already paid and stays with you for the buyer. ' + (wasSold ? 'Its shipped date is cleared and it is taken out of its shipping record. ' : 'It leaves its shipping task. ') + 'You can give it its own shipping task later from Shipping.')) return;
     safeBtn.disabled = true;
     try {
       const url = CONFIG.portfolio.endpoint + '?action=setSafekeep&cardIds=' + encodeURIComponent(safeBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);

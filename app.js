@@ -98,6 +98,8 @@ function applyTask(id) {
   $('#items').innerHTML = '';
   $('#soldPicker').style.display = t ? 'none' : '';
   $('#taskHint').hidden = !t;
+  const sk = $('#safekeep'); sk.disabled = !!(t && t.shipped); if (sk.disabled) sk.checked = false;   // already shipped before its receipt: cannot be held for safekeep
+  $('#safekeepNote').hidden = !sk.disabled;
   if (prev && !t) {   // back to a plain sale: take out what the task had filled in
     if ($('#shipAddr').value.trim() === prev.address) $('#shipAddr').value = '';
     if ($('#shipContact').value.trim() === prev.contact) $('#shipContact').value = '';
@@ -568,6 +570,7 @@ async function setMode(m) {
   $('#items').innerHTML = ''; $('#tradedItems').innerHTML = ''; $('#receivedItems').innerHTML = '';
   itemSeq = 0;
   linkedTask = null; $('#soldPicker').style.display = ''; $('#taskHint').hidden = true;
+  $('#safekeep').checked = false; $('#safekeep').disabled = false; $('#safekeepNote').hidden = true;
   lots = {}; $('#payExtra').innerHTML = ''; $('#payAmt').value = '';
   if (m === 'sold' || m === 'trade') {
     const loading = '<p class="stub-note">Loading onhand cards\u2026</p>';
@@ -603,6 +606,7 @@ function update() {
     $('#deductRow').hidden = true;
   }
   $('#ship').disabled = mode === 'sold' && shipType() === 'none';
+  if (mode === 'sold') $('#sched').closest('.field').hidden = $('#safekeep').checked;   // a safekeep card has no schedule yet
   updatePayUI();
 
   if (mode === 'trade') {
@@ -625,6 +629,7 @@ function update() {
 }
 ['#ship', '#pack', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod', '#trFrom', '#trTo', '#trAmt', '#trFee', '#payAmt'].forEach(s => $(s).addEventListener('input', update));
 $$('input[name=st]').forEach(r => r.addEventListener('change', update));
+$('#safekeep').addEventListener('change', update);
 $$('input[name=cashDir]').forEach(r => r.addEventListener('change', update));
 
 $('#sched').addEventListener('click', e => { if (!e.target.value) { e.target.value = todayStr(); try { e.target.showPicker(); } catch (_) {} } });
@@ -648,7 +653,8 @@ function collect() {
     total: grandTotal(),
     method: $('#method').value === 'Others' ? ($('#methodOther').value.trim() || 'Others') : $('#method').value,
     shipTaskId: mode === 'sold' && linkedTask ? linkedTask.id : '',
-    shipType: t, sched: $('#sched').value, shipAddr: mode === 'sold' ? $('#shipAddr').value.trim() : '',
+    safekeep: mode === 'sold' && $('#safekeep').checked && !$('#safekeep').disabled,   // paid, but the cards stay with us for the buyer
+    shipType: t, sched: mode === 'sold' && $('#safekeep').checked ? '' : $('#sched').value, shipAddr: mode === 'sold' ? $('#shipAddr').value.trim() : '',
     shipContact: mode === 'sold' ? $('#shipContact').value.trim() : '',
     deduct: $('#deduct').value === 'Others' ? ($('#deductOther').value.trim() || 'Others') : $('#deduct').value,
     notes: $('#notes').value.trim(),
@@ -793,6 +799,7 @@ function draw(x, d, s, dry, logo) {
       row('Shipping method', d.method);
       row('Shipping', d.shipType === 'none' ? 'No shipping (PHP 0.00)' : `${php(d.ship)} (${SHIP_LABEL[d.shipType]})`);
       if (d.shipType === 'us') row('Shipping deducted from', d.deduct);
+      if (d.safekeep) row('Status', 'Paid \u00b7 held for safekeep');
     } else row('Shipping', php(d.ship));
 
     y += 6 * s; rule(y, G); y += 24 * s;
@@ -839,7 +846,7 @@ function saleBody(d, receiptPhoto) {
   const sold = d.items.filter(i => i.cardId);
   if (!sold.length) return null;
   return { action: 'sell', date: d.date, time: d.time, buyer: d.party, notes: d.notes, pay: d.pay,
-    shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched,
+    shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched, safekeep: d.safekeep,
     shippingTaskId: d.shipTaskId, shipAddress: d.shipAddr, shipContact: d.shipContact, packaging: d.pack, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
     items: sold.map(i => lotFields({ cardId: i.cardId, name: i.name, cost: i.cost }, i)), ...(d.payments.length > 1 ? { payments: d.payments } : {}), receiptPhoto };
 }
@@ -926,8 +933,8 @@ function plannedSteps(d) {
   const k = d.mode === 'purchase' ? d.items.length : d.mode === 'sold' ? d.items.filter(i => i.cardId).length : 0;
   const st = [{ st: 'ok', t: 'Receipt image created' }, { st: 'run', t: 'Uploading to server\u2026' }, { st: 'wait', t: 'Saving receipt to archive' }];
   if (d.mode === 'transfer') st.push({ st: 'wait', t: `Creating ${d.fee > 0 ? 3 : 2} finance tasks` });
-  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio and Commercial` }); st.push({ st: 'wait', t: `Creating ${nPl(k + (d.ship > 0 ? 1 : 0), 'finance task')}` }); }
-  else if (d.mode === 'sold') st.push({ st: 'wait', t: d.shipTaskId ? `Linking ${nPl(k, 'card')} to the shipping task` : `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
+  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: 'wait', t: `Adding ${nPl(k, 'card')} to portfolio` }); st.push({ st: 'wait', t: `Creating ${nPl(k + (d.ship > 0 ? 1 : 0), 'finance task')}` }); }
+  else if (d.mode === 'sold') st.push({ st: 'wait', t: d.safekeep ? `Moving ${nPl(k, 'card')} to Safekeep` : d.shipTaskId ? `Linking ${nPl(k, 'card')} to the shipping task` : `Moving ${nPl(k, 'card')} to Shipping` }, { st: 'wait', t: 'Creating finance tasks' });
   else { if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio)) st.push({ st: 'wait', t: 'Updating portfolio' }); st.push({ st: 'wait', t: 'Creating finance task' }); }
   if (d.vlog) st.push({ st: 'wait', t: d.vlogTaskId ? 'Adding to existing vlog task' : 'Adding vlog task to Creatives' });
   return st;
@@ -937,8 +944,8 @@ function resultSteps(d, r) {
     r.receipt ? { st: 'ok', t: 'Receipt saved to archive' } : { st: 'warn', t: 'Receipt image could not be saved to the archive' }];
   const pf = r.photosFailed ? ` (${nPl(r.photosFailed, 'photo')} could not be saved)` : '';
   if (d.mode === 'transfer') st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
-  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `${nPl(r.cards || 0, 'card')} added to portfolio${r.commercial === undefined ? '' : (r.commercial ? ' and Commercial' : '')}${pf}` }); st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` }); }
-  else if (d.mode === 'sold') st.push({ st: 'ok', t: `${nPl(r.cards || 0, 'card')} ${d.shipTaskId ? 'linked to the shipping task' : 'moved to Shipping'}` }, { st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
+  else if (d.mode === 'purchase') { if (d.portfolio) st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `${nPl(r.cards || 0, 'card')} added to portfolio${pf}` }); st.push({ st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` }); }
+  else if (d.mode === 'sold') st.push({ st: 'ok', t: `${nPl(r.cards || 0, 'card')} ${d.safekeep ? 'moved to Safekeep' : d.shipTaskId ? 'linked to the shipping task' : 'moved to Shipping'}` }, { st: 'ok', t: `${nPl(r.finance || 0, 'finance task')} created` });
   else {
     if (d.tradedItems.length || (d.receivedItems.length && d.receivedPortfolio))
       st.push({ st: r.photosFailed ? 'warn' : 'ok', t: `Portfolio updated: ${r.traded || 0} traded out, ${r.received || 0} added${pf}` });
@@ -1069,9 +1076,11 @@ function resetAfterCardReceipt(d) {
     $('#items').innerHTML = ''; refreshPicker('sold');
     $('#payExtra').innerHTML = ''; $('#payAmt').value = '';   // split amounts belonged to that sale's total
     $('#pack').value = ''; $('#shipAddr').value = ''; $('#shipContact').value = '';   // per-sale fields: never carry one buyer's over to the next sale
+    $('#safekeep').checked = false;
     if (d.shipTaskId) {   // the task now has its receipt: drop it from the list and clear what it had filled in
       shipTasks = shipTasks.filter(t => t.id !== d.shipTaskId);
       linkedTask = null; $('#soldPicker').style.display = ''; $('#taskHint').hidden = true;
+      $('#safekeep').disabled = false; $('#safekeepNote').hidden = true;
       $('#sched').value = ''; $('#notes').value = '';
       fillTaskSelect();
     }

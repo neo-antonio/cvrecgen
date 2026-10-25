@@ -25,8 +25,9 @@
     <h2>Finance</h2>
     <span class="hbar-spacer" aria-hidden="true"></span>
   </div>
-  <nav class="tabs" role="tablist">
+  <nav class="tabs tabs-3" role="tablist">
     <button type="button" class="tab active" data-ftab="balance" role="tab">Balance</button>
+    <button type="button" class="tab" data-ftab="pr" role="tab">Pay &amp; Receive</button>
     <button type="button" class="tab" data-ftab="archive" role="tab">Archive</button>
   </nav>
 </header>
@@ -48,6 +49,10 @@
       <div><span>Cash reserves</span><b id="balRes">&mdash;</b></div>
       <div><span>Others</span><b id="balOth">&mdash;</b></div>
     </div>
+    <div class="bal-grid bal-pr">
+      <button type="button" id="balRecBtn" title="Open payables &amp; receivables"><span>Receivables</span><b id="balRec">&mdash;</b></button>
+      <button type="button" id="balPayBtn" title="Open payables &amp; receivables"><span>Payables</span><b id="balPay">&mdash;</b></button>
+    </div>
     <div class="bal-sub" id="balSub" hidden><span>Liquid subtotal <small>Cash + Maribank</small></span><b id="balSubVal"></b></div>
     <div class="bal-total" id="balTotal" hidden><span>Total business value</span><b id="balTotalVal"></b></div>
     <p class="bal-note" id="balNote" hidden></p>
@@ -55,6 +60,23 @@
     <p class="bal-meta" id="balMeta">Not set yet &mdash; tap Update to enter what each account holds.</p>
   </section>
     <button type="button" class="ghost add-task" id="balRefresh" style="margin-top:14px">Refresh</button>
+  </div>
+
+  <div id="panelPR" hidden>
+    <button type="button" class="ghost add-task" id="prAdd">+ Add payable / receivable</button>
+    <div class="filter-chips" id="prStatus">
+      <button type="button" class="chip active" data-s="open">Open</button>
+      <button type="button" class="chip" data-s="settled">Settled</button>
+      <button type="button" class="chip" data-s="all">All</button>
+    </div>
+    <div class="filter-chips" id="prKinds">
+      <button type="button" class="chip active" data-k="all">Both</button>
+      <button type="button" class="chip" data-k="payable">Payables</button>
+      <button type="button" class="chip" data-k="receivable">Receivables</button>
+    </div>
+    <p class="rec-count" id="prCount"></p>
+    <p class="stub-note" id="prState">Loading&hellip;</p>
+    <div id="prList" class="port-list" hidden></div>
   </div>
 
   <div id="panelArchive" hidden>
@@ -85,6 +107,75 @@
     <div id="finList" class="port-list" hidden></div>
   </div>
 </main>
+
+<div class="modal" id="prSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="prHeading">Add payable / receivable</h3>
+    <p class="stub-note" id="prHint" style="margin:-6px 0 14px;font-size:12px;text-align:center" hidden>Who and notes can be edited. Type, amount, date and account stay as recorded &mdash; delete and re-add to change them.</p>
+    <div class="field">
+      <label>Type</label>
+      <div class="radios two">
+        <label class="rad"><input type="radio" name="prKind" value="payable" checked><span>Payable<br>(I owe)</span></label>
+        <label class="rad"><input type="radio" name="prKind" value="receivable"><span>Receivable<br>(owed to me)</span></label>
+      </div>
+    </div>
+    <div class="field">
+      <label for="prWho">Who</label>
+      <input type="text" id="prWho" autocomplete="off" maxlength="100" placeholder="Name of person or company">
+    </div>
+    <div class="field">
+      <label for="prAmt">Amount</label>
+      <div class="money"><em>PHP</em><input type="number" id="prAmt" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+    </div>
+    <div class="field">
+      <label for="prAt">Date &amp; time</label>
+      <input type="datetime-local" id="prAt">
+    </div>
+    <div class="field">
+      <label for="prAcct" id="prAcctLbl">Account</label>
+      <select id="prAcct">
+        <option value="">Not tracked (no balance change)</option>
+        <option>Cash</option><option>Maribank</option><option>Cash reserves</option><option>Others</option>
+      </select>
+      <input type="text" id="prAcctOther" placeholder="Specify (e.g. GCash)" hidden>
+      <p class="stub-note" id="prAcctHint" style="margin:6px 0 0;font-size:11px;text-align:left"></p>
+    </div>
+    <div class="field">
+      <label for="prNotes">Notes <small>(optional)</small></label>
+      <textarea id="prNotes" rows="3" maxlength="1000" placeholder="What it is for, due date, reference&hellip;"></textarea>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="prSave">Add</button>
+      <button type="button" class="ghost" id="prCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="prSettle" hidden>
+  <div class="sheet small wide">
+    <h3 id="prSetHeading">Mark as paid</h3>
+    <p class="stub-note" id="prSetInfo" style="margin:-6px 0 14px;font-size:12px;text-align:center"></p>
+    <div class="field">
+      <label for="prSetAcct" id="prSetAcctLbl">Account</label>
+      <select id="prSetAcct">
+        <option>Cash</option><option>Maribank</option><option>Cash reserves</option><option>Others</option>
+      </select>
+      <input type="text" id="prSetOther" placeholder="Specify (e.g. GCash)" hidden>
+    </div>
+    <div class="field">
+      <label for="prSetAt">Date &amp; time</label>
+      <input type="datetime-local" id="prSetAt">
+    </div>
+    <div class="field">
+      <label for="prSetNote">Note <small>(optional)</small></label>
+      <textarea id="prSetNote" rows="2" maxlength="300" placeholder="e.g. paid in two parts, reference number&hellip;"></textarea>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="prSetSave">Confirm</button>
+      <button type="button" class="ghost" id="prSetCancel">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal" id="balSheet" hidden>
   <div class="sheet small wide">
