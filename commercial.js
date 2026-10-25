@@ -250,7 +250,19 @@ $('tgtClear').onclick = () => saveTargets(true);
 
 /* ---------- lots: create, add cards, remove a card, rename, ungroup ---------- */
 let lotAddId = null, lotCreate = false; const lotAddSel = new Set();
-const LOT_OK = c => c.tag === 'onhand' || c.tag === 'pending';   // cards that can be grouped: onhand and pending
+const LOT_OK = c => !!c.tag;   // any status can be grouped
+const LOT_TAGS = [['all', 'All'], ['onhand', 'Onhand'], ['pending', 'Pending'], ['sold', 'Sold']];   // status filter inside the lot sheet
+let lotAddTag = 'all';
+function lotChips() {
+  let box = document.getElementById('lotAddTags');
+  if (!box) {
+    box = document.createElement('div'); box.id = 'lotAddTags'; box.className = 'filter-chips'; box.style.marginBottom = '8px';
+    box.innerHTML = LOT_TAGS.map(t => `<button type="button" class="chip" data-tag="${t[0]}">${t[1]}</button>`).join('');
+    const list = $('lotAddList'); list.parentNode.insertBefore(box, list);
+    box.addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; lotAddTag = b.dataset.tag; lotAddRender(); });
+  }
+  box.querySelectorAll('.chip').forEach(b => b.classList.toggle('active', b.dataset.tag === lotAddTag));
+}
 function lotAddRender() {
   const q = $('lotAddSearch').value.trim().toLowerCase();
   const seen = new Set();   // a card is listed once, never twice
@@ -259,13 +271,15 @@ function lotAddRender() {
     if (seen.has(id) || !LOT_OK(c)) return false;
     if (lotCreate ? c.lotId : (c.lotId && String(c.lotId) === String(lotAddId))) return false;   // new lot: loose cards only; existing lot: skip cards already in it
     if (q && !String(c.name || '').toLowerCase().includes(q) && !String(c.lotName || '').toLowerCase().includes(q)) return false;
+    if (lotAddTag !== 'all' && c.tag !== lotAddTag) return false;   // status filter
     seen.add(id); return true;
   }).sort((a, b) => (a.lotId ? 1 : 0) - (b.lotId ? 1 : 0));   // loose cards first, then cards from other lots
+  lotChips();
   const note = document.querySelector('#lotAddSheet .stub-note');
-  if (note) note.textContent = lotCreate ? 'Onhand and pending cards that are not in a lot yet.' : 'Onhand and pending cards. Cards already in another lot are moved into this one.';
+  if (note) note.textContent = lotCreate ? 'Cards that are not in a lot yet. Filter by status below.' : 'Cards of any status. Cards already in another lot are moved into this one.';
   $('lotAddList').innerHTML = cand.length
-    ? cand.map(c => `<label class="chk"><input type="checkbox" value="${esc(c.id)}"${lotAddSel.has(String(c.id)) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${esc(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${esc(c.name)} <small>\u2014 bought ${php(c.purchaseCost)}${c.tag === 'pending' ? ' \u00b7 Pending' : ''}${c.lotId ? ' \u00b7 in lot \u201c' + esc(c.lotName || 'Lot') + '\u201d' : ''}</small></span></label>`).join('')
-    : '<p class="stub-note" style="margin:10px 0 4px">No onhand or pending cards available to add.</p>';
+    ? cand.map(c => `<label class="chk"><input type="checkbox" value="${esc(c.id)}"${lotAddSel.has(String(c.id)) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${esc(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${esc(c.name)} <small>\u2014 ${c.tag === 'sold' ? 'sold ' + php(c.soldPrice) : 'bought ' + php(c.purchaseCost)}${c.tag !== 'onhand' ? ' \u00b7 ' + c.tag.charAt(0).toUpperCase() + c.tag.slice(1) : ''}${c.lotId ? ' \u00b7 in lot \u201c' + esc(c.lotName || 'Lot') + '\u201d' : ''}</small></span></label>`).join('')
+    : '<p class="stub-note" style="margin:10px 0 4px">No cards match this filter.</p>';
   const n = lotAddSel.size;
   $('lotAddSave').textContent = lotCreate ? (n ? `Create lot of ${n}` : 'Create lot') : (n ? `Add ${n} card${n > 1 ? 's' : ''}` : 'Add to lot');
 }
@@ -274,6 +288,7 @@ function openLotSheet(createMode, id) {
   $('lotAddSearch').value = ''; $('lotAddName').value = '';
   $('lotAddNameWrap').hidden = !createMode;
   $('lotAddTitle').textContent = createMode ? 'New lot' : 'Add cards to lot';
+  lotAddTag = LOT_TAGS.some(t => t[0] === tab) ? tab : 'all';   // open on the tab the page is currently showing
   lotAddRender(); $('lotAddSheet').hidden = false;
 }
 const closeLotSheet = () => { $('lotAddSheet').hidden = true; lotAddId = null; lotCreate = false; };

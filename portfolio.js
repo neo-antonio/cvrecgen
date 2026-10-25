@@ -282,7 +282,20 @@ async function lotBatches(action, ids, extra) {   // keep each request URL short
   for (let i = 0; i < ids.length; i += 25) await lotCall(action, Object.assign({ cardIds: ids.slice(i, i + 25).join(',') }, extra || {}));
 }
 let lotAddId = null, lotCreate = false; const lotAddSel = new Set();
-const LOT_OK = c => c.tag === 'onhand' || c.tag === 'pending';   // cards that can be grouped: onhand and pending
+const LOT_OK = c => !!c.tag;   // any status can be grouped
+const LOT_TAGS = [['all', 'All'], ['onhand', 'Onhand'], ['pending', 'Pending'], ['shipping', 'Shipping'], ['sold', 'Sold'], ['safekeep', 'Safekeep'], ['traded', 'Traded']];   // status filter inside the lot sheet
+let lotAddTag = 'all';
+const lotStartTag = () => LOT_TAGS.some(t => t[0] === statusFilter) ? statusFilter : 'all';   // open on the chip the page is currently showing
+function lotChips() {
+  let box = document.getElementById('lotAddTags');
+  if (!box) {
+    box = document.createElement('div'); box.id = 'lotAddTags'; box.className = 'filter-chips'; box.style.marginBottom = '8px';
+    box.innerHTML = LOT_TAGS.map(t => `<button type="button" class="chip" data-tag="${t[0]}">${t[1]}</button>`).join('');
+    const list = document.getElementById('lotAddList'); list.parentNode.insertBefore(box, list);
+    box.addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; lotAddTag = b.dataset.tag; lotAddRender(); });
+  }
+  box.querySelectorAll('.chip').forEach(b => b.classList.toggle('active', b.dataset.tag === lotAddTag));
+}
 function lotAddRender() {
   const q = document.getElementById('lotAddSearch').value.trim().toLowerCase();
   const seen = new Set();   // a card is listed once, never twice
@@ -291,13 +304,15 @@ function lotAddRender() {
     if (seen.has(id) || !LOT_OK(c)) return false;
     if (lotCreate ? c.lotId : (c.lotId && String(c.lotId) === String(lotAddId))) return false;   // new lot: loose cards only; existing lot: skip cards already in it
     if (q && !String(c.name || '').toLowerCase().includes(q) && !String(c.lotName || '').toLowerCase().includes(q)) return false;
+    if (lotAddTag !== 'all' && c.tag !== lotAddTag) return false;   // status filter
     seen.add(id); return true;
   }).sort((a, b) => (a.lotId ? 1 : 0) - (b.lotId ? 1 : 0));   // loose cards first, then cards from other lots
+  lotChips();
   const note = document.querySelector('#lotAddSheet .stub-note');
-  if (note) note.textContent = lotCreate ? 'Onhand and pending cards that are not in a lot yet.' : 'Onhand and pending cards. Cards already in another lot are moved into this one.';
+  if (note) note.textContent = lotCreate ? 'Cards that are not in a lot yet. Filter by status below.' : 'Cards of any status. Cards already in another lot are moved into this one.';
   document.getElementById('lotAddList').innerHTML = cand.length
-    ? cand.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${lotAddSel.has(String(c.id)) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${escHtml(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${escHtml(c.name)} <small>\u2014 bought ${portPhp(c.purchaseCost)}${c.tag === 'pending' ? ' \u00b7 Pending' : ''}${c.lotId ? ' \u00b7 in lot \u201c' + escHtml(c.lotName || 'Lot') + '\u201d' : ''}</small></span></label>`).join('')
-    : '<p class="stub-note" style="margin:10px 0 4px">No onhand or pending cards available to add.</p>';
+    ? cand.map(c => `<label class="chk"><input type="checkbox" value="${escHtml(c.id)}"${lotAddSel.has(String(c.id)) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${escHtml(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${escHtml(c.name)} <small>\u2014 ${isOwned(c) ? 'bought ' + portPhp(c.purchaseCost) : 'sold ' + portPhp(c.soldPrice)}${c.tag !== 'onhand' ? ' \u00b7 ' + (TAG_LABEL[c.tag] || c.tag) : ''}${c.lotId ? ' \u00b7 in lot \u201c' + escHtml(c.lotName || 'Lot') + '\u201d' : ''}</small></span></label>`).join('')
+    : '<p class="stub-note" style="margin:10px 0 4px">No cards match this filter.</p>';
   const n = lotAddSel.size;
   document.getElementById('lotAddSave').textContent = lotCreate ? (n ? `Create lot of ${n}` : 'Create lot') : (n ? `Add ${n} card${n > 1 ? 's' : ''}` : 'Add to lot');
 }
@@ -310,7 +325,7 @@ document.getElementById('portNewLot').onclick = () => {
   document.getElementById('lotAddSearch').value = ''; document.getElementById('lotAddName').value = '';
   document.getElementById('lotAddNameWrap').hidden = false;
   document.getElementById('lotAddTitle').textContent = 'New lot';
-  lotAddRender(); document.getElementById('lotAddSheet').hidden = false;
+  lotAddTag = lotStartTag(); lotAddRender(); document.getElementById('lotAddSheet').hidden = false;
 };
 document.getElementById('lotAddCancel').onclick = closeLotAdd;
 document.getElementById('lotAddSave').onclick = async () => {
@@ -335,7 +350,7 @@ $portList.addEventListener('click', async e => {
     return;
   }
   const add = e.target.closest('.lot-add');
-  if (add) { lotCreate = false; lotAddId = add.dataset.id; lotAddSel.clear(); document.getElementById('lotAddSearch').value = ''; document.getElementById('lotAddNameWrap').hidden = true; document.getElementById('lotAddTitle').textContent = 'Add cards to lot'; lotAddRender(); document.getElementById('lotAddSheet').hidden = false; return; }
+  if (add) { lotCreate = false; lotAddId = add.dataset.id; lotAddSel.clear(); document.getElementById('lotAddSearch').value = ''; document.getElementById('lotAddNameWrap').hidden = true; document.getElementById('lotAddTitle').textContent = 'Add cards to lot'; lotAddTag = lotStartTag(); lotAddRender(); document.getElementById('lotAddSheet').hidden = false; return; }
   const ren = e.target.closest('.lot-rename');
   if (ren) {
     const cards = allLotCards(ren.dataset.id), cur = (cards[0] || {}).lotName || '';
