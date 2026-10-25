@@ -11,7 +11,9 @@
  *                   ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress | ShippedTime |  ShippingContact | SaleNotes | LotID | LotName | ShippedBy
  *                   LotID/LotName (AC-AD) group cards bought together as a lot; blank = a normal single card.
  *                   TargetPrice / TargetMax (AF-AG, Commercial app): target sale price; TargetMax is the top of a range (blank/0 = a single price). Created on first use.
- *                   Status is one of: onhand, shipping, shipped, traded.
+ *                   Status is one of: onhand, shipping, shipped, safekeep, traded.
+ *                   SAFEKEEP = sold and already paid, but we keep the card for the buyer. It keeps its sale details (buyer, price, sale receipt) and has no
+ *                   shipping task, so it is not in the Shipping feed. A safekeep card can later get its own shipping task (createShippingTask with safekeep cards).
  *                   PENDING is not a stored status: Portfolio / Commercial show a card as "pending" while it sits on a shipping task that has no sale date and no
  *                   sale receipt yet (customer has not paid). It keeps its cost value until the sale receipt is linked, then becomes shipping/sold (see getPortfolio_).
  *                   A shipping task can exist BEFORE its sale receipt (customer about to pay / pays at shipping): the cards are
@@ -33,7 +35,6 @@
  *                   hand-made / merged task (ID = pc_<id>, Cards = pipe-separated card IDs that belong to it).
  *                   Status: todo | done | posted (videos); todo | posted (posts; edited is derived from the Edited column).
  *                   Platforms is JSON {fb,ig,yt,tt: {on,date,link}}. Edited = pipe-separated card IDs already edited (posts).
- *   CommercialLog (A-H): At | CardID | Card | OldLow | OldHigh | NewLow | NewHigh | By   (one row per target price change made by setTargets; created automatically)
  *   Topics (A-K):   ID | Title | Body | AddedBy | Added | Status | Conclusion | ConcludedBy | Concluded | Comments | Updated   (Topic board, created automatically)
  *                   Status: open | resolved. Comments is a JSON array of {id, by, at, text}; every note, comment and conclusion records who wrote it and when.
  *   Users (A-C):    Username | Password | UpdatedAt   (created automatically with the five team logins; passwords are stored as plain text so the admin can view them)
@@ -46,8 +47,8 @@
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
- *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping,
- *               topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic, commercialLog
+ *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping, setSafekeep, mergeShippingTasks,
+ *               topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
 
@@ -87,7 +88,7 @@ function doGet(e) {
     if ((e.parameter.secret || '') !== SECRET) return jsonpOut_({ ok: false, error: 'unauthorized' }, cb);
     const action = e.parameter.action || 'portfolio';
     if (action === 'portfolio') return jsonpOut_(getPortfolio_(), cb);
-    if (action === 'onhandCards') return jsonpOut_(getOnhandCards_(), cb);
+    if (action === 'onhandCards') return jsonpOut_(getOnhandCards_(e.parameter.safekeep === '1'), cb);
     if (action === 'finance') return jsonpOut_(getFinance_(), cb);
     if (action === 'shipping') return jsonpOut_(getShipping_(), cb);
     if (action === 'receipts') return jsonpOut_(getReceipts_(), cb);
@@ -116,6 +117,8 @@ function doGet(e) {
     if (action === 'updateShipping') return jsonpOut_(updateShipping_(e.parameter), cb);
     if (action === 'createShippingTask') return jsonpOut_(createShippingTask_(e.parameter), cb);
     if (action === 'cancelShipping') return jsonpOut_(cancelShipping_(e.parameter.cardIds), cb);
+    if (action === 'setSafekeep') return jsonpOut_(setSafekeep_(e.parameter.cardIds), cb);
+    if (action === 'mergeShippingTasks') return jsonpOut_(mergeShippingTasks_(e.parameter), cb);
     if (action === 'entities') return jsonpOut_(getEntities_(), cb);
     if (action === 'entityNames') return jsonpOut_(getEntityNames_(), cb);
     if (action === 'entityCards') return jsonpOut_(getEntityCards_(e.parameter.entityId), cb);
@@ -140,7 +143,6 @@ function doGet(e) {
     if (action === 'resolveTopic') return jsonpOut_(resolveTopic_(e.parameter), cb);
     if (action === 'reopenTopic') return jsonpOut_(reopenTopic_(e.parameter), cb);
     if (action === 'deleteTopic') return jsonpOut_(deleteTopic_(e.parameter), cb);
-    if (action === 'commercialLog') return jsonpOut_(getCommercialLog_(), cb);
     if (action === 'login') return jsonpOut_(login_(e.parameter), cb);
     if (action === 'changePassword') return jsonpOut_(changePassword_(e.parameter), cb);
     if (action === 'listUsers') return jsonpOut_(listUsers_(e.parameter), cb);
@@ -220,8 +222,7 @@ function handlePurchase_(body) {
   appendRows_(fin, finOut);
   let creatives = 0;
   if (body.vlog) { try { addVlog_(body, 'Purchase from ' + (seller || '\u2014'), body.date || todayStr_(), receiptUrl); creatives = 1; } catch (err) {} }
-  // Commercial lists every onhand card, so each card added to the portfolio is in Commercial too
-  return { ok: true, receipt: receiptSaved, cards: cardRows.length, commercial: cardRows.length, finance: finOut.length, creatives, photosFailed };
+  return { ok: true, receipt: receiptSaved, cards: cardRows.length, finance: finOut.length, creatives, photosFailed };
 }
 
 function handleSell_(body) {
@@ -445,39 +446,15 @@ function setTargets_(p) {
   ensureCardsColumns_(cards);
   ensureTargetColumns_(cards);
   const rowOf = rowIndex_(cards);
-  const data = cards.getDataRange().getValues(), by = String(p.by || '').trim().toLowerCase().slice(0, 40), at = nowStamp_(), log = [];
   let n = 0;
   list.forEach(item => {
     const part = item.split(':'), idx = rowOf[part[0]];
     if (!idx) return;
     const lo = Math.round((Number(part[1]) || 0) * 100) / 100, hi = Math.round((Number(part[2]) || 0) * 100) / 100;
-    const newLo = lo > 0 ? lo : 0, newHi = lo > 0 && hi > lo ? hi : 0, row = data[idx - 1] || [], oldLo = Number(row[31]) || 0, oldHi = Number(row[32]) || 0;
     cards.getRange(idx, 32, 1, 2).setNumberFormat('0.00').setValues([[lo > 0 ? lo : '', lo > 0 && hi > lo ? hi : '']]);
-    if (oldLo !== newLo || oldHi !== newHi) log.push([at, String(part[0]), String(row[4] || ''), oldLo, oldHi, newLo, newHi, by]);   // only real changes are archived
     n++;
   });
-  if (log.length) appendRows_(cmLogSheet_(true), log);
   return { ok: true, updated: n };
-}
-// Archive of target price changes, shown behind the folder icon on the Commercial page and counted by the Home "Price edits" widget.
-const CMLOG_SHEET = 'CommercialLog';
-function cmLogSheet_(create) {
-  const ss = ss_();
-  let sh = ss.getSheetByName(CMLOG_SHEET);
-  if (!sh && create) {
-    sh = ss.insertSheet(CMLOG_SHEET);
-    sh.getRange(1, 1, 1, 8).setValues([['At', 'CardID', 'Card', 'OldLow', 'OldHigh', 'NewLow', 'NewHigh', 'By']]);
-    sh.getRange('A:B').setNumberFormat('@');
-  }
-  return sh;
-}
-function getCommercialLog_() {
-  const sh = cmLogSheet_(false);
-  if (!sh) return { ok: true, items: [] };
-  const rows = sh.getDataRange().getValues(); rows.shift();
-  const items = rows.filter(r => r[0]).reverse().slice(0, 300).map(r => ({ at: stampCell_(r[0]), cardId: String(r[1] || ''), name: String(r[2] || ''),
-    oldLo: Number(r[3]) || 0, oldHi: Number(r[4]) || 0, newLo: Number(r[5]) || 0, newHi: Number(r[6]) || 0, by: String(r[7] || '') }));
-  return { ok: true, items };
 }
 
 // Attach / clear the receipt on a standalone task (Finance ReceiptURL, col J). Receipt-derived
@@ -1015,11 +992,31 @@ function createShippingTask_(p) {
     const data = cards.getDataRange().getValues(), rowOf = {};
     for (let r = 1; r < data.length; r++) if (data[r][0] !== '') rowOf[String(data[r][0])] = r + 1;
     if (ids.some(id => !rowOf[id])) return { ok: false, error: 'card not found' };
-    if (ids.some(id => String(data[rowOf[id] - 1][9] || 'onhand') !== 'onhand')) return { ok: false, error: 'only onhand cards can go on a shipping task' };
+    const statusOf = id => String(data[rowOf[id] - 1][9] || 'onhand');
+    const nKeep = ids.filter(id => statusOf(id) === 'safekeep').length;
+    if (ids.some(id => statusOf(id) !== 'onhand' && statusOf(id) !== 'safekeep')) return { ok: false, error: 'only onhand or safekeep cards can go on a shipping task' };
+    if (nKeep && nKeep !== ids.length) return { ok: false, error: 'pick either onhand cards or safekeep cards for one task, not both' };
     const contact = String(p.contact || '').trim().slice(0, 60), address = String(p.address || '').trim().slice(0, 500);
     const notes = String(p.notes || '').trim().slice(0, 1000), method = String(p.method || '').trim().slice(0, 60) || 'Others';
-    const buyer = resolveParty_(p.buyer, contact, address);   // saved entity (spelling-safe), created on first use
     const batchId = newId_('b');
+    if (nKeep) {
+      // safekeep cards are already sold and paid: the task keeps their buyer, price and sale receipt, so it is NOT pending.
+      // Address, contact and notes are only replaced when something was typed (otherwise what the sale receipt had stays).
+      const buyers = ids.map(id => partyKey_(data[rowOf[id] - 1][11])).filter((k, i, a) => a.indexOf(k) === i);
+      if (buyers.length > 1) return { ok: false, error: 'safekeep cards in one shipping task must belong to the same buyer' };
+      ids.forEach(id => {
+        const idx = rowOf[id];
+        cards.getRange(idx, 10, 1, 1).setValue('shipping');                     // Status (col J)
+        cards.getRange(idx, 15, 1, 1).setValue(method);                         // ShippingMethod (col O)
+        cards.getRange(idx, 18, 1, 1).setValue(sched);                          // ShippingScheduledDate (col R)
+        cards.getRange(idx, 24, 1, 1).setValue(batchId);                        // ShipBatchID (col X): its own task
+        if (address) cards.getRange(idx, 25, 1, 1).setValue(address);           // ShippingAddress (col Y)
+        if (contact) cards.getRange(idx, 27, 1, 1).setNumberFormat('@').setValue(contact);   // ShippingContact (col AA)
+        if (notes) cards.getRange(idx, 28, 1, 1).setValue(notes);               // SaleNotes (col AB)
+      });
+      return { ok: true, batchId, count: ids.length, safekeep: true };
+    }
+    const buyer = resolveParty_(p.buyer, contact, address);   // saved entity (spelling-safe), created on first use
     ids.forEach(id => {
       const idx = rowOf[id];
       cards.getRange(idx, 10, 1, 1).setValue('shipping');                     // Status (col J)
@@ -1048,6 +1045,70 @@ function cancelShipping_(cardIds) {
     let n = 0;
     ids.forEach(id => { if (revertToOnhand_(id).ok) n++; });
     return { ok: true, reverted: n };
+  } finally { lock.releaseLock(); }
+}
+
+// Safekeep: a card that is sold and paid but stays with us for the buyer. Only paid cards still waiting to ship can be moved there (a pending task
+// is not paid; shipped cards are gone). The card keeps buyer, price and sale receipt; it leaves its shipping task (batch and schedule are cleared),
+// so the rest of that task can ship and have its shipping Finance entry made without waiting for it.
+function setSafekeep_(cardIds) {
+  const ids = splitIds_(cardIds);
+  if (!ids.length) return { ok: false, error: 'missing cardId' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const cards = cardsSheet_(), data = cards.getDataRange().getValues(), rowOf = {};
+    for (let r = 1; r < data.length; r++) if (data[r][0] !== '') rowOf[String(data[r][0])] = r + 1;
+    if (ids.some(id => !rowOf[id])) return { ok: false, error: 'not found' };
+    if (ids.some(id => { const r = data[rowOf[id] - 1]; return r[9] !== 'shipping' || pendingSale_(r); })) return { ok: false, error: 'only paid cards still waiting to ship can be moved to safekeep' };
+    ids.forEach(id => {
+      const idx = rowOf[id];
+      cards.getRange(idx, 10, 1, 1).setValue('safekeep');   // Status (col J)
+      cards.getRange(idx, 18, 1, 1).setValue('');           // ShippingScheduledDate (col R)
+      cards.getRange(idx, 24, 1, 1).setValue('');           // ShipBatchID (col X)
+    });
+    return { ok: true, updated: ids.length };
+  } finally { lock.releaseLock(); }
+}
+
+// Merge unpaid (pending) shipping tasks of the same buyer into one. cardIds = every card of every task to merge; keepBatch = the task that
+// survives (its batch ID is kept). Method, address and contact come from the kept task (blank ones are filled from the others), the schedule is
+// the earliest one, and different notes are joined. All-or-nothing; each task must be sent whole.
+function mergeShippingTasks_(p) {
+  const ids = splitIds_(p.cardIds).filter((x, i, a) => a.indexOf(x) === i);
+  if (ids.length < 2) return { ok: false, error: 'pick at least two tasks to merge' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const cards = cardsSheet_();
+    ensureCardsColumns_(cards);
+    const data = cards.getDataRange().getValues(), rowOf = {};
+    for (let r = 1; r < data.length; r++) if (data[r][0] !== '') rowOf[String(data[r][0])] = r + 1;
+    if (ids.some(id => !rowOf[id])) return { ok: false, error: 'not found' };
+    const rows = ids.map(id => data[rowOf[id] - 1]);
+    if (rows.some(r => r[9] !== 'shipping' || !pendingSale_(r) || !r[23])) return { ok: false, error: 'only unpaid shipping tasks that are still to ship can be merged' };
+    const batches = rows.map(r => String(r[23])).filter((b, i, a) => a.indexOf(b) === i);
+    if (batches.length < 2) return { ok: false, error: 'these cards are already one task' };
+    const inSet = {}; ids.forEach(id => inSet[id] = true);
+    if (data.slice(1).some(r => batches.indexOf(String(r[23])) >= 0 && !inSet[String(r[0])])) return { ok: false, error: 'a task was only partly selected: send every card of each task' };
+    if (rows.map(r => partyKey_(r[11])).filter((k, i, a) => a.indexOf(k) === i).length > 1) return { ok: false, error: 'only tasks for the same buyer can be merged' };
+    const keep = batches.indexOf(String(p.keepBatch || '').trim()) >= 0 ? String(p.keepBatch).trim() : batches[0];
+    const prim = rows.filter(r => String(r[23]) === keep)[0];
+    const first = col => { const mine = String(prim[col] == null ? '' : prim[col]).trim(); if (mine) return mine; const o = rows.filter(r => String(r[col] == null ? '' : r[col]).trim())[0]; return o ? String(o[col]).trim() : ''; };
+    const method = first(14), address = first(24), contact = first(26);
+    const scheds = rows.map(r => fmtDateCell_(r[17])).filter(Boolean).sort();
+    const sched = scheds[0] || '';
+    const noteList = rows.map(r => String(r[27] || '').trim()).filter((n, i, a) => n && a.indexOf(n) === i);
+    const notes = noteList.join('\n').slice(0, 1000);
+    ids.forEach(id => {
+      const idx = rowOf[id];
+      cards.getRange(idx, 24, 1, 1).setValue(keep);                                           // ShipBatchID (col X)
+      if (method) cards.getRange(idx, 15, 1, 1).setValue(method);                             // ShippingMethod (col O)
+      cards.getRange(idx, 18, 1, 1).setValue(sched);                                          // ShippingScheduledDate (col R)
+      cards.getRange(idx, 25, 1, 1).setValue(address);                                        // ShippingAddress (col Y)
+      cards.getRange(idx, 27, 1, 2).setNumberFormat('@').setValues([[contact, notes]]);       // ShippingContact, SaleNotes (cols AA-AB)
+    });
+    return { ok: true, batchId: keep, count: ids.length, merged: batches.length };
   } finally { lock.releaseLock(); }
 }
 
@@ -1199,6 +1260,7 @@ function getPortfolio_() {
     const tag = pendingSale_(r) ? 'pending'
       : status === 'onhand' ? 'onhand'
       : status === 'shipping' ? 'shipping'
+      : status === 'safekeep' ? 'safekeep'   // sold and paid, kept for the buyer
       : status === 'traded' ? 'traded'
       : 'sold';   // shipped == sold now: Finance tasks are archive records, there is no separate "recorded" step
     const item = {
@@ -1210,7 +1272,7 @@ function getPortfolio_() {
       lotId: String(r[28] || ''), lotName: String(r[29] || ''),
       targetPrice: Number(r[31]) || 0, targetMax: Number(r[32]) || 0   // Commercial: target sale price (low end) and optional top of the range
     };
-    (status === 'onhand' || status === 'shipping' ? owned : sold).push(item);
+    (status === 'onhand' || status === 'shipping' || status === 'safekeep' ? owned : sold).push(item);
     all.push(item);
   });
   // cards = everything in one list; owned/sold kept for older app versions
@@ -1260,11 +1322,12 @@ function getFinance_() {
   return { ok: true, toRecord: toRecord.reverse(), recorded: recorded.reverse() };
 }
 
-function getOnhandCards_() {
+// withSafekeep: also list safekeep cards (flagged), used by Shipping > New task. Everyone else still gets onhand only.
+function getOnhandCards_(withSafekeep) {
   const rows = cardsSheet_().getDataRange().getValues(); rows.shift();
   // newest purchase first (ties: the card added last comes first); photo + date feed the Creatives card picker
-  const cards = rows.map((r, i) => ({ r, i })).filter(x => x.r[4] && x.r[9] === 'onhand')
-    .map(x => ({ id: x.r[0], name: x.r[4], cost: Number(x.r[5]) || 0, date: fmtDateCell_(x.r[1]), photo: toDisplayUrl_(x.r[7], 300), lotId: String(x.r[28] || ''), lotName: String(x.r[29] || ''), i: x.i }))
+  const cards = rows.map((r, i) => ({ r, i })).filter(x => x.r[4] && (x.r[9] === 'onhand' || (withSafekeep && x.r[9] === 'safekeep')))
+    .map(x => ({ id: x.r[0], name: x.r[4], cost: Number(x.r[5]) || 0, safekeep: x.r[9] === 'safekeep', soldTo: String(x.r[11] || ''), soldPrice: Number(x.r[12]) || 0, date: fmtDateCell_(x.r[1]), photo: toDisplayUrl_(x.r[7], 300), lotId: String(x.r[28] || ''), lotName: String(x.r[29] || ''), i: x.i }))
     .sort((a, b) => a.date === b.date ? b.i - a.i : (a.date < b.date ? 1 : -1));
   cards.forEach(c => delete c.i);
   return { ok: true, cards };
@@ -1288,8 +1351,8 @@ function getShipping_() {
       address: r[24] || '',
       contact: String(r[26] || ''),
       notes: String(r[27] || ''),
-      // cards that came from one sale receipt share a key, so the app can show them as one task
-      groupKey: fileKey_(r[22]) || (r[23] ? 'b:' + r[23] : 'c:' + r[0])
+      // cards of one shipping task share a batch ID (a sale receipt gives all its cards the same one), so the app shows them as one task
+      groupKey: r[23] ? 'b:' + r[23] : (fileKey_(r[22]) || 'c:' + r[0])
     };
     (status === 'shipping' ? toShip : shipped).push(item);
   });
@@ -1307,7 +1370,7 @@ function getReceipts_() {
 // Optional: only show post groups for receipts dated on/after this day (yyyy-mm-dd). '' = every receipt on record.
 const CREATIVES_POSTS_FROM = '';
 const CREATIVES_SHEET = 'Creatives';
-const CREATIVE_HEADERS = ['ID', 'Kind', 'ReceiptKey', 'Title', 'Date', 'Status', 'Platforms', 'Notes', 'Caption', 'Edited', 'Auto', 'Created', 'DoneDate', 'Cards', 'Previews'];
+const CREATIVE_HEADERS = ['ID', 'Kind', 'ReceiptKey', 'Title', 'Date', 'Status', 'Platforms', 'Notes', 'Caption', 'Edited', 'Auto', 'Created', 'DoneDate', 'Cards'];
 
 function creativesSheet_(create) {
   const ss = ss_();
@@ -1349,7 +1412,7 @@ function nowStamp_() { return Utilities.formatDate(new Date(), Session.getScript
 function stampCell_(v) { return v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(v || ''); }
 // Created (col L) is the task-created timestamp, 'yyyy-MM-dd HH:mm' (older rows hold the date only)
 function blankCreative_(id, kind, key) {
-  return [id, kind, key || '', '', '', 'todo', '', '', '', '', '', nowStamp_(), '', '', ''];
+  return [id, kind, key || '', '', '', 'todo', '', '', '', '', '', nowStamp_(), '', ''];
 }
 
 // A vlog task made automatically from a purchase / trade receipt.
@@ -1394,20 +1457,8 @@ function cardGroupId_(c) {
 function creativeObj_(r) {
   return { id: String(r[0]), kind: String(r[1]), receiptKey: String(r[2] || ''), title: String(r[3] || ''), date: fmtDateCell_(r[4]),
     status: r[5] === 'done' ? 'done' : r[5] === 'posted' ? 'posted' : 'todo', platforms: parsePlatforms_(r[6]), notes: String(r[7] || ''), caption: String(r[8] || ''),
-    edited: pipeIds_(r[9]), auto: r[10] === 'auto', titled: r[10] === 'titled', created: stampCell_(r[11]), doneDate: fmtDateCell_(r[12]), cardIds: pipeIds_(r[13]), previews: parsePreviews_(r[14]) };
+    edited: pipeIds_(r[9]), auto: r[10] === 'auto', titled: r[10] === 'titled', created: stampCell_(r[11]), doneDate: fmtDateCell_(r[12]), cardIds: pipeIds_(r[13]) };
 }
-
-// Post tasks: pasted image links of the edited photos (Previews column, JSON array, max 30).
-const MAX_PREVIEWS = 30;
-function parsePreviews_(cell) { try { const a = JSON.parse(cell || '[]'); return Array.isArray(a) ? a.filter(u => typeof u === 'string').slice(0, MAX_PREVIEWS) : []; } catch (err) { return []; } }
-function cleanPreviews_(json) {
-  let a = []; try { a = JSON.parse(json || '[]'); } catch (err) {}
-  if (!Array.isArray(a)) a = [];
-  const out = [];
-  a.forEach(u => { u = String(u || '').trim().slice(0, 600); if (/^https?:\/\//i.test(u) && out.indexOf(u) < 0 && out.length < MAX_PREVIEWS) out.push(u); });
-  return JSON.stringify(out);
-}
-function previewObjs_(list) { return (list || []).map(u => ({ u, t: toDisplayUrl_(u, 300), f: toDisplayUrl_(u, 1080) })); }
 
 function getCreatives_() {
   const sh = creativesSheet_(false);
@@ -1447,7 +1498,7 @@ function getCreatives_() {
     const done = {}; st.edited.forEach(x => done[x] = true);
     g.cards.forEach(c => c.edited = !!done[c.id]);
     const n = g.cards.filter(c => c.edited).length;
-    return Object.assign(g, { created: g.created || st.created, doneDate: st.doneDate, scheduled: st.date || g.date, platforms: st.platforms, notes: st.notes, caption: st.caption, previews: previewObjs_(st.previews),
+    return Object.assign(g, { created: g.created || st.created, doneDate: st.doneDate, scheduled: st.date || g.date, platforms: st.platforms, notes: st.notes, caption: st.caption,
       editedCount: n, status: st.status === 'posted' ? 'posted' : (g.cards.length && n === g.cards.length ? 'edited' : 'toedit') });
   };
   const posts = order.map(id => finish(groups[id], stored[id] || creativeObj_(blankCreative_(id, 'post', groups[id].receiptKey)))).reverse();
@@ -1455,7 +1506,7 @@ function getCreatives_() {
     if (id.indexOf('pc_') !== 0) return;
     const st = stored[id];
     const cards = st.cardIds.filter(x => byId[x]).map(x => cardObj(byId[x]));
-    if (!cards.length && st.cardIds.length) return;   // every card was deleted (a task made without cards stays)
+    if (!cards.length) return;   // every card was deleted
     posts.push(finish({ id, receiptKey: '', type: 'custom', custom: true, label: st.title || 'Post', date: st.date, cards }, st));
   });
   return { ok: true, videos: videos.reverse(), posts };
@@ -1492,7 +1543,6 @@ function saveCreative_(p) {
     if ('platforms' in p) row[6] = cleanPlatforms_(p.platforms);
     if ('notes' in p) row[7] = String(p.notes).trim().slice(0, 1000);
     if ('caption' in p) row[8] = String(p.caption).trim().slice(0, 1500);
-    if ('previews' in p && isPost) row[14] = cleanPreviews_(p.previews);
     writeCreativeRow_(sh, found ? found.idx : 0, row);
     return { ok: true, id };
   } finally { lock.releaseLock(); }
@@ -1578,12 +1628,10 @@ function deleteCreative_(id) {
 // A card belongs to at most one combined task: it is removed from any other one that held it.
 function savePostGroup_(p) {
   const finalIds = splitIds_(p.cardIds).filter((x, i, a) => a.indexOf(x) === i);
+  if (!finalIds.length) return { ok: false, error: 'pick at least one card' };
   if (p.date && !cleanDate_(p.date)) return { ok: false, error: 'invalid date' };
   const id = String(p.id || '').trim();
   if (id && !/^p[gc]_/.test(id)) return { ok: false, error: 'not a post task' };
-  // a brand-new task (no id, nothing merged) may have no cards; editing or merging still needs at least one
-  if (!finalIds.length && (id || splitIds_(p.mergeIds).length)) return { ok: false, error: 'pick at least one card' };
-  if (!finalIds.length && !String(p.title || '').trim()) return { ok: false, error: 'missing title' };
   const sources = id ? [id] : [];
   splitIds_(p.mergeIds).forEach(x => { if (/^p[gc]_/.test(x) && sources.indexOf(x) < 0) sources.push(x); });
   const lock = LockService.getScriptLock();
@@ -1595,7 +1643,7 @@ function savePostGroup_(p) {
     if (finalIds.some(x => !exists[x])) return { ok: false, error: 'a selected card no longer exists' };
     const keep = {}; finalIds.forEach(x => keep[x] = true);
 
-    const edited = {}, plats = {}, notes = [], caps = [], prevs = [], gone = [], oldIds = {};
+    const edited = {}, plats = {}, notes = [], caps = [], gone = [], oldIds = {};
     let target = null, primaryDate = '', primaryDone = '', wasPosted = false;
     sources.forEach((sid, n) => {
       const found = findRow_(sh, sid);
@@ -1607,7 +1655,6 @@ function savePostGroup_(p) {
       pipeIds_(found.row[9]).forEach(x => edited[x] = true);
       if (found.row[7] && notes.indexOf(String(found.row[7])) < 0) notes.push(String(found.row[7]));
       if (found.row[8] && caps.indexOf(String(found.row[8])) < 0) caps.push(String(found.row[8]));
-      parsePreviews_(found.row[14]).forEach(u => { if (prevs.indexOf(u) < 0) prevs.push(u); });
       const pl = parsePlatforms_(found.row[6]);
       Object.keys(pl).forEach(k => {
         const q = pl[k]; if (!q || !q.on) return;
@@ -1632,7 +1679,6 @@ function savePostGroup_(p) {
     row[8] = caps.join('\n\n').slice(0, 1500);
     row[9] = Object.keys(edited).filter(x => keep[x]).join('|');
     row[13] = finalIds.join('|');
-    row[14] = JSON.stringify(prevs.slice(0, MAX_PREVIEWS));
     writeCreativeRow_(sh, target ? target.idx : 0, row);
 
     // a card lives in one combined task only: take these cards out of any other
@@ -1869,7 +1915,7 @@ function getEntities_() {
     const from = nameOf(r[2]);
     if (from) tx.push([from, (r[6] === '' || r[6] == null) ? 'trade' : 'buy', fmtDateCell_(r[1]), Number(r[5]) || 0, (r[6] === '' || r[6] == null) ? 'in' : '']);
     const to = nameOf(r[11]);
-    if (to && (status === 'shipping' || status === 'shipped') && !pendingSale_(r)) tx.push([to, 'sell', fmtDateCell_(r[10]), Number(r[12]) || 0]);
+    if (to && (status === 'shipping' || status === 'shipped' || status === 'safekeep') && !pendingSale_(r)) tx.push([to, 'sell', fmtDateCell_(r[10]), Number(r[12]) || 0]);
     else if (to && status === 'traded') tx.push([to, 'trade', fmtDateCell_(r[10]), Number(r[12]) || 0, 'out']);
   });
   return { ok: true, entities: ents.map(e => ({ id: e.id, name: e.name, contact: e.contact, aliases: e.aliases, address: e.address, email: e.email, facebook: e.facebook, payment: e.payment, notes: e.notes, profile: profileOut_(e.profile) })), tx };
@@ -1886,7 +1932,7 @@ function getEntityCards_(entityId) {
     if (!r[0] || !r[4]) return;
     const status = String(r[9] || 'onhand'), photo = toDisplayUrl_(r[7], 200);
     if (keys[partyKey_(r[2])]) cards.push({ id: String(r[0]), name: String(r[4]), kind: (r[6] === '' || r[6] == null) ? 'trade' : 'buy', date: fmtDateCell_(r[1]), value: Number(r[5]) || 0, photo, status, dir: (r[6] === '' || r[6] == null) ? 'in' : '' });
-    if (keys[partyKey_(r[11])] && (status === 'shipping' || status === 'shipped' || status === 'traded') && !pendingSale_(r))
+    if (keys[partyKey_(r[11])] && (status === 'shipping' || status === 'shipped' || status === 'safekeep' || status === 'traded') && !pendingSale_(r))
       cards.push({ id: String(r[0]), name: String(r[4]), kind: status === 'traded' ? 'trade' : 'sell', date: fmtDateCell_(r[10]), value: Number(r[12]) || 0, photo, status, dir: status === 'traded' ? 'out' : '' });
   });
   return { ok: true, cards };

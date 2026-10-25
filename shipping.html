@@ -118,6 +118,8 @@
     </div>
     <div class="field">
       <label>Cards <small id="snCount">none selected</small></label>
+      <label class="port-chk"><input type="checkbox" id="snSafekeep"><span>Include safekeep cards <small>(sold &amp; paid, kept for the buyer)</small></span></label>
+      <p class="stub-note" id="snKeepHint" style="margin:0 0 10px;font-size:12px" hidden>Safekeep cards are already paid, so this task keeps their buyer, price and sale receipt and is not waiting for a receipt. Address, contact and notes you leave blank stay as on the sale.</p>
       <div class="field" style="margin-bottom:8px"><input type="search" id="snSearch" placeholder="Search onhand cards" autocomplete="off"></div>
       <div id="snList" class="lot-pick"></div>
     </div>
@@ -181,6 +183,21 @@
     <div class="acts">
       <button type="button" class="go sm" id="shipEditSave">Save changes</button>
       <button type="button" class="ghost" id="shipEditCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="shipMergeSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Merge shipping tasks</h3>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">Unpaid tasks for <b id="mgBuyer"></b> join this one. Method, address and contact come from this task (blank ones are filled from the others), the earliest schedule is used and different notes are combined.</p>
+    <div class="field">
+      <div class="chk" id="mgThis" style="cursor:default"></div>
+      <label style="margin-top:12px">Merge in <small>(pick the tasks to add)</small></label>
+      <div id="mgList" class="lot-pick"></div>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="mgSave" disabled>Merge</button>
+      <button type="button" class="ghost" id="mgCancel">Cancel</button>
     </div>
   </div>
 </div>

@@ -41,7 +41,9 @@ const SHIP_ICON = {
   pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>',
   trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>',
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>',
-  newdoc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M12.5 11v6M9.5 14h6"/>'
+  newdoc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M12.5 11v6M9.5 14h6"/>',
+  merge: '<circle cx="6" cy="5.5" r="2.3"/><circle cx="6" cy="18.5" r="2.3"/><circle cx="18" cy="12" r="2.3"/><path d="M6 7.8v8.4"/><path d="M6 8c0 3 3.5 4 9.7 4"/>',
+  box: '<path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5L12 12l8.5-4.5"/><path d="M12 12v9"/>'
 };
 const shipIcon = (name, cls, label, id, extra = '') => `<button type="button" class="icon-btn ${cls}" data-id="${id}" ${extra} title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${SHIP_ICON[name]}</svg></button>`;
 
@@ -67,6 +69,14 @@ function itemRowHtml(it) {
         ${shipIcon('trash', 'flat danger ship-delete', 'Delete card', it.id)}
       </div>
     </div>`;
+}
+
+/* Unpaid (pending) tasks of the same buyer can be merged into one. Returns the OTHER pending to-ship tasks for this group's buyer. */
+const buyerKey = f => String((f && f.soldTo) || '').trim().toLowerCase();
+function mergeCandidates(group) {
+  const f = group[0];
+  if (!f || !f.pending || !f.batchId || !buyerKey(f)) return [];
+  return groupCards(shipData.toShip).filter(g => g[0].pending && g[0].batchId && g[0].batchId !== f.batchId && buyerKey(g[0]) === buyerKey(f));
 }
 
 function cardHtml(group, isToShip) {
@@ -107,9 +117,11 @@ function cardHtml(group, isToShip) {
   const proof = hasProof ? `<div class="port-thumb"><img src="${proofUrl}" alt="Proof of shipment" class="ship-clickphoto" data-full="${proofUrl}"></div>` : '';
   const receiptBtn = receiptUrl ? shipIcon('doc', 'ship-receipt', 'Receipt', ids, `data-url="${escShip(receiptUrl)}"`) : '';
   const genBtn = pending && f.batchId ? shipIcon('newdoc', 'ship-genreceipt', 'Generate the sale receipt for this task', ids, `data-batch="${escShip(f.batchId)}"`) : '';
+  const mergeBtn = isToShip && mergeCandidates(group).length ? shipIcon('merge', 'ship-merge', 'Merge with another unpaid task for this buyer', ids) : '';
+  const safeBtn = isToShip && !pending ? shipIcon('box', 'flat ship-safekeep', 'Move to safekeep (paid, kept for the buyer)', ids) : '';
   const cancelBtn = pending ? shipIcon('undo', 'flat danger ship-cancel', 'Cancel task (cards go back to onhand)', ids) : '';
   const actions = isToShip
-    ? `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-edit', 'Edit method, address, notes & schedule', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}${genBtn}${cancelBtn}</div>`
+    ? `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-edit', 'Edit method, address, notes & schedule', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${shipIcon('check', 'ship-mark', n > 1 ? 'Mark all shipped' : 'Mark shipped', ids)}${receiptBtn}${genBtn}${mergeBtn}${safeBtn}${cancelBtn}</div>`
     : `<div class="ship-actions">${proof}${shipIcon('pencil', 'ship-editdate', 'Edit shipped details', ids)}${shipIcon('proof', 'ship-addphoto', hasProof ? 'Change proof photo' : 'Add proof photo', ids)}${receiptBtn}${genBtn}${shipIcon('undo', 'ship-revert', n > 1 ? 'Revert all' : 'Revert', ids)}</div>`;
   return `<div class="ship-card ${state}" data-ids="${escShip(ids)}">
       ${key}
@@ -223,6 +235,26 @@ $shipList.addEventListener('click', async e => {
 
   const genBtn = e.target.closest('.ship-genreceipt');
   if (genBtn) { location.href = 'receipt.html?task=' + encodeURIComponent(genBtn.dataset.batch); return; }
+
+  const mergeBtn = e.target.closest('.ship-merge');
+  if (mergeBtn) { openShipMerge(mergeBtn.dataset.id.split(',')); return; }
+
+  const safeBtn = e.target.closest('.ship-safekeep');
+  if (safeBtn) {
+    const n = safeBtn.dataset.id.split(',').length;
+    if (!confirm(`Move ${n > 1 ? 'these ' + n + ' cards' : 'this card'} to safekeep? ${n > 1 ? 'They are' : 'It is'} already paid and stay${n > 1 ? '' : 's'} with you for the buyer. ${n > 1 ? 'They leave' : 'It leaves'} this shipping task; you can create a new task for ${n > 1 ? 'them' : 'it'} later with "New task" > "Include safekeep cards".`)) return;
+    safeBtn.disabled = true;
+    try {
+      const data = await jsonp(CONFIG.portfolio.endpoint + '?action=setSafekeep&cardIds=' + encodeURIComponent(safeBtn.dataset.id) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+      if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
+      toast('Moved to safekeep.');
+      await loadShipping();
+    } catch (err) {
+      safeBtn.disabled = false;
+      toast('Could not move: ' + err.message);
+    }
+    return;
+  }
 
   const cancelBtn = e.target.closest('.ship-cancel');
   if (cancelBtn) {
@@ -342,16 +374,62 @@ document.getElementById('shipEditSave').onclick = async () => {
   btn.disabled = false; btn.textContent = 'Save changes';
 };
 
+/* ---------- Merge unpaid shipping tasks: this task survives, the picked ones join it (same buyer only) ---------- */
+let mergeIds = [], mergeKeep = '', mergeOthers = [];
+function openShipMerge(ids) {
+  const f = findShipItem(ids[0]);
+  if (!f) return;
+  const group = groupCards(shipData.toShip).find(g => g.some(i => String(i.id) === String(ids[0])));
+  mergeOthers = group ? mergeCandidates(group) : [];
+  if (!mergeOthers.length) return toast('No other unpaid task for this buyer to merge with.');
+  mergeIds = ids; mergeKeep = f.batchId;
+  document.getElementById('mgBuyer').textContent = f.soldTo || '\u2014';
+  document.getElementById('mgThis').innerHTML = `<b>This task</b> \u00b7 ${ids.length} card${ids.length > 1 ? 's' : ''}<small>${group.map(i => escShip(i.name)).join(', ')}</small>`;
+  document.getElementById('mgList').innerHTML = mergeOthers.map((g, k) => `<label class="chk"><input type="checkbox" value="${k}"><span>${g.length} card${g.length > 1 ? 's' : ''} \u00b7 ${escShip(g[0].shipMethod || '\u2014')}${g[0].scheduledDate ? ' \u00b7 ' + escShip(fmtDay(g[0].scheduledDate)) : ''}<small>${g.map(i => escShip(i.name)).join(', ')}</small></span></label>`).join('');
+  mergeCount();
+  document.getElementById('shipMergeSheet').hidden = false;
+}
+const mergePicked = () => [...document.querySelectorAll('#mgList input:checked')].map(i => mergeOthers[+i.value]);
+function mergeCount() {
+  const n = mergePicked().length;
+  document.getElementById('mgSave').textContent = n ? `Merge ${n + 1} tasks` : 'Merge';
+  document.getElementById('mgSave').disabled = !n;
+}
+document.getElementById('mgList').addEventListener('change', mergeCount);
+const closeShipMerge = () => { document.getElementById('shipMergeSheet').hidden = true; mergeIds = []; mergeOthers = []; };
+document.getElementById('mgCancel').onclick = closeShipMerge;
+document.getElementById('shipMergeSheet').addEventListener('click', e => { if (e.target.id === 'shipMergeSheet') closeShipMerge(); });
+document.getElementById('mgSave').onclick = async () => {
+  const picked = mergePicked();
+  if (!picked.length || !mergeIds.length) return;
+  const ids = mergeIds.concat(picked.flatMap(g => g.map(i => String(i.id)))), btn = document.getElementById('mgSave'), label = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Merging\u2026';
+  try {
+    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=mergeShippingTasks&cardIds=' + encodeURIComponent(ids.join(',')) + '&keepBatch=' + encodeURIComponent(mergeKeep) + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
+    closeShipMerge();
+    toast(`Merged ${picked.length + 1} tasks into one.`);
+    await loadShipping();
+    btn.textContent = label;
+  } catch (err) { toast('Could not merge: ' + err.message); btn.disabled = false; btn.textContent = label; }
+};
+
 /* ---------- New shipping task: no sale receipt yet (buyer about to pay, or paying at shipping) ---------- */
-let snCards = [], snSel = new Set(), snNames = null;
-// onhand cards, a lot offered as ONE entry (a lot ships whole)
-function snEntries() {
-  const out = [], seen = {};
+let snCards = [], snSel = new Set(), snNames = null, snBuyerAuto = false;
+const snKeepOn = () => document.getElementById('snSafekeep').checked;
+// onhand cards, plus safekeep cards when the toggle is on (a safekeep card is already sold and paid). A lot is offered as ONE entry (a lot ships whole);
+// onhand and safekeep cards of the same lot stay separate entries because they make different kinds of task.
+function snEntries(all) {
+  const out = [], seen = {}, keepOn = all || snKeepOn();
   snCards.forEach(c => {
-    if (!c.lotId) return out.push({ id: String(c.id), name: c.name, cost: c.cost, photo: c.photo, ids: [String(c.id)] });
-    let l = seen[c.lotId];
-    if (!l) { l = seen[c.lotId] = { id: 'lot:' + c.lotId, isLot: true, name: c.lotName || 'Lot', cost: 0, photo: c.photo, ids: [] }; out.push(l); }
-    l.ids.push(String(c.id)); l.cost += Number(c.cost) || 0; if (!l.photo) l.photo = c.photo;
+    const keep = !!c.safekeep;
+    if (keep && !keepOn) return;
+    const extra = { safekeep: keep, soldTo: c.soldTo || '', soldPrice: Number(c.soldPrice) || 0 };
+    if (!c.lotId) return out.push(Object.assign({ id: String(c.id), name: c.name, cost: c.cost, photo: c.photo, ids: [String(c.id)] }, extra));
+    const lk = c.lotId + (keep ? ':s' : '');
+    let l = seen[lk];
+    if (!l) { l = seen[lk] = Object.assign({ id: 'lot:' + lk, isLot: true, name: c.lotName || 'Lot', cost: 0, soldPrice: 0, photo: c.photo, ids: [] }, extra); out.push(l); }
+    l.ids.push(String(c.id)); l.cost += Number(c.cost) || 0; l.soldPrice += Number(c.soldPrice) || 0; if (!l.photo) l.photo = c.photo;
   });
   return out;
 }
@@ -359,20 +437,29 @@ function snRender() {
   const q = document.getElementById('snSearch').value.trim().toLowerCase();
   const all = snEntries(), shown = all.filter(c => !q || String(c.name || '').toLowerCase().includes(q));
   document.getElementById('snList').innerHTML = shown.length
-    ? shown.map(c => `<label class="chk"><input type="checkbox" value="${escShip(c.id)}"${snSel.has(c.id) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${escShip(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${c.isLot ? '<b class="lot-pill">LOT</b>' : ''}${escShip(c.name)} <small>\u2014 ${c.isLot ? c.ids.length + ' cards \u00b7 ' : ''}bought ${shipPhp(c.cost)}</small></span></label>`).join('')
-    : `<p class="stub-note" style="margin:10px 0 4px">${all.length ? 'No cards match.' : 'No onhand cards found.'}</p>`;
-  const n = all.filter(c => snSel.has(c.id)).reduce((a, c) => a + c.ids.length, 0);
+    ? shown.map(c => `<label class="chk"><input type="checkbox" value="${escShip(c.id)}"${snSel.has(c.id) ? ' checked' : ''}>${c.photo ? `<img class="cn-thumb" src="${escShip(c.photo)}" alt="" loading="lazy">` : '<span class="cn-thumb none"></span>'}<span>${c.isLot ? '<b class="lot-pill">LOT</b>' : ''}${escShip(c.name)} <small>\u2014 ${c.isLot ? c.ids.length + ' cards \u00b7 ' : ''}${c.safekeep ? 'safekeep \u00b7 sold to ' + escShip(c.soldTo || '\u2014') + ' for ' + shipPhp(c.soldPrice) : 'bought ' + shipPhp(c.cost)}</small></span></label>`).join('')
+    : `<p class="stub-note" style="margin:10px 0 4px">${all.length ? 'No cards match.' : (snKeepOn() ? 'No onhand or safekeep cards found.' : 'No onhand cards found.')}</p>`;
+  const picked = all.filter(c => snSel.has(c.id)), n = picked.reduce((a, c) => a + c.ids.length, 0), keep = picked.length > 0 && picked[0].safekeep;
   document.getElementById('snCount').textContent = n ? `${n} card${n > 1 ? 's' : ''} selected` : 'none selected';
+  // safekeep cards already have a buyer: the task takes it from them
+  const $b = document.getElementById('snBuyer');
+  if (keep) { $b.value = picked[0].soldTo || ''; $b.readOnly = true; snBuyerAuto = true; }
+  else if ($b.readOnly || snBuyerAuto) { if (snBuyerAuto) $b.value = ''; $b.readOnly = false; snBuyerAuto = false; }
+  document.getElementById('snKeepHint').hidden = !keep;
 }
 async function openShipNew() {
   ['snBuyer', 'snSched', 'snAddr', 'snContact', 'snNotes', 'snSearch'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('snSafekeep').checked = false;
+  document.getElementById('snBuyer').readOnly = false; snBuyerAuto = false;
   setMethodFields('snMethod', 'snMethodOther', 'LBC');
   snSel.clear(); snCards = [];
   document.getElementById('snList').innerHTML = '<p class="stub-note" style="margin:10px 0 4px">Loading onhand cards\u2026</p>';
   document.getElementById('snCount').textContent = 'none selected';
+  document.getElementById('snKeepHint').hidden = true;
   document.getElementById('shipNewSheet').hidden = false;
   try {
-    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=onhandCards&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    // safekeep cards come along (flagged) and are only shown while "Include safekeep cards" is on; an older Code.gs just sends onhand
+    const data = await jsonp(CONFIG.portfolio.endpoint + '?action=onhandCards&safekeep=1&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
     snCards = (data && data.ok && data.cards) || [];
   } catch (err) { console.warn('Could not load onhand cards', err); }
   snRender();
@@ -389,7 +476,22 @@ document.getElementById('shipNew').onclick = () => { if (!CONFIG.portfolio.endpo
 document.getElementById('snCancel').onclick = closeShipNew;
 document.getElementById('shipNewSheet').addEventListener('click', e => { if (e.target.id === 'shipNewSheet') closeShipNew(); });
 document.getElementById('snSearch').addEventListener('input', snRender);
-document.getElementById('snList').addEventListener('change', e => { if (e.target.matches('input[type=checkbox]')) { e.target.checked ? snSel.add(e.target.value) : snSel.delete(e.target.value); snRender(); } });
+document.getElementById('snList').addEventListener('change', e => {
+  if (!e.target.matches('input[type=checkbox]')) return;
+  const id = e.target.value;
+  if (e.target.checked) {
+    // one task is either unpaid onhand cards or paid safekeep cards of ONE buyer, never a mix
+    const me = snEntries().find(c => c.id === id), cur = snEntries().find(c => snSel.has(c.id));
+    if (me && cur && me.safekeep !== cur.safekeep) { e.target.checked = false; return toast('Pick either onhand cards or safekeep cards for one task, not both.'); }
+    if (me && cur && me.safekeep && String(me.soldTo).trim().toLowerCase() !== String(cur.soldTo).trim().toLowerCase()) { e.target.checked = false; return toast('Safekeep cards in one task must belong to the same buyer.'); }
+    snSel.add(id);
+  } else snSel.delete(id);
+  snRender();
+});
+document.getElementById('snSafekeep').addEventListener('change', () => {
+  if (!snKeepOn()) snEntries(true).filter(c => c.safekeep).forEach(c => snSel.delete(c.id));   // hiding them also drops them from the pick
+  snRender();
+});
 document.getElementById('snSchedClear').onclick = () => document.getElementById('snSched').value = '';
 document.getElementById('snSched').addEventListener('click', e => { if (!e.target.value) { e.target.value = isoToday(); try { e.target.showPicker(); } catch (_) {} } });
 document.getElementById('snBuyer').addEventListener('change', () => {
@@ -400,8 +502,9 @@ document.getElementById('snBuyer').addEventListener('change', () => {
 });
 document.getElementById('snSave').onclick = async () => {
   const buyer = document.getElementById('snBuyer').value.trim();
-  if (!buyer) return toast('Enter the buyer.');
-  const ids = snEntries().filter(c => snSel.has(c.id)).flatMap(c => c.ids);
+  const picked = snEntries().filter(c => snSel.has(c.id)), keep = picked.some(c => c.safekeep);
+  if (!buyer && !keep) return toast('Enter the buyer.');   // safekeep cards already have theirs
+  const ids = picked.flatMap(c => c.ids);
   if (!ids.length) return toast('Pick at least one card.');
   const btn = document.getElementById('snSave');
   btn.disabled = true; btn.textContent = 'Creating\u2026';
@@ -417,7 +520,7 @@ document.getElementById('snSave').onclick = async () => {
     const data = await jsonp(url);
     if (!data.ok) throw new Error(data.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (data.error || 'Request failed'));
     closeShipNew();
-    toast('Shipping task created.');
+    toast(keep ? 'Shipping task created for the safekeep cards.' : 'Shipping task created.');
     snNames = null;   // a new buyer may have been saved
     if (shipTab !== 'toship') document.querySelector('.tab[data-stab="toship"]').click();
     await loadShipping();

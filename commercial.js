@@ -14,7 +14,8 @@ let tab = 'onhand', sub = 'all', query = '';
 let data = { cards: [] };
 const openLots = new Set();
 
-const normPort = d => ({ cards: (Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || [])).map(c => c.tag === 'shipped' ? Object.assign({}, c, { tag: 'sold' }) : c) });
+// shipped and safekeep (sold and paid, held for the buyer) both count as sold here
+const normPort = d => ({ cards: (Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || [])).map(c => c.tag === 'shipped' || c.tag === 'safekeep' ? Object.assign({}, c, { tag: 'sold' }) : c) });
 const findCard = id => data.cards.find(c => String(c.id) === String(id));
 const allLotCards = id => data.cards.filter(c => String(c.lotId) === String(id));
 const targetOf = c => { const t = num(c.targetPrice); return t > 0 ? t : 0; };            // low end (or the single price)
