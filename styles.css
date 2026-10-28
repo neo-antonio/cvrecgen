@@ -1327,5 +1327,13 @@ html[data-theme=dark] .tp-note:hover,html[data-theme=dark] .pf-card.click:hover,
 /* ---------- Auction tag (manual flag, kept after the card ships / sells) ---------- */
 .tag-auction{background:#ffe8d6;color:#9a3d00;animation:m-fade .4s ease-out}
 html[data-theme=dark] .tag-auction{background:#3b2210;color:#ffab70}
-.icon-btn.on{background:#ffe8d6;color:#9a3d00;border-color:#f3c6a0}
-html[data-theme=dark] .icon-btn.on{background:#3b2210;color:#ffab70;border-color:#6b3d1a}
+.icon-btn.auc-on,.icon-btn.auc-on:hover:not(:disabled){background:#ffe8d6;color:#9a3d00;border-color:#f3c6a0}
+html[data-theme=dark] .icon-btn.auc-on,html[data-theme=dark] .icon-btn.auc-on:hover:not(:disabled){background:#3b2210;color:#ffab70;border-color:#6b3d1a}
+
+/* ---------- Safekeep box button lit up blue when the card is already in safekeep ---------- */
+.icon-btn.safe-on,.icon-btn.safe-on:hover:not(:disabled){background:#dbeafe;color:#1e4e8c;border-color:#9ec1f0}
+html[data-theme=dark] .icon-btn.safe-on,html[data-theme=dark] .icon-btn.safe-on:hover:not(:disabled){background:#11284a;color:#8ebcf5;border-color:#27518f}
+
+/* ---------- LOT pill: `.port-info span` (grey) was out-ranking .lot-pill, so the white text turned grey on the black pill ---------- */
+.port-info .lot-pill{color:#fff}
+html[data-theme=dark] .port-info .lot-pill{color:#0e0e0f}

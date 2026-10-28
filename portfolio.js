@@ -69,6 +69,15 @@ function heldLine(it) {
   return ongoing ? `${days} day${days === 1 ? '' : 's'}` : `Held ${days} day${days === 1 ? '' : 's'}`;
 }
 
+// days held as a number (for sorting): purchase date until the sale date, or until today while the card is still held
+function daysHeldNum(it) {
+  const a = parseDay(it.purchaseDate); if (!a) return null;
+  const ongoing = it.tag === 'onhand' || it.tag === 'pending';
+  let b = ongoing ? new Date() : parseDay(it.soldDate); if (!b) return null;
+  b = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.max(0, Math.round((b - a) / 86400000));
+}
+
 function cardHtml(it, inLot) {
   const img = it.photo
     ? `<img src="${it.photo}" alt="${escHtml(it.name)}" loading="lazy" class="port-clickphoto" data-full="${it.photo}">`
@@ -83,8 +92,9 @@ function cardHtml(it, inLot) {
   const photoBtn = icon('camera', 'port-photo', it.photo ? 'Change photo' : 'Add photo', it.id);
   const receiptBtn = rcpts.length ? icon('doc', 'port-receipt', rcpts.length > 1 ? 'Receipts' : 'Receipt', it.id) : '';
   const revertBtn = (it.tag === 'shipping' || it.tag === 'pending' || it.tag === 'safekeep' || it.tag === 'shipped' || it.tag === 'traded') ? icon('undo', 'port-revert', 'Revert to onhand', it.id) : '';
-  const safeBtn = (it.tag === 'shipping' || it.tag === 'sold') ? icon('box', 'port-safekeep', 'Move to safekeep (paid, kept for the buyer)', it.id) : '';   // paid cards only (waiting to ship, or sold); pending tasks are not paid
-  const auctionBtn = icon('gavel', 'port-auction' + (it.auction ? ' on' : ''), it.auction ? 'Remove auction tag' : 'Tag as auction', it.id);   // any status (onhand, shipping, sold, safekeep, ...); the tag is kept when the status changes
+  const safeBtn = (it.tag === 'shipping' || it.tag === 'sold') ? icon('box', 'port-safekeep', 'Move to safekeep (paid, kept for the buyer)', it.id)
+    : it.tag === 'safekeep' ? icon('box', 'port-safekeep safe-on', 'In safekeep (paid, kept for the buyer)', it.id) : '';   // already safekept: the box shows lit up in blue   // paid cards only (waiting to ship, or sold); pending tasks are not paid
+  const auctionBtn = icon('gavel', 'port-auction' + (it.auction ? ' auc-on' : ''), it.auction ? 'Remove auction tag' : 'Tag as auction', it.id);   // any status (onhand, shipping, sold, safekeep, ...); the tag is kept when the status changes
   const unlotBtn = inLot ? icon('unlink', 'port-unlot', 'Remove from lot', it.id) : '';
   const deleteBtn = icon('trash', 'port-delete danger', 'Delete card', it.id);
   return `<div class="port-card" data-id="${it.id}">
@@ -127,7 +137,7 @@ function lotHtml(g) {
   const nAuc = g.cards.filter(c => c.auction).length;   // lot is tagged when any of its cards were auctioned
   const lotAuc = nAuc ? auctionPill(nAuc === g.cards.length ? 'Auction' : 'Auction ' + nAuc + '/' + g.cards.length) : '';
   const allTagged = g.cards.length && nAuc === g.cards.length;
-  const lotAucBtn = icon('gavel', 'lot-auction' + (allTagged ? ' on' : ''), allTagged ? 'Remove auction tag from every card in this lot' : 'Tag every card in this lot as auction', g.id);
+  const lotAucBtn = icon('gavel', 'lot-auction' + (allTagged ? ' auc-on' : ''), allTagged ? 'Remove auction tag from every card in this lot' : 'Tag every card in this lot as auction', g.id);
   const first = g.cards.find(c => c.photo);
   const img = first ? `<img src="${first.photo}" alt="${escHtml(g.name)}" loading="lazy">` : '<div class="port-noimg">No photo</div>';
   return `<div class="port-card lot-group" data-lot="${escHtml(g.id)}">
@@ -157,7 +167,7 @@ function renderTab() {
     $portCount.textContent = '0 cards';
     return;
   }
-  $portList.innerHTML = unitsOf(list).map(u => u.lot ? lotHtml(u) : cardHtml(u.card)).join('');
+  $portList.innerHTML = ListSort.sortUnits(unitsOf(list), daysHeldNum).map(u => u.lot ? lotHtml(u) : cardHtml(u.card)).join('');   // sort button (listsort.js)
   const total = gone
     ? list.reduce((a, i) => a + (Number(i.soldPrice) || 0), 0)
     : list.filter(isOwned).reduce((a, i) => a + (Number(i.purchaseCost) || 0), 0);
@@ -195,6 +205,7 @@ document.querySelectorAll('#portFilters .chip').forEach(c => c.onclick = () => {
 });
 $portSearch.addEventListener('input', () => { searchQuery = $portSearch.value.trim().toLowerCase(); renderTab(); });
 $portRefresh.onclick = loadPortfolio;
+ListSort.mount({ after: $portSearch.parentNode, onChange: renderTab });
 
 $portList.addEventListener('click', async e => {
   const photo = e.target.closest('.port-clickphoto');
@@ -259,6 +270,7 @@ $portList.addEventListener('click', async e => {
   const safeBtn = e.target.closest('.port-safekeep');
   if (safeBtn) {
     const sc = findCard(safeBtn.dataset.id), wasSold = sc && sc.tag === 'sold';
+    if (sc && sc.tag === 'safekeep') return toast('Already in safekeep. Use the revert button to move it back to onhand.');
     if (!confirm('Move this card to safekeep? It is already paid and stays with you for the buyer. ' + (wasSold ? 'Its shipped date is cleared and it is taken out of its shipping record. ' : 'It leaves its shipping task. ') + 'You can give it its own shipping task later from Shipping.')) return;
     safeBtn.disabled = true;
     try {

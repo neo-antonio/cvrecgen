@@ -80,11 +80,22 @@ function unitsOf(list) {
 }
 const thumb = (c, alt) => c && c.photo ? `<img src="${esc(c.photo)}" alt="${esc(alt)}" loading="lazy" class="port-clickphoto" data-full="${esc(c.photo)}">` : '<div class="port-noimg">No photo</div>';
 
+// days held (purchase date until sold, or until today while still held); null when it can't be told
+function daysHeldNum(c) {
+  const p = v => { const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+  const a = p(c.purchaseDate); if (!a) return null;
+  const ongoing = c.tag === 'onhand' || c.tag === 'pending';
+  let b = ongoing ? new Date() : p(c.soldDate); if (!b) return null;
+  b = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.max(0, Math.round((b - a) / 86400000));
+}
+const heldLine = c => { const d = daysHeldNum(c); return d == null ? '' : `<span class="cm-line">${c.tag === 'sold' ? 'Held ' : ''}${d} day${d === 1 ? '' : 's'}</span>`; };
+
 function cardHtml(c, inLot) {
   const sold = tab === 'sold', pend = tab === 'pending', m = metrics([c], sold);
   const info = sold
-    ? `<span>Sold ${c.soldDate ? fmtDay(c.soldDate) : '\u2014'}</span><span class="cm-line">Cost ${php(c.purchaseCost)}</span>`
-    : `<span>Cost ${php(c.purchaseCost)}</span>` + (pend ? `<span class="cm-line">Awaiting payment${c.soldTo ? ' \u00b7 ' + esc(c.soldTo) : ''}</span>` : '');
+    ? `<span>Sold ${c.soldDate ? fmtDay(c.soldDate) : '\u2014'}</span><span class="cm-line">Cost ${php(c.purchaseCost)}</span>${heldLine(c)}`
+    : `<span>Cost ${php(c.purchaseCost)}</span>` + heldLine(c) + (pend ? `<span class="cm-line">Awaiting payment${c.soldTo ? ' \u00b7 ' + esc(c.soldTo) : ''}</span>` : '');
   const right = sold
     ? `<div class="port-cost">${php(c.soldPrice)}</div><span class="cm-tgt">${tgtLine(m)}</span>${m.priced ? statusChip(m.status, m.range) : ''}${chip(m)}`
     : `<div class="port-cost">${m.priced ? rangeTxt(m.tLo, m.tHi) : '<span class="cm-tgt">No target</span>'}</div>${m.priced ? '<span class="cm-tgt">Target</span>' : ''}${m.priced ? chip(m) : ''}`;
@@ -126,6 +137,7 @@ function render() {
   if (query) list = list.filter(c => String(c.name || '').toLowerCase().includes(query) || String(c.lotName || '').toLowerCase().includes(query));
   let units = unitsOf(list);
   if (sold && sub !== 'all') units = units.filter(u => { const st = metrics(u.lot ? u.cards : [u.card], true).status; return sub === 'met' ? (st === 'met' || st === 'above') : st === sub; });
+  units = ListSort.sortUnits(units, daysHeldNum);   // sort button (listsort.js)
   const cards = units.reduce((a, u) => a.concat(u.lot ? u.cards : [u.card]), []);
   if (!cards.length) {
     $('cmState').textContent = data.cards.length ? 'No cards match your search/filter.' : 'No cards yet.';
@@ -179,6 +191,7 @@ document.querySelectorAll('#cmFilters .chip').forEach(c => c.onclick = () => {
 });
 $('cmSearch').addEventListener('input', () => { query = $('cmSearch').value.trim().toLowerCase(); render(); });
 $('cmRefresh').onclick = load;
+ListSort.mount({ after: $('cmSearch').parentNode, onChange: render });
 
 /* ---------- backend calls ---------- */
 async function call(action, params) {
