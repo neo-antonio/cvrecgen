@@ -49,7 +49,7 @@
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
- *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping, setSafekeep, mergeShippingTasks, setAuction,
+ *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping, setSafekeep, mergeShippingTasks, setAuction, titleCaseCards,
  *               topicUsers, topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
@@ -121,6 +121,7 @@ function doGet(e) {
     if (action === 'cancelShipping') return jsonpOut_(cancelShipping_(e.parameter.cardIds), cb);
     if (action === 'setSafekeep') return jsonpOut_(setSafekeep_(e.parameter.cardIds), cb);
     if (action === 'setAuction') return jsonpOut_(setAuction_(e.parameter), cb);
+    if (action === 'titleCaseCards') return jsonpOut_(titleCaseCards_(), cb);
     if (action === 'mergeShippingTasks') return jsonpOut_(mergeShippingTasks_(e.parameter), cb);
     if (action === 'entities') return jsonpOut_(getEntities_(), cb);
     if (action === 'entityNames') return jsonpOut_(getEntityNames_(), cb);
@@ -190,6 +191,7 @@ function handlePurchase_(body) {
   let photosFailed = 0;
   const items = body.items || [];
   if (!items.length) return { ok: true };
+  items.forEach(it => { it.name = titleCase_(it.name); });   // new cards are always saved in title case
   const seller = resolveParty_(body.seller);   // saved entity (spelling-safe), created on first use
 
   let receiptUrl = '', receiptSaved = false;
@@ -323,6 +325,7 @@ function handleTrade_(body) {
   let photosFailed = 0, tradedN = 0, receivedN = 0;
   const tradedItems = body.tradedItems || [];
   const receivedItems = body.receivedItems || [];
+  receivedItems.forEach(it => { it.name = titleCase_(it.name); });   // received cards are saved in title case
   if (!tradedItems.length && !receivedItems.length) return { ok: true };
 
   const tradedTo = resolveParty_(body.tradedTo);
@@ -403,6 +406,48 @@ function handleTransfer_(body) {
   appendRows_(fin, rows);
   return { ok: true, receipt: receiptSaved, finance: rows.length };
 }
+
+// Title case for card names: every word capitalised, the rest lower case. A word that is ALREADY in capitals (SPX, BGS, DONCIC) is left as typed,
+// and "psa" / "rc" (any mix of upper and lower case, standing alone) are always made PSA / RC (also PSA10 / PSA-10). Same rules as titlecase.js in the app. Other words to force into capitals when typed in lower case: add them to the list below, e.g. 'BGS'.
+const TITLE_KEEP_UPPER = ['PSA', 'RC'];
+function titleCase_(s) {
+  s = String(s == null ? '' : s).trim();
+  let out = '', cap = true;
+    const keepCaps = [];   // words that are already in capitals (SPX, PSA, DONCIC) are left exactly as typed
+    const capsRe = /[A-Za-z\u00C0-\u024F]{2,}/g; let m;
+    while ((m = capsRe.exec(s))) if (m[0] === m[0].toUpperCase() && m[0] !== m[0].toLowerCase()) for (let k = m.index; k < m.index + m[0].length; k++) keepCaps[k] = true;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charAt(i);
+    if (/\s/.test(ch)) { out += ch; cap = true; }
+    else if (/[A-Za-z\u00C0-\u024F]/.test(ch)) { out += keepCaps[i] ? ch : cap ? ch.toUpperCase() : ch.toLowerCase(); cap = false; }
+    else if (/[0-9]/.test(ch)) { out += ch; cap = false; }
+    else { out += ch; if ('-/([{"\u201C\u2018#&+'.indexOf(ch) >= 0) cap = true; }
+  }
+  TITLE_KEEP_UPPER.forEach(w => { out = out.replace(new RegExp('(^|[^A-Za-z])' + w.charAt(0) + w.slice(1).toLowerCase() + '(?![a-z])', 'g'), '$1' + w); });
+  return out;
+}
+// Fixes the name of EVERY existing card (Cards col E) in one write. Run from the app (Portfolio > Fix titles) or by hand from the editor (fixCardTitles).
+// Finance descriptions and old receipt images keep the spelling they were saved with.
+function titleCaseCards_() {
+  const cards = cardsSheet_(), last = cards.getLastRow();
+  if (last < 2) return { ok: true, changed: 0, total: 0 };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const rng = cards.getRange(2, 5, last - 1, 1), vals = rng.getValues();
+    let changed = 0;
+    const out = vals.map(r => {
+      const v = r[0];
+      if (typeof v !== 'string' || !v) return [v];
+      const t = titleCase_(v);
+      if (t !== v) changed++;
+      return [t];
+    });
+    if (changed) rng.setValues(out);
+    return { ok: true, changed: changed, total: vals.filter(r => r[0]).length };
+  } finally { lock.releaseLock(); }
+}
+function fixCardTitles() { Logger.log(JSON.stringify(titleCaseCards_())); }
 
 function renameCard_(cardId, name) {
   if (!cardId) return { ok: false, error: 'missing cardId' };

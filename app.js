@@ -173,7 +173,7 @@ function lotItems(id) {
 function blockItems(b) {
   if (b.classList.contains('lot-block')) return lotItems(b.dataset.lotId);
   if (mode === 'sold') return expandPick(b);
-  return [{ id: b.dataset.id, cardId: '', name: b.querySelector('.in-name').value.trim(), cost: parseFloat(b.querySelector('.in-cost').value) || 0, photo: itemPhotos[b.dataset.id] || null }];
+  return [{ id: b.dataset.id, cardId: '', name: titleCase(b.querySelector('.in-name').value), cost: parseFloat(b.querySelector('.in-cost').value) || 0, photo: itemPhotos[b.dataset.id] || null }];   // new cards are saved (and printed on the receipt) in title case
 }
 const items = () => $$('#items .item-block').flatMap(blockItems).filter(i => i.name || i.cost);
 // what the receipt image prints: one line per single item, one line (plus the card names) per lot
@@ -263,7 +263,7 @@ $$('input[name=lotMode]').forEach(r => r.addEventListener('change', () => {
 $('#lotSave').onclick = () => {
   const rows = lotCardRows();
   if (rows.length < 2) return toast('A lot needs at least 2 cards.');
-  const names = rows.map(r => r.querySelector('.in-name').value.trim());
+  const names = rows.map(r => titleCase(r.querySelector('.in-name').value));
   if (names.some(n => !n)) return toast('Give every card in the lot a name.');
   const m = lotMode();
   let costs;
@@ -454,7 +454,7 @@ $('#receivedItems').addEventListener('click', e => {
 $('#receivedItems').addEventListener('input', update);
 const receivedItems = () => $$('#receivedItems .item-block').map(b => ({
   id: b.dataset.id,
-  name: b.querySelector('.in-name').value.trim(),
+  name: titleCase(b.querySelector('.in-name').value),
   cost: parseFloat(b.querySelector('.in-cost').value) || 0,
   photo: itemPhotos[b.dataset.id] || null
 })).filter(i => i.name);

@@ -8,6 +8,7 @@ const $portTotal = document.getElementById('portTotal');
 const $portSummaryLabel = document.querySelector('.port-summary span');
 const $portCount = document.getElementById('portCount');
 const $portRefresh = document.getElementById('portRefresh');
+const $portFix = document.getElementById('portFixTitles');
 const $portSearch = document.getElementById('portSearch');
 
 let statusFilter = 'onhand';
@@ -54,7 +55,7 @@ const findCard = id => portData.cards.find(c => String(c.id) === String(id));
 const ICON = {
   pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>', camera: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.4"/>', doc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M9 12h7M9 16h7"/>', trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>', undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>'
 };
-Object.assign(ICON, { gavel: '<g transform="rotate(45 14 8)"><rect x="8.5" y="5" width="11" height="6" rx="1.5"/><path d="M14 11v11"/></g><path d="M3 21.5h18"/>', box: '<path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5L12 12l8.5-4.5"/><path d="M12 12v9"/>', plus: '<path d="M12 5v14M5 12h14"/>', unlink: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/><path d="M4 4l16 16"/>' });
+Object.assign(ICON, { aa: '<text x="12" y="16.4" text-anchor="middle" font-size="11.5" font-weight="700" font-family="Inter,system-ui,sans-serif" fill="currentColor" stroke="none">Aa</text>', gavel: '<g transform="rotate(45 14 8)"><rect x="8.5" y="5" width="11" height="6" rx="1.5"/><path d="M14 11v11"/></g><path d="M3 21.5h18"/>', box: '<path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5L12 12l8.5-4.5"/><path d="M12 12v9"/>', plus: '<path d="M12 5v14M5 12h14"/>', unlink: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/><path d="M4 4l16 16"/>' });
 const icon = (name, cls, label, id) => `<button type="button" class="icon-btn ${cls}" data-id="${id}" title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</svg></button>`;
 
 /* Days held: purchase date until the sale / trade date. Cards still on hand count up to today. */
@@ -89,6 +90,7 @@ function cardHtml(it, inLot) {
   const held = heldLine(it);
   const rcpts = receiptsFor(it);
   const renameBtn = icon('pencil', 'port-rename', 'Edit name', it.id);
+  const titleBtn = it.name && titleCase(it.name) !== it.name ? icon('aa', 'port-title', 'Fix title case: ' + titleCase(it.name), it.id) : '';   // only when the name is not in title case yet
   const photoBtn = icon('camera', 'port-photo', it.photo ? 'Change photo' : 'Add photo', it.id);
   const receiptBtn = rcpts.length ? icon('doc', 'port-receipt', rcpts.length > 1 ? 'Receipts' : 'Receipt', it.id) : '';
   const revertBtn = (it.tag === 'shipping' || it.tag === 'pending' || it.tag === 'safekeep' || it.tag === 'shipped' || it.tag === 'traded') ? icon('undo', 'port-revert', 'Revert to onhand', it.id) : '';
@@ -112,7 +114,7 @@ function cardHtml(it, inLot) {
           <div class="port-cost">${portPhp(costLine)}</div>
         </div>
       </div>
-      <div class="port-card-acts">${renameBtn}${photoBtn}${receiptBtn}${auctionBtn}${safeBtn}${revertBtn}${unlotBtn}${deleteBtn}</div>
+      <div class="port-card-acts">${renameBtn}${titleBtn}${photoBtn}${receiptBtn}${auctionBtn}${safeBtn}${revertBtn}${unlotBtn}${deleteBtn}</div>
     </div>`;
 }
 
@@ -155,6 +157,7 @@ function lotHtml(g) {
    what has left is valued at its sale / trade price (Shipped / Sold / Traded). Search narrows it too. */
 const SUMMARY_LABEL = { shipped: 'Total shipped', sold: 'Total sold', traded: 'Total traded' };
 function renderTab() {
+  $portFix.hidden = !portData.cards.some(c => c.name && titleCase(c.name) !== c.name);   // the bulk button only shows while some title needs fixing
   const gone = statusFilter === 'shipped' || statusFilter === 'sold' || statusFilter === 'traded';
   $portSummaryLabel.textContent = gone ? SUMMARY_LABEL[statusFilter] : statusFilter === 'auction' ? 'Auction value (held)' : statusFilter === 'pending' ? 'Pending value' : statusFilter === 'safekeep' ? 'Safekeep value' : 'Onhand value';
   let list = portData.cards;
@@ -205,6 +208,21 @@ document.querySelectorAll('#portFilters .chip').forEach(c => c.onclick = () => {
 });
 $portSearch.addEventListener('input', () => { searchQuery = $portSearch.value.trim().toLowerCase(); renderTab(); });
 $portRefresh.onclick = loadPortfolio;
+/* Fix every existing title at once (Code.gs titleCaseCards): title case, "PSA" stays in capitals */
+$portFix.onclick = async () => {
+  const bad = portData.cards.filter(c => c.name && titleCase(c.name) !== c.name);
+  if (!bad.length) return toast('Every card name is already in title case.');
+  const eg = bad.slice(0, 4).map(c => '\u2022 ' + c.name + '  \u2192  ' + titleCase(c.name)).join('\n') + (bad.length > 4 ? '\n\u2026and ' + (bad.length - 4) + ' more' : '');
+  if (!confirm('Change ' + bad.length + ' card name' + (bad.length === 1 ? '' : 's') + ' to title case (words already in capitals, like SPX or PSA, stay as they are)?\n\n' + eg + '\n\nFinance entries and past receipt images keep their old spelling.')) return;
+  $portFix.disabled = true;
+  try {
+    const d = await jsonp(CONFIG.portfolio.endpoint + '?action=titleCaseCards&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    if (!d.ok) throw new Error(d.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (d.error || 'Request failed'));
+    toast(d.changed + ' title' + (d.changed === 1 ? '' : 's') + ' fixed.');
+    await loadPortfolio();
+  } catch (err) { toast('Could not fix titles: ' + err.message); }
+  $portFix.disabled = false;
+};
 ListSort.mount({ after: $portSearch.parentNode, onChange: renderTab });
 
 $portList.addEventListener('click', async e => {
@@ -239,6 +257,15 @@ $portList.addEventListener('click', async e => {
       renameBtn.disabled = false;
       toast('Could not rename: ' + err.message);
     }
+    return;
+  }
+
+  const ttlBtn = e.target.closest('.port-title');
+  if (ttlBtn) {
+    const card = findCard(ttlBtn.dataset.id); if (!card) return;
+    ttlBtn.disabled = true;
+    try { await lotCall('renameCard', { cardId: card.id, name: titleCase(card.name) }); toast('Title fixed.'); await loadPortfolio(); }
+    catch (err) { ttlBtn.disabled = false; toast('Could not rename: ' + err.message); }
     return;
   }
 
