@@ -304,7 +304,7 @@ async function auctionCall(ids, on) {   // Code.gs setAuction: works on any stat
 }
 let lotAddId = null, lotCreate = false; const lotAddSel = new Set();
 const LOT_OK = c => !!c.tag;   // any status can be grouped
-const LOT_TAGS = [['all', 'All'], ['onhand', 'Onhand'], ['auction', 'Auction'], ['pending', 'Pending'], ['shipping', 'Shipping'], ['sold', 'Sold'], ['safekeep', 'Safekeep'], ['traded', 'Traded']];   // status filter inside the lot sheet
+const LOT_TAGS = [['all', 'All'], ['onhand', 'Onhand'], ['pending', 'Pending'], ['shipping', 'Shipping'], ['sold', 'Sold'], ['safekeep', 'Safekeep'], ['traded', 'Traded'], ['auction', 'Auction']];   // status filter inside the lot sheet
 let lotAddTag = 'all';
 const lotStartTag = () => LOT_TAGS.some(t => t[0] === statusFilter) ? statusFilter : 'all';   // open on the chip the page is currently showing
 function lotChips() {
