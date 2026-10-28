@@ -38,6 +38,10 @@
     <button type="button" class="ghost sm" id="tpNew">+ New topic</button>
     <button type="button" class="ghost sm" id="tpRefresh">Refresh</button>
   </div>
+  <div class="field" id="tpAsWrap" style="margin-bottom:12px" hidden>
+    <label for="tpAs">Post as <small>(admin: notes, comments and edits are recorded under this person)</small></label>
+    <select id="tpAs"></select>
+  </div>
   <div class="field" style="margin-bottom:12px">
     <input type="search" id="tpSearch" placeholder="Search topics, comments or conclusions" autocomplete="off">
   </div>
@@ -80,6 +84,6 @@
 <script src="boot.js"></script>
 <script src="config.js"></script>
 <script src="net.js"></script>
-<script src="topics.js?v=3"></script>
+<script src="topics.js?v=4"></script>
 </body>
 </html>

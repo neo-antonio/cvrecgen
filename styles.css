@@ -1323,3 +1323,9 @@ html .cb-bar i{transition:width .4s var(--ease)}
 html[data-theme=dark] .tp-note:hover,html[data-theme=dark] .pf-card.click:hover,html[data-theme=dark] .gl-card:hover{box-shadow:0 6px 16px -8px rgba(0,0,0,.6)}
 
 }
+
+/* ---------- Auction tag (manual flag, kept after the card ships / sells) ---------- */
+.tag-auction{background:#ffe8d6;color:#9a3d00;animation:m-fade .4s ease-out}
+html[data-theme=dark] .tag-auction{background:#3b2210;color:#ffab70}
+.icon-btn.on{background:#ffe8d6;color:#9a3d00;border-color:#f3c6a0}
+html[data-theme=dark] .icon-btn.on{background:#3b2210;color:#ffab70;border-color:#6b3d1a}

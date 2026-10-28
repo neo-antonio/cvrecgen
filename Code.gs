@@ -11,6 +11,8 @@
  *                   ShippedDate | ShippingProofPhoto | ShippingRecorded | PurchaseReceiptURL | SaleReceiptURL | ShipBatchID | ShippingAddress | ShippedTime |  ShippingContact | SaleNotes | LotID | LotName | ShippedBy
  *                   LotID/LotName (AC-AD) group cards bought together as a lot; blank = a normal single card.
  *                   TargetPrice / TargetMax (AF-AG, Commercial app): target sale price; TargetMax is the top of a range (blank/0 = a single price). Created on first use.
+ *                   Auction (AH): manual flag "Y" = the card was put up for auction. It is NOT a status: it is a subtype of onhand while the card is onhand,
+ *                   it can be set or cleared on a card of ANY status (onhand, pending, shipping, sold, safekeep, traded), and it is kept when the card changes status. Created on first use.
  *                   Status is one of: onhand, shipping, shipped, safekeep, traded.
  *                   SAFEKEEP = sold and already paid, but we keep the card for the buyer. It keeps its sale details (buyer, price, sale receipt) and has no
  *                   shipping task, so it is not in the Shipping feed. A safekeep card can later get its own shipping task (createShippingTask with safekeep cards).
@@ -47,8 +49,8 @@
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
- *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping, setSafekeep, mergeShippingTasks,
- *               topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic
+ *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping, setSafekeep, mergeShippingTasks, setAuction,
+ *               topicUsers, topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
 
@@ -118,6 +120,7 @@ function doGet(e) {
     if (action === 'createShippingTask') return jsonpOut_(createShippingTask_(e.parameter), cb);
     if (action === 'cancelShipping') return jsonpOut_(cancelShipping_(e.parameter.cardIds), cb);
     if (action === 'setSafekeep') return jsonpOut_(setSafekeep_(e.parameter.cardIds), cb);
+    if (action === 'setAuction') return jsonpOut_(setAuction_(e.parameter), cb);
     if (action === 'mergeShippingTasks') return jsonpOut_(mergeShippingTasks_(e.parameter), cb);
     if (action === 'entities') return jsonpOut_(getEntities_(), cb);
     if (action === 'entityNames') return jsonpOut_(getEntityNames_(), cb);
@@ -138,6 +141,7 @@ function doGet(e) {
     if (action === 'deleteCreative') return jsonpOut_(deleteCreative_(e.parameter.id), cb);
     if (action === 'savePostGroup') return jsonpOut_(savePostGroup_(e.parameter), cb);
     if (action === 'topics') return jsonpOut_(getTopics_(), cb);
+    if (action === 'topicUsers') return jsonpOut_(getTopicUsers_(), cb);
     if (action === 'saveTopic') return jsonpOut_(saveTopic_(e.parameter), cb);
     if (action === 'addTopicComment') return jsonpOut_(addTopicComment_(e.parameter), cb);
     if (action === 'resolveTopic') return jsonpOut_(resolveTopic_(e.parameter), cb);
@@ -454,6 +458,33 @@ function setTargets_(p) {
     if (!idx) return;
     const lo = Math.round((Number(part[1]) || 0) * 100) / 100, hi = Math.round((Number(part[2]) || 0) * 100) / 100;
     cards.getRange(idx, 32, 1, 2).setNumberFormat('0.00').setValues([[lo > 0 ? lo : '', lo > 0 && hi > lo ? hi : '']]);
+    n++;
+  });
+  return { ok: true, updated: n };
+}
+
+// Auction: a manual flag in Cards AH (34). It is a subtype of onhand while the card is onhand, can be switched on/off on a card of any status
+// (so sold / safekeep / shipping cards can be marked too), and stays on the card when its status changes (shipping, sold, safekeep, traded, revert to onhand).
+// p.cardIds = comma list, p.on = '1' to tag, '0' to untag.
+function ensureAuctionColumn_(cards) {
+  const need = 34;
+  if (cards.getMaxColumns() < need) cards.insertColumnsAfter(cards.getMaxColumns(), need - cards.getMaxColumns());
+  if (!cards.getRange(1, 34).getValue()) cards.getRange(1, 34).setValue('Auction');
+}
+function isAuction_(v) { return /^(y|yes|true|1)$/i.test(String(v == null ? '' : v).trim()); }
+function setAuction_(p) {
+  const ids = splitIds_(p.cardIds), on = String(p.on) === '1';
+  if (!ids.length) return { ok: false, error: 'missing cardIds' };
+  const cards = cardsSheet_();
+  ensureCardsColumns_(cards);
+  ensureAuctionColumn_(cards);
+  const data = cards.getDataRange().getValues(), rowOf = {};
+  for (let i = 1; i < data.length; i++) rowOf[String(data[i][0])] = i;
+  let n = 0;
+  ids.forEach(id => {
+    const i = rowOf[id];
+    if (i == null) return;
+    cards.getRange(i + 1, 34).setNumberFormat('@').setValue(on ? 'Y' : '');
     n++;
   });
   return { ok: true, updated: n };
@@ -1328,7 +1359,8 @@ function getPortfolio_() {
       purchaseReceipt: r[21] || '', saleReceipt: r[22] || '',
       receipts: receiptLinks_(r[21], r[22], rmap),
       lotId: String(r[28] || ''), lotName: String(r[29] || ''),
-      targetPrice: Number(r[31]) || 0, targetMax: Number(r[32]) || 0   // Commercial: target sale price (low end) and optional top of the range
+      targetPrice: Number(r[31]) || 0, targetMax: Number(r[32]) || 0,   // Commercial: target sale price (low end) and optional top of the range
+      auction: isAuction_(r[33])   // manual auction tag (Cards AH); kept after the card ships / sells
     };
     (status === 'onhand' || status === 'shipping' || status === 'safekeep' ? owned : sold).push(item);
     all.push(item);
@@ -2375,24 +2407,41 @@ function getTopics_() {
   const rows = sh.getDataRange().getValues(); rows.shift();
   return { ok: true, topics: rows.filter(r => r[0] && r[1]).map(topicOut_).reverse() };   // newest first
 }
-// runs fn(sh, found, who) under the lock for an existing topic; fn returns the response
-function withTopic_(p, fn) {
+// p.by = the person the note / comment is recorded as. p.actor = who is really logged in (defaults to p.by).
+// Only the admin (ADMIN_USER) may record things as somebody else, so no login for that person is needed.
+// Returns { who, admin } or { error }.
+function topicActor_(p) {
   const who = knownUser_(p.by);
-  if (!who) return { ok: false, error: 'Please log in again.' };
+  if (!who) return { error: 'Please log in again.' };
+  const actor = String(p.actor || p.by).trim().toLowerCase();
+  if (actor !== who && actor !== ADMIN_USER) return { error: 'Only ' + ADMIN_USER + ' can post as another person.' };
+  return { who: who, admin: actor === ADMIN_USER };
+}
+// names only (never passwords): who the admin can post as
+function getTopicUsers_() {
+  const rows = usersSheet_().getDataRange().getValues().slice(1);
+  return { ok: true, users: rows.map(r => String(r[0] || '').trim().toLowerCase()).filter(Boolean) };
+}
+// runs fn(sh, found, who, admin) under the lock for an existing topic; fn returns the response
+function withTopic_(p, fn) {
+  const a = topicActor_(p);
+  if (a.error) return { ok: false, error: a.error };
+  const who = a.who, admin = a.admin;
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     const sh = topicsSheet_(false), found = sh && findRow_(sh, p.topicId);
     if (!found) return { ok: false, error: 'not found' };
-    return fn(sh, found, who);
+    return fn(sh, found, who, admin);
   } finally { lock.releaseLock(); }
 }
-const canEditTopic_ = (found, who) => who === ADMIN_USER || String(found.row[3]).trim().toLowerCase() === who;
+const canEditTopic_ = (found, who, admin) => admin || who === ADMIN_USER || String(found.row[3]).trim().toLowerCase() === who;
 
 // Create a topic, or (topicId given) edit its title/details. Only the person who added it, or the admin, can edit.
 function saveTopic_(p) {
-  const who = knownUser_(p.by);
-  if (!who) return { ok: false, error: 'Please log in again.' };
+  const a = topicActor_(p);
+  if (a.error) return { ok: false, error: a.error };
+  const who = a.who, admin = a.admin;
   const title = String(p.title || '').trim().slice(0, TOPIC_LIMITS.title), body = String(p.body || '').trim().slice(0, TOPIC_LIMITS.body);
   if (!title) return { ok: false, error: 'missing title' };
   const lock = LockService.getScriptLock();
@@ -2402,7 +2451,7 @@ function saveTopic_(p) {
     if (p.topicId) {
       const found = findRow_(sh, p.topicId);
       if (!found) return { ok: false, error: 'not found' };
-      if (!canEditTopic_(found, who)) return { ok: false, error: 'Only the person who added this topic can edit it.' };
+      if (!canEditTopic_(found, who, admin)) return { ok: false, error: 'Only the person who added this topic can edit it.' };
       sh.getRange(found.idx, 2, 1, 2).setNumberFormat('@').setValues([[title, body]]);
       sh.getRange(found.idx, 11, 1, 1).setNumberFormat('@').setValue(now);
       return { ok: true, topic: topicOut_(sh.getRange(found.idx, 1, 1, TOPIC_HEADERS.length).getValues()[0]) };
@@ -2453,8 +2502,8 @@ function reopenTopic_(p) {
 }
 
 function deleteTopic_(p) {
-  return withTopic_(p, (sh, found, who) => {
-    if (!canEditTopic_(found, who)) return { ok: false, error: 'Only the person who added this topic can delete it.' };
+  return withTopic_(p, (sh, found, who, admin) => {
+    if (!canEditTopic_(found, who, admin)) return { ok: false, error: 'Only the person who added this topic can delete it.' };
     sh.deleteRow(found.idx);
     return { ok: true };
   });

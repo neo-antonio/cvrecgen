@@ -4,8 +4,12 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const cap = n => { n = String(n || ''); return n.charAt(0).toUpperCase() + n.slice(1).toLowerCase(); };
-const me = () => (window.CVAuth && CVAuth.user()) || '';
 const isAdmin = () => !!(window.CVAuth && CVAuth.isAdmin());
+const realMe = () => (window.CVAuth && CVAuth.user()) || '';   // who is actually logged in
+/* The admin (neo) can post, comment, resolve, edit and delete as any teammate without logging in as them: pick the name in "Post as".
+   Everything is recorded under that person's name; Code.gs only accepts this when the real login (sent as `actor`) is the admin. */
+let actAs = '';
+const me = () => (isAdmin() && actAs) || realMe();
 
 let tab = 'open', query = '', topics = [], openId = null, editId = null;
 
@@ -76,6 +80,7 @@ function toast(m) {
 }
 
 async function call(action, params) {
+  if (params && params.by) params = Object.assign({ actor: realMe() }, params);   // the server checks that only the admin posts as someone else
   const url = CONFIG.portfolio.endpoint + '?action=' + action + Object.keys(params || {}).map(k => '&' + k + '=' + encodeURIComponent(params[k])).join('') + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
   const d = await jsonp(url);
   if (!d.ok) throw new Error(d.error === 'unknown action' ? 'Code.gs needs the latest version deployed' : (d.error || 'Request failed'));
@@ -216,6 +221,20 @@ $('tpFormSave').onclick = async () => {
   btn.disabled = false;
 };
 
+/* ---------- admin: post as another person ---------- */
+const TEAM = ['neo', 'ariel', 'justine', 'yuki', 'lemuel'];
+async function setupActAs() {
+  if (!isAdmin() || !$('tpAsWrap')) return;
+  let names = TEAM;
+  try { const d = await call('topicUsers'); if (d.users && d.users.length) names = d.users; } catch (_) {}   // older Code.gs: fall back to the team list
+  const self = realMe();
+  let saved = ''; try { saved = localStorage.getItem('tpActAs') || ''; } catch (_) {}
+  actAs = names.includes(saved) ? saved : self;
+  $('tpAs').innerHTML = names.map(n => `<option value="${esc(n)}"${n === actAs ? ' selected' : ''}>${esc(cap(n))}${n === self ? ' (me)' : ''}</option>`).join('');
+  $('tpAsWrap').hidden = false;
+  $('tpAs').onchange = () => { actAs = $('tpAs').value; try { localStorage.setItem('tpActAs', actAs); } catch (_) {} toast('Now posting as ' + cap(actAs) + '.'); };
+}
+
 /* ---------- load ---------- */
 let first = true;
 async function load() {
@@ -243,4 +262,5 @@ $('tpRefresh').onclick = load;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeForm(); closeDetail(); } });
 
 load();
+setupActAs();
 })();

@@ -21,6 +21,10 @@ const isOwned = it => it.tag === 'onhand' || it.tag === 'shipping' || it.tag ===
 // "shipped" no longer exists as a separate state: once shipped, a card is sold (older Code.gs / cached copies still send "shipped")
 const normPort = d => ({ cards: (Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || [])).map(c => c.tag === 'shipped' ? Object.assign({}, c, { tag: 'sold' }) : c) });
 
+// Auction is a manual flag, not a status: it is a subtype of onhand and stays on the card after it ships / sells / is traded.
+// Every status chip still matches on the real status; the Auction chip matches the flag whatever the status is now.
+const matchTag = (c, t) => t === 'all' || (t === 'auction' ? !!c.auction : c.tag === t);
+const auctionPill = (label) => `<span class="port-tag tag-auction">${label || 'Auction'}</span>`;
 const TAG_LABEL = { onhand: 'Onhand', pending: 'Pending', shipping: 'Shipping', shipped: 'Shipped', sold: 'Sold', safekeep: 'Safekeep', traded: 'Traded' };
 
 function toast(m) {
@@ -50,7 +54,7 @@ const findCard = id => portData.cards.find(c => String(c.id) === String(id));
 const ICON = {
   pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>', camera: '<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z"/><circle cx="12" cy="13.2" r="3.4"/>', doc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M9 12h7M9 16h7"/>', trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>', undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>'
 };
-Object.assign(ICON, { box: '<path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5L12 12l8.5-4.5"/><path d="M12 12v9"/>', plus: '<path d="M12 5v14M5 12h14"/>', unlink: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/><path d="M4 4l16 16"/>' });
+Object.assign(ICON, { gavel: '<g transform="rotate(45 14 8)"><rect x="8.5" y="5" width="11" height="6" rx="1.5"/><path d="M14 11v11"/></g><path d="M3 21.5h18"/>', box: '<path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5L12 12l8.5-4.5"/><path d="M12 12v9"/>', plus: '<path d="M12 5v14M5 12h14"/>', unlink: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/><path d="M4 4l16 16"/>' });
 const icon = (name, cls, label, id) => `<button type="button" class="icon-btn ${cls}" data-id="${id}" title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</svg></button>`;
 
 /* Days held: purchase date until the sale / trade date. Cards still on hand count up to today. */
@@ -80,6 +84,7 @@ function cardHtml(it, inLot) {
   const receiptBtn = rcpts.length ? icon('doc', 'port-receipt', rcpts.length > 1 ? 'Receipts' : 'Receipt', it.id) : '';
   const revertBtn = (it.tag === 'shipping' || it.tag === 'pending' || it.tag === 'safekeep' || it.tag === 'shipped' || it.tag === 'traded') ? icon('undo', 'port-revert', 'Revert to onhand', it.id) : '';
   const safeBtn = (it.tag === 'shipping' || it.tag === 'sold') ? icon('box', 'port-safekeep', 'Move to safekeep (paid, kept for the buyer)', it.id) : '';   // paid cards only (waiting to ship, or sold); pending tasks are not paid
+  const auctionBtn = icon('gavel', 'port-auction' + (it.auction ? ' on' : ''), it.auction ? 'Remove auction tag' : 'Tag as auction', it.id);   // any status (onhand, shipping, sold, safekeep, ...); the tag is kept when the status changes
   const unlotBtn = inLot ? icon('unlink', 'port-unlot', 'Remove from lot', it.id) : '';
   const deleteBtn = icon('trash', 'port-delete danger', 'Delete card', it.id);
   return `<div class="port-card" data-id="${it.id}">
@@ -93,11 +98,11 @@ function cardHtml(it, inLot) {
           ${held ? `<span class="port-held">${held}</span>` : ''}
         </div>
         <div class="port-right">
-          <span class="port-tag tag-${it.tag}">${TAG_LABEL[it.tag] || it.tag}</span>
+          <span class="port-tag tag-${it.tag}">${TAG_LABEL[it.tag] || it.tag}</span>${it.auction ? auctionPill() : ''}
           <div class="port-cost">${portPhp(costLine)}</div>
         </div>
       </div>
-      <div class="port-card-acts">${renameBtn}${photoBtn}${receiptBtn}${safeBtn}${revertBtn}${unlotBtn}${deleteBtn}</div>
+      <div class="port-card-acts">${renameBtn}${photoBtn}${receiptBtn}${auctionBtn}${safeBtn}${revertBtn}${unlotBtn}${deleteBtn}</div>
     </div>`;
 }
 
@@ -119,15 +124,19 @@ function lotHtml(g) {
   const value = g.cards.reduce((a, c) => a + (Number(isOwned(c) ? c.purchaseCost : c.soldPrice) || 0), 0);
   const tags = {}; g.cards.forEach(c => { tags[c.tag] = (tags[c.tag] || 0) + 1; });
   const tagTxt = Object.keys(tags).sort((a, b) => Object.keys(TAG_LABEL).indexOf(a) - Object.keys(TAG_LABEL).indexOf(b)).map(t => (Object.keys(tags).length > 1 ? tags[t] + ' ' : '') + (TAG_LABEL[t] || t)).join(' \u00b7 ');
+  const nAuc = g.cards.filter(c => c.auction).length;   // lot is tagged when any of its cards were auctioned
+  const lotAuc = nAuc ? auctionPill(nAuc === g.cards.length ? 'Auction' : 'Auction ' + nAuc + '/' + g.cards.length) : '';
+  const allTagged = g.cards.length && nAuc === g.cards.length;
+  const lotAucBtn = icon('gavel', 'lot-auction' + (allTagged ? ' on' : ''), allTagged ? 'Remove auction tag from every card in this lot' : 'Tag every card in this lot as auction', g.id);
   const first = g.cards.find(c => c.photo);
   const img = first ? `<img src="${first.photo}" alt="${escHtml(g.name)}" loading="lazy">` : '<div class="port-noimg">No photo</div>';
   return `<div class="port-card lot-group" data-lot="${escHtml(g.id)}">
       <div class="port-card-main lot-head" data-lot="${escHtml(g.id)}">
         <div class="port-thumb">${img}</div>
         <div class="port-info"><b><span class="lot-pill">LOT</span>${escHtml(g.name)}</b><span>${g.cards.length} card${g.cards.length === 1 ? '' : 's'} \u00b7 ${tagTxt}</span></div>
-        <div class="port-right"><span class="lot-chev${open ? ' open' : ''}" aria-hidden="true"></span><div class="port-cost">${portPhp(value)}</div></div>
+        <div class="port-right"><span class="lot-chev${open ? ' open' : ''}" aria-hidden="true"></span>${lotAuc}<div class="port-cost">${portPhp(value)}</div></div>
       </div>
-      <div class="port-card-acts">${icon('pencil', 'lot-rename', 'Rename lot', g.id)}${icon('plus', 'lot-add', 'Add cards to lot', g.id)}${icon('unlink', 'lot-ungroup', 'Ungroup lot', g.id)}</div>
+      <div class="port-card-acts">${icon('pencil', 'lot-rename', 'Rename lot', g.id)}${icon('plus', 'lot-add', 'Add cards to lot', g.id)}${lotAucBtn}${icon('unlink', 'lot-ungroup', 'Ungroup lot', g.id)}</div>
       <div class="lot-members"${open ? '' : ' hidden'}>${g.cards.map(c => cardHtml(c, true)).join('')}</div>
     </div>`;
 }
@@ -137,9 +146,9 @@ function lotHtml(g) {
 const SUMMARY_LABEL = { shipped: 'Total shipped', sold: 'Total sold', traded: 'Total traded' };
 function renderTab() {
   const gone = statusFilter === 'shipped' || statusFilter === 'sold' || statusFilter === 'traded';
-  $portSummaryLabel.textContent = gone ? SUMMARY_LABEL[statusFilter] : statusFilter === 'pending' ? 'Pending value' : statusFilter === 'safekeep' ? 'Safekeep value' : 'Onhand value';
+  $portSummaryLabel.textContent = gone ? SUMMARY_LABEL[statusFilter] : statusFilter === 'auction' ? 'Auction value (held)' : statusFilter === 'pending' ? 'Pending value' : statusFilter === 'safekeep' ? 'Safekeep value' : 'Onhand value';
   let list = portData.cards;
-  if (statusFilter !== 'all') list = list.filter(i => i.tag === statusFilter);
+  if (statusFilter !== 'all') list = list.filter(i => matchTag(i, statusFilter));
   if (searchQuery) list = list.filter(i => (i.name || '').toLowerCase().includes(searchQuery) || (i.lotName || '').toLowerCase().includes(searchQuery));
   if (!list.length) {
     $portState.textContent = portData.cards.length ? 'No cards match your search/filter.' : 'No cards yet.';
@@ -238,6 +247,15 @@ $portList.addEventListener('click', async e => {
     return;
   }
 
+  const aucBtn = e.target.closest('.port-auction');
+  if (aucBtn) {
+    const c = findCard(aucBtn.dataset.id), turnOn = !(c && c.auction);
+    aucBtn.disabled = true;
+    try { await auctionCall([aucBtn.dataset.id], turnOn); toast(turnOn ? 'Tagged as auction.' : 'Auction tag removed.'); await loadPortfolio(); }
+    catch (err) { aucBtn.disabled = false; toast('Could not update: ' + err.message); }
+    return;
+  }
+
   const safeBtn = e.target.closest('.port-safekeep');
   if (safeBtn) {
     const sc = findCard(safeBtn.dataset.id), wasSold = sc && sc.tag === 'sold';
@@ -281,9 +299,12 @@ async function lotCall(action, params) {
 async function lotBatches(action, ids, extra) {   // keep each request URL short
   for (let i = 0; i < ids.length; i += 25) await lotCall(action, Object.assign({ cardIds: ids.slice(i, i + 25).join(',') }, extra || {}));
 }
+async function auctionCall(ids, on) {   // Code.gs setAuction: works on any status; the tag is kept when the status changes
+  for (let i = 0; i < ids.length; i += 25) await lotCall('setAuction', { cardIds: ids.slice(i, i + 25).join(','), on: on ? '1' : '0' });
+}
 let lotAddId = null, lotCreate = false; const lotAddSel = new Set();
 const LOT_OK = c => !!c.tag;   // any status can be grouped
-const LOT_TAGS = [['all', 'All'], ['onhand', 'Onhand'], ['pending', 'Pending'], ['shipping', 'Shipping'], ['sold', 'Sold'], ['safekeep', 'Safekeep'], ['traded', 'Traded']];   // status filter inside the lot sheet
+const LOT_TAGS = [['all', 'All'], ['onhand', 'Onhand'], ['auction', 'Auction'], ['pending', 'Pending'], ['shipping', 'Shipping'], ['sold', 'Sold'], ['safekeep', 'Safekeep'], ['traded', 'Traded']];   // status filter inside the lot sheet
 let lotAddTag = 'all';
 const lotStartTag = () => LOT_TAGS.some(t => t[0] === statusFilter) ? statusFilter : 'all';   // open on the chip the page is currently showing
 function lotChips() {
@@ -304,7 +325,7 @@ function lotAddRender() {
     if (seen.has(id) || !LOT_OK(c)) return false;
     if (lotCreate ? c.lotId : (c.lotId && String(c.lotId) === String(lotAddId))) return false;   // new lot: loose cards only; existing lot: skip cards already in it
     if (q && !String(c.name || '').toLowerCase().includes(q) && !String(c.lotName || '').toLowerCase().includes(q)) return false;
-    if (lotAddTag !== 'all' && c.tag !== lotAddTag) return false;   // status filter
+    if (!matchTag(c, lotAddTag)) return false;   // status filter
     seen.add(id); return true;
   }).sort((a, b) => (a.lotId ? 1 : 0) - (b.lotId ? 1 : 0));   // loose cards first, then cards from other lots
   lotChips();
@@ -351,6 +372,15 @@ $portList.addEventListener('click', async e => {
   }
   const add = e.target.closest('.lot-add');
   if (add) { lotCreate = false; lotAddId = add.dataset.id; lotAddSel.clear(); document.getElementById('lotAddSearch').value = ''; document.getElementById('lotAddNameWrap').hidden = true; document.getElementById('lotAddTitle').textContent = 'Add cards to lot'; lotAddTag = lotStartTag(); lotAddRender(); document.getElementById('lotAddSheet').hidden = false; return; }
+  const lau = e.target.closest('.lot-auction');
+  if (lau) {
+    const oh = allLotCards(lau.dataset.id), turnOn = !oh.every(c => c.auction);
+    if (!oh.length) return;
+    lau.disabled = true;
+    try { await auctionCall(oh.map(c => c.id), turnOn); toast(turnOn ? 'Lot tagged as auction.' : 'Auction tag removed from the lot.'); await loadPortfolio(); }
+    catch (err) { lau.disabled = false; toast('Could not update: ' + err.message); }
+    return;
+  }
   const ren = e.target.closest('.lot-rename');
   if (ren) {
     const cards = allLotCards(ren.dataset.id), cur = (cards[0] || {}).lotName || '';
