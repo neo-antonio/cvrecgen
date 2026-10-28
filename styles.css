@@ -1337,3 +1337,9 @@ html[data-theme=dark] .icon-btn.safe-on,html[data-theme=dark] .icon-btn.safe-on:
 /* ---------- LOT pill: `.port-info span` (grey) was out-ranking .lot-pill, so the white text turned grey on the black pill ---------- */
 .port-info .lot-pill{color:#fff}
 html[data-theme=dark] .port-info .lot-pill{color:#0e0e0f}
+
+/* ---------- Summary row: icon buttons stay on one line on phones (New lot / New task / Refresh / Fix titles) ---------- */
+.port-summary{flex-wrap:wrap;row-gap:8px}
+.sum-tools{display:flex;align-items:center;gap:6px;flex:none}
+.port-summary .icon-btn{align-self:center}
+.icon-btn:hover:not(:disabled) .cf{fill:var(--soft)}
