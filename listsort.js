@@ -1,7 +1,7 @@
 /* ---------- Sort sheet shared by Portfolio and Commercial ----------
    Same look and flow as the sort & filter button on Marketing > Entities: a funnel icon opens a sheet with the sort options
    (.so-item) and the order (radios); the active sort shows as a chip under the search box and the funnel turns dark.
-   Pages call ListSort.mount({ after, onChange }) once and ListSort.sortUnits(units, daysOf) whenever they render.
+   Pages call ListSort.mount({ after: <the search .field>, onChange }) once and ListSort.sortUnits(units, daysOf) whenever they render.
    units = [{ card } | { lot: true, name, cards: [] }]; daysOf(card) = days held, or null when it can't be told. */
 (function () {
   const $ = id => document.getElementById(id);
@@ -59,13 +59,20 @@
 
   function mount(opts) {
     onChange = opts.onChange || onChange;
-    const anchor = opts.after;
-    const bar = document.createElement('div');
-    bar.className = 'ent-bar';
-    bar.innerHTML = `<span></span><div class="ent-tools"><button type="button" class="icon-btn" id="lsBtn" aria-label="Sort and filter" title="Sort and filter">${FUNNEL}</button></div>`;
+    const field = opts.after;   // the search field: the funnel goes right beside it, same height
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:12px';
+    field.before(row); row.appendChild(field);
+    field.style.cssText += ';flex:1;min-width:0;margin-bottom:0';
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'icon-btn'; btn.id = 'lsBtn';
+    btn.setAttribute('aria-label', 'Sort and filter'); btn.title = 'Sort and filter';
+    btn.style.cssText = 'width:44px;height:44px;border-radius:var(--r)';
+    btn.innerHTML = FUNNEL;
+    row.appendChild(btn);
     const active = document.createElement('div');
     active.className = 'ent-active'; active.id = 'lsActive'; active.hidden = true;
-    anchor.after(bar); bar.after(active);
+    row.after(active);
 
     const sheet = document.createElement('div');
     sheet.className = 'modal'; sheet.id = 'lsSheet'; sheet.hidden = true;
