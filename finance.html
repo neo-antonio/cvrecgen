@@ -192,7 +192,7 @@
 
 <div class="modal" id="resSheet" hidden>
   <div class="sheet small wide">
-    <h3>Cash reserves calculator</h3>
+    <h3>Cash Reserves Calculator</h3>
     <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">Net profit for the dates below, set aside as a share of it. Defaults to this month.</p>
     <div class="rec-dates" style="margin-bottom:6px">
       <div class="field"><label for="resFrom">From</label><input type="date" id="resFrom"></div>
@@ -214,7 +214,10 @@
       <div class="money"><input type="number" id="resMult" inputmode="decimal" min="0" step="0.1" value="5"><em style="padding:0 13px 0 0">%</em></div>
     </div>
     <div class="field">
-      <button type="button" class="ghost" id="resRound" aria-pressed="false" style="width:100%">Round up to the nearest 100</button>
+      <div class="rec-tools" style="margin-bottom:0">
+        <button type="button" class="ghost sm" id="resR100" aria-pressed="false">Round up to 100</button>
+        <button type="button" class="ghost sm" id="resR1000" aria-pressed="false">Round up to 1,000</button>
+      </div>
     </div>
     <div class="sum total"><span>To transfer</span><b id="resOut">PHP 0.00</b></div>
     <div class="field">

@@ -1343,3 +1343,11 @@ html[data-theme=dark] .port-info .lot-pill{color:#0e0e0f}
 .sum-tools{display:flex;align-items:center;gap:6px;flex:none}
 .port-summary .icon-btn{align-self:center}
 .icon-btn:hover:not(:disabled) .cf{fill:var(--soft)}
+
+/* summary header: big value on top, small label right below it (Portfolio, Commercial, Shipping) */
+.port-summary.stacked{align-items:center}
+.port-summary.stacked .sum-main{display:flex;flex-direction:column;gap:2px;margin-right:auto;min-width:0}
+.port-summary.stacked .sum-main b{margin-right:0;font-size:22px;line-height:1.15}
+.port-summary.stacked .sum-main span{line-height:1.2}
+/* a ghost button that is switched on (e.g. the round-up buttons) */
+.ghost[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)}

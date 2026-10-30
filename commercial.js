@@ -21,6 +21,10 @@ const allLotCards = id => data.cards.filter(c => String(c.lotId) === String(id))
 const targetOf = c => { const t = num(c.targetPrice); return t > 0 ? t : 0; };            // low end (or the single price)
 const targetHiOf = c => { const lo = targetOf(c), hi = num(c.targetMax); return lo > 0 && hi > lo ? hi : lo; };   // top of the range (= low when single)
 const money = n => Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// header total only: whole pesos, no decimals
+const phpW = n => 'PHP ' + Math.round(Number(n || 0)).toLocaleString('en-PH');
+const signedW = n => (Math.round(n) > 0 ? '+' : Math.round(n) < 0 ? '\u2212' : '') + phpW(Math.abs(n));
+const rangeW = (lo, hi) => Math.round(hi) > Math.round(lo) ? phpW(lo) + ' \u2013 ' + Math.round(hi).toLocaleString('en-PH') : phpW(lo);
 const rangeTxt = (lo, hi) => hi > lo ? 'PHP ' + money(lo) + ' \u2013 ' + money(hi) : php(lo);
 const pctRange = (a, b) => a === b || Math.abs(a - b) < 0.05 ? pctTxt(a) : pctTxt(a) + ' to ' + pctTxt(b);
 
@@ -142,7 +146,7 @@ function render() {
   if (!cards.length) {
     $('cmState').textContent = data.cards.length ? 'No cards match your search/filter.' : 'No cards yet.';
     $('cmState').hidden = false; $('cmList').hidden = true;
-    $('cmTotal').textContent = php(0); $('cmCount').textContent = '0 cards'; $('cmStats').textContent = '';
+    $('cmTotal').textContent = phpW(0); $('cmCount').textContent = '0 cards'; $('cmStats').textContent = '';
     return;
   }
   $('cmList').innerHTML = units.map(u => u.lot ? lotHtml(u) : cardHtml(u.card)).join('');
@@ -151,12 +155,12 @@ function render() {
     const cost = cards.reduce((a, c) => a + num(c.purchaseCost), 0), rev = cards.reduce((a, c) => a + num(c.soldPrice), 0), profit = r2(rev - cost);
     const st = units.map(u => metrics(u.lot ? u.cards : [u.card], true).status);
     const met = st.filter(s => s === 'met' || s === 'above').length, withT = st.filter(s => s !== 'none').length;
-    $('cmTotal').textContent = signed(profit);
+    $('cmTotal').textContent = signedW(profit);
     $('cmStats').innerHTML = `Sold <b>${php(rev)}</b> on a cost of <b>${php(cost)}</b> \u00b7 margin <b>${rev > 0 ? pctTxt(profit / rev * 100) : '\u2014'}</b><br>Met target: <b>${met} of ${withT}</b> with a target`;
   } else {
     const priced = cards.filter(c => targetOf(c) > 0), tgt = r2(priced.reduce((a, c) => a + targetOf(c), 0)), tgtHi = r2(priced.reduce((a, c) => a + targetHiOf(c), 0)), pcost = priced.reduce((a, c) => a + num(c.purchaseCost), 0);
     const profit = r2(tgt - pcost), profitHi = r2(tgtHi - pcost);
-    $('cmTotal').textContent = rangeTxt(tgt, tgtHi);
+    $('cmTotal').textContent = rangeW(tgt, tgtHi);
     $('cmStats').innerHTML = `<b>${priced.length} of ${cards.length}</b> cards have a target \u00b7 cost of those <b>${php(pcost)}</b><br>Expected profit <b>${tgtHi > tgt ? signed(profit) + ' to ' + signed(profitHi) : signed(profit)}</b>${tgt > 0 ? ' (' + (tgtHi > tgt ? pctRange(profit / tgt * 100, profitHi / tgtHi * 100) : pctTxt(profit / tgt * 100)) + ' margin)' : ''}`;
   }
   $('cmState').hidden = true; $('cmList').hidden = false;

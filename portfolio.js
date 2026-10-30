@@ -1,4 +1,6 @@
 /* ---------- Portfolio — one list of every card, filtered by status chip; reads back from Cards via Code.gs doGet ---------- */
+// header total only: whole pesos, no decimals
+const portPhpWhole = n => 'PHP ' + Math.round(Number(n || 0)).toLocaleString('en-PH');
 const portPhp = n => 'PHP ' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const escHtml = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -166,7 +168,7 @@ function renderTab() {
   if (!list.length) {
     $portState.textContent = portData.cards.length ? 'No cards match your search/filter.' : 'No cards yet.';
     $portState.hidden = false; $portList.hidden = true;
-    $portTotal.textContent = portPhp(0);
+    $portTotal.textContent = portPhpWhole(0);
     $portCount.textContent = '0 cards';
     return;
   }
@@ -174,7 +176,7 @@ function renderTab() {
   const total = gone
     ? list.reduce((a, i) => a + (Number(i.soldPrice) || 0), 0)
     : list.filter(isOwned).reduce((a, i) => a + (Number(i.purchaseCost) || 0), 0);
-  $portTotal.textContent = portPhp(total);
+  $portTotal.textContent = portPhpWhole(total);
   $portCount.textContent = list.length + (list.length === 1 ? ' card' : ' cards');   // follows the active chip + search, same as the total
   $portState.hidden = true; $portList.hidden = false;
 }

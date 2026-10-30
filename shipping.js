@@ -1,4 +1,6 @@
 /* ---------- Shipping (To ship / Shipped) — reads Cards, marks shipped, attaches proof photos ---------- */
+// header total only: whole pesos, no decimals
+const shipPhpWhole = n => 'PHP ' + Math.round(Number(n || 0)).toLocaleString('en-PH');
 const shipPhp = n => 'PHP ' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const escShip = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -159,7 +161,7 @@ function renderTab() {
   if (!list.length) {
     $shipState.textContent = isToShip ? 'Nothing waiting to ship.' : 'Nothing shipped yet.';
     $shipState.hidden = false; $shipList.hidden = true;
-    $shipTotal.textContent = shipPhp(0);
+    $shipTotal.textContent = shipPhpWhole(0);
     $shipCount.textContent = '';
     return;
   }
@@ -184,11 +186,11 @@ function renderTab() {
   if (!groups.length) {
     $shipState.textContent = 'No shipments match your search or dates.';
     $shipState.hidden = false; $shipList.hidden = true;
-    $shipTotal.textContent = shipPhp(0);
+    $shipTotal.textContent = shipPhpWhole(0);
     return;
   }
   $shipList.innerHTML = groups.map(g => cardHtml(g, isToShip)).join('');
-  $shipTotal.textContent = shipPhp(groups.reduce((a, g) => a + g.reduce((s, i) => s + (Number(i.shipFee) || 0), 0), 0));   // total of what is shown
+  $shipTotal.textContent = shipPhpWhole(groups.reduce((a, g) => a + g.reduce((s, i) => s + (Number(i.shipFee) || 0), 0), 0));   // total of what is shown
   $shipState.hidden = true; $shipList.hidden = false;
 }
 

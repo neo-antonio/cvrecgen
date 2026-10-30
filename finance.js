@@ -956,7 +956,7 @@ loadFinance();
 const resEl = id => document.getElementById(id);
 const resIso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const resMonth = () => { const n = new Date(); return [resIso(new Date(n.getFullYear(), n.getMonth(), 1)), resIso(new Date(n.getFullYear(), n.getMonth() + 1, 0))]; };
-let resRound = false;
+let resRound = 0;   // 0 = off, 100 or 1000 = round the result up to that step
 
 // one shared calculation (widgets.js) so this, the Goals tab and the Home goal widget always agree
 const resProfit = (lo, hi) => CVWidgets.netProfit(portCards, finAll(), lo, hi);
@@ -974,19 +974,17 @@ function resRender() {
   }
   const m = Math.max(0, parseFloat(resEl('resMult').value) || 0);   // a percentage, e.g. 5 = 5%
   let out = p ? Math.max(0, p.net) * m / 100 : 0;
-  out = resRound ? Math.ceil(r2(out) / 100) * 100 : r2(out);
+  out = resRound ? Math.ceil(r2(out) / resRound) * resRound : r2(out);
   resResult = out;
   set('resOut', finPhp(out));
   resEl('resGo').disabled = !(out > 0);
-  resEl('resRound').classList.toggle('active', resRound);
-  resEl('resRound').setAttribute('aria-pressed', resRound);
-  resEl('resRound').textContent = resRound ? 'Rounded up to the nearest 100 (tap to undo)' : 'Round up to the nearest 100';
+  [100, 1000].forEach(n => resEl('resR' + n).setAttribute('aria-pressed', resRound === n));
   document.querySelectorAll('#resChips .chip').forEach(c => c.classList.toggle('active', Number(c.dataset.m) === m));
 }
 
 function resSetMonth() { const [a, b] = resMonth(); resEl('resFrom').value = a; resEl('resTo').value = b; }
 resEl('resBtn').onclick = () => {
-  resSetMonth(); resEl('resMult').value = 5; resRound = false;
+  resSetMonth(); resEl('resMult').value = 5; resRound = 0;
   resEl('resSheet').hidden = false;
   resRender();
   loadPortValue().then(resRender);   // pull the latest cards; finance rows come from the page's own load
@@ -994,7 +992,7 @@ resEl('resBtn').onclick = () => {
 resEl('resMonth').onclick = () => { resSetMonth(); resRender(); };
 ['resFrom', 'resTo', 'resMult'].forEach(id => resEl(id).addEventListener('input', resRender));
 resEl('resChips').addEventListener('click', e => { const c = e.target.closest('.chip'); if (!c) return; resEl('resMult').value = c.dataset.m; resRender(); });
-resEl('resRound').onclick = () => { resRound = !resRound; resRender(); };
+[100, 1000].forEach(n => resEl('resR' + n).onclick = () => { resRound = resRound === n ? 0 : n; resRender(); });
 resEl('resCancel').onclick = () => resEl('resSheet').hidden = true;
 resEl('resGo').onclick = () => {
   if (!(resResult > 0)) return;
