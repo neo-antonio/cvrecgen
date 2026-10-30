@@ -23,7 +23,7 @@
   <div class="hbar">
     <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
     <h2>Finance</h2>
-    <span class="hbar-spacer" aria-hidden="true"></span>
+    <button type="button" class="back" id="resBtn" aria-label="Cash reserves calculator" title="Cash reserves calculator" style="background:none;padding:0;cursor:pointer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5L12 4l9 5.5"/><path d="M5.5 9.5h13"/><path d="M6.5 12v5.5M10 12v5.5M14 12v5.5M17.5 12v5.5"/><path d="M4 20h16"/></svg></button>
   </div>
   <nav class="tabs tabs-3" role="tablist">
     <button type="button" class="tab active" data-ftab="balance" role="tab">Balance</button>
@@ -190,6 +190,45 @@
   </div>
 </div>
 
+<div class="modal" id="resSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Cash reserves calculator</h3>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px;text-align:center">Net profit for the dates below, set aside as a share of it. Defaults to this month.</p>
+    <div class="rec-dates" style="margin-bottom:6px">
+      <div class="field"><label for="resFrom">From</label><input type="date" id="resFrom"></div>
+      <div class="field"><label for="resTo">To</label><input type="date" id="resTo"></div>
+    </div>
+    <div class="rec-tools"><button type="button" class="ghost sm" id="resMonth">This month</button></div>
+    <div class="sum"><span>Sales <small id="resSalesN"></small></span><b id="resRev">&mdash;</b></div>
+    <div class="sum"><span>Cost of cards sold</span><b id="resCost">&mdash;</b></div>
+    <div class="sum"><span>Packaging &amp; buyer shipping received</span><b id="resFees">&mdash;</b></div>
+    <div class="sum"><span>Shipping paid</span><b id="resShip">&mdash;</b></div>
+    <div class="sum total"><span>Net profit</span><b id="resNet">&mdash;</b></div>
+    <div class="field">
+      <label for="resMult">Percentage of net profit</label>
+      <div class="filter-chips" id="resChips" style="margin-bottom:8px">
+        <button type="button" class="chip" data-m="3">3%</button>
+        <button type="button" class="chip active" data-m="5">5%</button>
+        <button type="button" class="chip" data-m="10">10%</button>
+      </div>
+      <div class="money"><input type="number" id="resMult" inputmode="decimal" min="0" step="0.1" value="5"><em style="padding:0 13px 0 0">%</em></div>
+    </div>
+    <div class="field">
+      <button type="button" class="ghost" id="resRound" aria-pressed="false" style="width:100%">Round up to the nearest 100</button>
+    </div>
+    <div class="sum total"><span>To transfer</span><b id="resOut">PHP 0.00</b></div>
+    <div class="field">
+      <label for="resFromAcct">Transfer from <small>(goes to Cash reserves)</small></label>
+      <select id="resFromAcct"><option>Cash</option><option>Maribank</option><option>Others</option></select>
+    </div>
+    <p class="stub-note" id="resNote" style="margin:0 0 12px;font-size:11px;text-align:left">Net profit = sale prices &minus; purchase cost of the cards sold + packaging and buyer shipping received &minus; shipping you paid (sales and purchases). Interest, trades, manual tasks and unpaid receivables never reduce it.</p>
+    <div class="acts">
+      <button type="button" class="go sm" id="resGo">Transfer</button>
+      <button type="button" class="ghost" id="resCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="balSheet" hidden>
   <div class="sheet small wide">
     <h3>Update balance</h3>
@@ -328,6 +367,7 @@
 <script src="boot.js"></script>
 <script src="config.js"></script>
 <script src="net.js"></script>
+<script src="widgets.js"></script>
 <script src="finance.js"></script>
 </body>
 </html>

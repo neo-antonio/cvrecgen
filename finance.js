@@ -526,6 +526,8 @@ function computeBalance() {
 // (pending = on a shipping task whose sale has not been paid yet, so it is still valued at purchase cost).
 // Cards that are shipping, sold or traded are excluded.
 let portValue = null;
+let portCards = null;   // every card, kept for the cash reserves calculator
+const cardsOfPort = d => Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || []);
 const PORT_VALUE_TAGS = ['onhand', 'pending'];
 const portValueOf = d => {
   const cards = Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || []);
@@ -565,11 +567,11 @@ let portFirstFin = true;
 async function loadPortValue() {
   if (!CONFIG.portfolio.endpoint) return;
   const cached = portFirstFin ? cacheGet('portfolio') : null; portFirstFin = false;
-  if (cached) { portValue = portValueOf(cached); renderBalance(); }
+  if (cached) { portValue = portValueOf(cached); portCards = cardsOfPort(cached); renderBalance(); }
   try {
     const data = await jsonp(CONFIG.portfolio.endpoint + '?action=portfolio&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
     if (!data.ok) throw new Error(data.error || 'Unknown error');
-    portValue = portValueOf(data);
+    portValue = portValueOf(data); portCards = cardsOfPort(data);
     cacheSet('portfolio', { cards: Array.isArray(data.cards) ? data.cards : (data.owned || []).concat(data.sold || []) });   // same shape portfolio.js saves
     renderBalance();
   } catch (err) { console.warn('Portfolio value load failed', err); }   // keeps whatever is already showing
@@ -948,3 +950,54 @@ document.getElementById('balRefresh').onclick = refreshAll;
 loadBalance();
 loadPortValue();
 loadFinance();
+
+/* ---------- Cash reserves calculator: net profit for a period x multiplier, optionally rounded up to the next 100 ---------- */
+// Net profit comes from CVWidgets.netProfit (see widgets.js); the transfer amount is that profit x a percentage.
+const resEl = id => document.getElementById(id);
+const resIso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const resMonth = () => { const n = new Date(); return [resIso(new Date(n.getFullYear(), n.getMonth(), 1)), resIso(new Date(n.getFullYear(), n.getMonth() + 1, 0))]; };
+let resRound = false;
+
+// one shared calculation (widgets.js) so this, the Goals tab and the Home goal widget always agree
+const resProfit = (lo, hi) => CVWidgets.netProfit(portCards, finAll(), lo, hi);
+
+let resResult = 0;
+function resRender() {
+  const loaded = portCards !== null;
+  const p = loaded ? resProfit(resEl('resFrom').value, resEl('resTo').value) : null;
+  const set = (id, v) => resEl(id).textContent = v;
+  if (!p) { ['resRev', 'resCost', 'resFees', 'resShip', 'resNet'].forEach(id => set(id, '\u2026')); set('resSalesN', ''); }
+  else {
+    set('resSalesN', `(${p.n} card${p.n === 1 ? '' : 's'})`);
+    set('resRev', finPhp(p.rev)); set('resCost', '\u2212 ' + finPhp(p.cost));
+    set('resFees', '+ ' + finPhp(p.fees)); set('resShip', '\u2212 ' + finPhp(p.ship)); set('resNet', finPhp(p.net));
+  }
+  const m = Math.max(0, parseFloat(resEl('resMult').value) || 0);   // a percentage, e.g. 5 = 5%
+  let out = p ? Math.max(0, p.net) * m / 100 : 0;
+  out = resRound ? Math.ceil(r2(out) / 100) * 100 : r2(out);
+  resResult = out;
+  set('resOut', finPhp(out));
+  resEl('resGo').disabled = !(out > 0);
+  resEl('resRound').classList.toggle('active', resRound);
+  resEl('resRound').setAttribute('aria-pressed', resRound);
+  resEl('resRound').textContent = resRound ? 'Rounded up to the nearest 100 (tap to undo)' : 'Round up to the nearest 100';
+  document.querySelectorAll('#resChips .chip').forEach(c => c.classList.toggle('active', Number(c.dataset.m) === m));
+}
+
+function resSetMonth() { const [a, b] = resMonth(); resEl('resFrom').value = a; resEl('resTo').value = b; }
+resEl('resBtn').onclick = () => {
+  resSetMonth(); resEl('resMult').value = 5; resRound = false;
+  resEl('resSheet').hidden = false;
+  resRender();
+  loadPortValue().then(resRender);   // pull the latest cards; finance rows come from the page's own load
+};
+resEl('resMonth').onclick = () => { resSetMonth(); resRender(); };
+['resFrom', 'resTo', 'resMult'].forEach(id => resEl(id).addEventListener('input', resRender));
+resEl('resChips').addEventListener('click', e => { const c = e.target.closest('.chip'); if (!c) return; resEl('resMult').value = c.dataset.m; resRender(); });
+resEl('resRound').onclick = () => { resRound = !resRound; resRender(); };
+resEl('resCancel').onclick = () => resEl('resSheet').hidden = true;
+resEl('resGo').onclick = () => {
+  if (!(resResult > 0)) return;
+  const q = new URLSearchParams({ mode: 'transfer', amount: resResult.toFixed(2), from: resEl('resFromAcct').value, to: 'Cash reserves' });
+  location.href = 'receipt.html?' + q.toString();
+};

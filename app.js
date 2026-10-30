@@ -1187,7 +1187,15 @@ function refreshDateTime() { if (dtEdited) return; $('#date').value = todayStr()
 refreshDateTime();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshDateTime(); });
 window.addEventListener('pageshow', refreshDateTime);
-const qTask = new URLSearchParams(location.search).get('task');
-setMode(qTask ? 'sold' : 'purchase').then(() => { if (qTask && shipTasks.some(t => t.id === qTask)) { $('#shipTask').value = qTask; applyTask(qTask); } });
+const qs = new URLSearchParams(location.search), qTask = qs.get('task'), qXfer = !qTask && qs.get('mode') === 'transfer';
+setMode(qTask ? 'sold' : qXfer ? 'transfer' : 'purchase').then(() => {
+  if (qTask && shipTasks.some(t => t.id === qTask)) { $('#shipTask').value = qTask; applyTask(qTask); }
+  if (qXfer) {   // from Finance > Cash reserves calculator: prefill the transfer
+    const amt = parseFloat(qs.get('amount'));
+    if (amt > 0) $('#trAmt').value = amt.toFixed(2);
+    [['from', '#trFrom'], ['to', '#trTo']].forEach(([k, sel]) => { const v = qs.get(k); if (v && [...$(sel).options].some(o => o.value === v)) $(sel).value = v; });
+    update();
+  }
+});
 resumeOutbox().catch(err => console.warn('Outbox resume failed', err));
 loadEntities();

@@ -41,6 +41,43 @@
   const api = a => CONFIG.portfolio.endpoint + '?action=' + a + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
   const canSync = () => typeof CONFIG !== 'undefined' && CONFIG.portfolio && CONFIG.portfolio.endpoint && typeof jsonp === 'function';
 
+
+  /* ---- shared money maths (Goals tab, Home widgets and the Finance cash reserves calculator all use these) ---- */
+  const PR_MARK = '[[PR1]]';
+  const r2 = x => Math.round(x * 100) / 100;
+  const isPR = t => String((t && t.notes) || '').indexOf(PR_MARK) === 0;
+  // open receivables / payables: Finance tasks whose notes carry the marker + a JSON record (same as the Finance page)
+  function prTotals(tasks) {
+    let pay = 0, rec = 0;
+    (tasks || []).forEach(t => {
+      if (!isPR(t)) return;
+      try { const o = JSON.parse(String(t.notes).slice(PR_MARK.length)); if (!o || o.status === 'settled') return; const a = Number(o.amount) || 0; if (o.kind === 'payable') pay += a; else if (o.kind === 'receivable') rec += a; } catch (_) {}
+    });
+    return { pay: r2(pay), rec: r2(rec) };
+  }
+  // Net profit between lo and hi (either may be blank) =
+  //   sale price - purchase cost of every PAID card sale dated in the period (tags sold, shipping, safekeep; pending sales are unpaid)
+  //   + packaging and buyer-paid shipping received - shipping we paid (sales and purchases).
+  // A receivable (a customer who paid in full on the receipt and was then lent money, or who still owes) never reduces profit:
+  // the sale is already counted at its full price, and the loan is a separate Finance task that is skipped here.
+  function netProfit(cards, tasks, lo, hi) {
+    if (lo && hi && lo > hi) { const t = lo; lo = hi; hi = t; }
+    const inRange = v => { const d = d10(v); return !!d && (!lo || d >= lo) && (!hi || d <= hi); };
+    let rev = 0, cost = 0, n = 0, fees = 0, ship = 0;
+    (cards || []).forEach(c => {
+      if (!['sold', 'shipping', 'safekeep'].includes(c.tag) || !inRange(c.soldDate)) return;
+      rev += Number(c.soldPrice) || 0; cost += Number(c.purchaseCost) || 0; n++;
+    });
+    (tasks || []).forEach(t => {
+      if (isPR(t) || !inRange(t.date)) return;
+      const amt = Number(t.amount) || 0, desc = String(t.description || '');
+      if (t.type === 'sale' && t.flow === 'inflow' && /^(Packaging|Shipping paid by buyer):/.test(desc)) fees += amt;
+      else if (t.type === 'shipping' && t.flow === 'outflow') ship += amt;
+      else if (t.type === 'purchase' && t.flow === 'outflow' && /^Shipping:/.test(desc)) ship += amt;
+    });
+    return { n, rev: r2(rev), cost: r2(cost), fees: r2(fees), ship: r2(ship), net: r2(rev - cost + fees - ship) };
+  }
+
   /* ---- who has which widgets, and the goals (both live in the Organization sheet) ---- */
   let org = cg('org') || [];
   async function load() {
@@ -107,10 +144,12 @@
         if (!S.port) return null;
         const inWin = c => c.soldDate && (!g.start || c.soldDate >= g.start) && (!g.deadline || c.soldDate <= g.deadline);
         if (g.metric === 'cards') return S.port.filter(c => c.tag === 'sold' && inWin(c)).length;
-        if (g.metric === 'profit') return S.port.filter(c => c.tag === 'sold' && inWin(c)).reduce((a, c) => a + (c.soldPrice - c.purchaseCost), 0);
-        // business value = every account + cards on hand and pending at cost (same as the Goals tab and the Home total)
-        if (!S.acct) return null;
-        return S.acct.cash + S.acct.maribank + S.acct.reserves + S.acct.others + S.port.filter(c => c.tag === 'onhand' || c.tag === 'pending').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
+        const tasks = S.fin ? (S.fin.toRecord || []).concat(S.fin.recorded || []) : null;
+        if (g.metric === 'profit') return tasks ? netProfit(S.port, tasks, g.start, g.deadline).net : null;   // same maths as the cash reserves calculator
+        // business value = every account + cards on hand and pending at cost + receivables - payables (same as the Goals tab and the Home total)
+        if (!S.acct || !tasks) return null;
+        const pr = prTotals(tasks);
+        return S.acct.cash + S.acct.maribank + S.acct.reserves + S.acct.others + S.port.filter(c => c.tag === 'onhand' || c.tag === 'pending').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0) + pr.rec - pr.pay;
       };
       const rows = goals.map(g => {
         const cur = prog(g), left = away(g.deadline), done = cur != null && cur >= g.target;
@@ -177,5 +216,5 @@
     return out.length;
   }
 
-  window.CVWidgets = { CATALOG, load, keysFor, render };
+  window.CVWidgets = { CATALOG, load, keysFor, render, netProfit, prTotals };
 })();

@@ -81,8 +81,8 @@ function renderTeam() {
 /* ---------- Goals ---------- */
 const METRIC = {
   cards:  { label: 'Cards sold', unit: 'cards', field: 'Target (number of cards)', ph: 'e.g. 50', hint: 'Counts cards sold from the start date up to the deadline.' },
-  profit: { label: 'Net profit', unit: '', field: 'Target (PHP)', ph: 'e.g. 100000', hint: 'Sale price minus purchase cost of the cards sold from the start date up to the deadline.' },
-  value:  { label: 'Business value', unit: '', field: 'Target (PHP)', ph: 'e.g. 1000000', hint: 'The total on the Finance balance card: every account plus cards on hand and pending at cost, measured today. The start date is not used.' }
+  profit: { label: 'Net profit', unit: '', field: 'Target (PHP)', ph: 'e.g. 100000', hint: 'Sale price minus purchase cost of the cards sold, plus packaging and shipping received from buyers, minus shipping you paid, from the start date up to the deadline. Same as the cash reserves calculator. Money a customer still owes never reduces it.' },
+  value:  { label: 'Business value', unit: '', field: 'Target (PHP)', ph: 'e.g. 1000000', hint: 'The total on the Finance balance card: every account plus cards on hand and pending at cost, plus receivables, less payables, measured today. The start date is not used.' }
 };
 const phpG = n => (n < 0 ? '-' : '') + 'PHP ' + Math.abs(Math.round(n)).toLocaleString('en-PH');
 const dayFmt = d => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
@@ -92,7 +92,7 @@ const goalNum = (g, n) => g.metric === 'cards' ? n.toLocaleString('en-PH') : php
 
 /* Progress is worked out here from the same data the other pages use (Portfolio, Balance, Finance tasks). */
 let stats = null, statsAt = 0, statsBusy = null;
-const needFin = () => items.some(i => i.kind === 'goal' && i.metric === 'value');
+const needFin = () => items.some(i => i.kind === 'goal' && (i.metric === 'value' || i.metric === 'profit'));
 function loadStats() {
   if (!CONFIG.portfolio.endpoint) return Promise.resolve();
   if (statsBusy) return statsBusy;
@@ -171,11 +171,13 @@ function progressOf(g) {
   if (!stats) return null;
   const inWin = c => c.soldDate && (!g.start || c.soldDate >= g.start) && (!g.deadline || c.soldDate <= g.deadline);
   if (g.metric === 'cards') return stats.cards.filter(c => c.tag === 'sold' && inWin(c)).length;
-  if (g.metric === 'profit') return stats.cards.filter(c => c.tag === 'sold' && inWin(c)).reduce((a, c) => a + (c.soldPrice - c.purchaseCost), 0);
   if (!stats.fin) return null;
+  if (g.metric === 'profit') return CVWidgets.netProfit(stats.cards, stats.fin.tasks, g.start, g.deadline).net;   // same maths as the cash reserves calculator
+
   const accounts = accountsNow(stats.fin);
   if (accounts == null) return null;   // no starting balance saved on the Finance page yet
-  return accounts + stats.cards.filter(c => c.tag === 'onhand' || c.tag === 'pending').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0);
+  const pr = CVWidgets.prTotals(stats.fin.tasks);   // receivables count in, payables come off
+  return accounts + stats.cards.filter(c => c.tag === 'onhand' || c.tag === 'pending').reduce((a, c) => a + (Number(c.purchaseCost) || 0), 0) + pr.rec - pr.pay;
 }
 function goalState(g, cur) {
   if (cur == null) return { cls: '', badge: '', foot: '' };
