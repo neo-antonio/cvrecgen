@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>App Dev - trackello</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="trackello">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="shell.js"></script>
+</head>
+<body>
+<div class="top">
+  <div class="hbar">
+    <a class="back" href="index.html" aria-label="Back to Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <h2>App Dev</h2>
+    <span class="hbar-spacer"></span>
+  </div>
+  <div class="tabs tabs-3" role="tablist">
+    <button type="button" class="tab active" role="tab" data-tab="requests">Requests<i></i></button>
+    <button type="button" class="tab" role="tab" data-tab="queue">In queue<i></i></button>
+    <button type="button" class="tab" role="tab" data-tab="closed">Closed<i></i></button>
+  </div>
+</div>
+
+<main class="ad-wrap">
+  <div class="ad-bar">
+    <p class="stub-note" id="adHint">Send a feature idea or a bug. Accepted requests move to the build queue.</p>
+    <div class="ad-tools">
+      <button type="button" class="go sm" id="adNew">New request</button>
+      <button type="button" class="ghost sm" id="adVers">Version history</button>
+      <button type="button" class="ghost sm" id="adRefresh">Refresh</button>
+    </div>
+  </div>
+  <p class="cv-err" id="adLoadErr" hidden></p>
+  <div class="ad-list" id="adList"></div>
+</main>
+
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+  <p>trackello <span class="ver">v1.2</span></p>
+</footer>
+
+<!-- new / edit request -->
+<div class="modal" id="adSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="adSheetH">New request</h3>
+    <div class="field"><label>Type</label>
+      <div class="ad-types">
+        <button type="button" class="chip active" data-type="feature">Feature</button>
+        <button type="button" class="chip" data-type="bug">Bug</button>
+      </div>
+    </div>
+    <div class="field"><label for="adTitle">Title</label><input type="text" id="adTitle" maxlength="120" placeholder="Short summary" autocomplete="off"></div>
+    <div class="field"><label for="adBody">Details</label><textarea id="adBody" rows="5" maxlength="1000"></textarea></div>
+    <p class="cv-err" id="adSheetErr" hidden></p>
+    <div class="acts">
+      <button type="button" class="go sm" id="adSave">Send request</button>
+      <button type="button" class="ghost" id="adCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- decline / mark done (admin) -->
+<div class="modal" id="adAct" hidden>
+  <div class="sheet small wide">
+    <h3 id="adActH">Mark as done</h3>
+    <p class="ad-act-t" id="adActT"></p>
+    <div class="field" id="adVerField"><label for="adVer">Shipped in version <small>(optional)</small></label><input type="text" id="adVer" maxlength="30" placeholder="e.g. 1.3" autocomplete="off"></div>
+    <div class="field"><label for="adNote" id="adNoteL">Note</label><textarea id="adNote" rows="3" maxlength="500"></textarea></div>
+    <p class="cv-err" id="adActErr" hidden></p>
+    <div class="acts">
+      <button type="button" class="go sm" id="adActGo">Confirm</button>
+      <button type="button" class="ghost" id="adActCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="adToast" hidden></div>
+
+<script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="net.js"></script>
+<script src="appdev.js"></script>
+</body>
+</html>

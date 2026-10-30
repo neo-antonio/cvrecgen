@@ -39,6 +39,10 @@
  *                   Platforms is JSON {fb,ig,yt,tt: {on,date,link}}. Edited = pipe-separated card IDs already edited (posts).
  *   Topics (A-K):   ID | Title | Body | AddedBy | Added | Status | Conclusion | ConcludedBy | Concluded | Comments | Updated   (Topic board, created automatically)
  *                   Status: open | resolved. Comments is a JSON array of {id, by, at, text}; every note, comment and conclusion records who wrote it and when.
+ *   Tickets (A-L):  ID | Type | Title | Body | By | Created | Status | Accepted | Done | Version | Note | Updated   (App Dev feature / bug requests, created automatically)
+ *                   Type: feature | bug.  Status: pending (new request) | building (accepted by the admin, in the build queue) | done | declined.
+ *                   Version = the version it shipped in (optional, set when marked done). Note = reason declined / what was done.
+ *   Versions (A-F): ID | Version | Notes | Date | By | Updated   (version history shown from the footer; only the admin can add / edit / delete)
  *   Users (A-C):    Username | Password | UpdatedAt   (created automatically with the five team logins; passwords are stored as plain text so the admin can view them)
  *   Optional columns/tabs are created by the script on first use. Interest settings are kept in Script Properties.
  *
@@ -50,7 +54,8 @@
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
  *               completeCreatives, deleteCreative, savePostGroup, login, changePassword, listUsers, createShippingTask, cancelShipping, setSafekeep, mergeShippingTasks, setAuction, titleCaseCards,
- *               topicUsers, topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic
+ *               topicUsers, topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic,
+ *               tickets, saveTicket, setTicketStatus, deleteTicket, versions, saveVersion, deleteVersion
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
  */
 
@@ -148,6 +153,13 @@ function doGet(e) {
     if (action === 'resolveTopic') return jsonpOut_(resolveTopic_(e.parameter), cb);
     if (action === 'reopenTopic') return jsonpOut_(reopenTopic_(e.parameter), cb);
     if (action === 'deleteTopic') return jsonpOut_(deleteTopic_(e.parameter), cb);
+    if (action === 'tickets') return jsonpOut_(getTickets_(), cb);
+    if (action === 'saveTicket') return jsonpOut_(saveTicket_(e.parameter), cb);
+    if (action === 'setTicketStatus') return jsonpOut_(setTicketStatus_(e.parameter), cb);
+    if (action === 'deleteTicket') return jsonpOut_(deleteTicket_(e.parameter), cb);
+    if (action === 'versions') return jsonpOut_(getVersions_(), cb);
+    if (action === 'saveVersion') return jsonpOut_(saveVersion_(e.parameter), cb);
+    if (action === 'deleteVersion') return jsonpOut_(deleteVersion_(e.parameter), cb);
     if (action === 'login') return jsonpOut_(login_(e.parameter), cb);
     if (action === 'changePassword') return jsonpOut_(changePassword_(e.parameter), cb);
     if (action === 'listUsers') return jsonpOut_(listUsers_(e.parameter), cb);
@@ -2552,6 +2564,159 @@ function deleteTopic_(p) {
     sh.deleteRow(found.idx);
     return { ok: true };
   });
+}
+
+/* ---------- App Dev (Tech): feature / bug tickets + version history ---------- */
+// Tickets tab (created on first use):  ID | Type | Title | Body | By | Created | Status | Accepted | Done | Version | Note | Updated
+//   Type: feature | bug.   Status: pending -> building (accepted, in the admin's build queue) -> done, or declined.
+// Anyone on the team can send a ticket and edit / delete their own while it is still pending. Only ADMIN_USER can accept, decline,
+// complete or reopen tickets, and edit / delete any ticket.
+// Versions tab (created on first use):  ID | Version | Notes | Date | By | Updated.  Everyone can read it; only ADMIN_USER can change it.
+const TICKETS_SHEET = 'Tickets';
+const TICKET_HEADERS = ['ID', 'Type', 'Title', 'Body', 'By', 'Created', 'Status', 'Accepted', 'Done', 'Version', 'Note', 'Updated'];
+const TICKET_LIMITS = { title: 120, body: 1000, note: 500, version: 30 };
+const TICKET_STATUSES = ['pending', 'building', 'done', 'declined'];
+const VERSIONS_SHEET = 'Versions';
+const VERSION_HEADERS = ['ID', 'Version', 'Notes', 'Date', 'By', 'Updated'];
+const VERSION_LIMITS = { version: 30, notes: 1200 };
+
+// every cell is plain text so a version like 1.10 stays "1.10" and not the number 1.1
+function textSheet_(name, headers, create) {
+  const ss = ss_();
+  let sh = ss.getSheetByName(name);
+  if (!sh && create) {
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sh.getRange(1, 1, sh.getMaxRows(), headers.length).setNumberFormat('@');
+  }
+  return sh;
+}
+
+function ticketOut_(r) {
+  const st = String(r[6] || 'pending');
+  return { id: String(r[0]), type: String(r[1]) === 'bug' ? 'bug' : 'feature', title: String(r[2] || ''), body: String(r[3] || ''),
+    by: String(r[4] || ''), at: String(r[5] || ''), status: TICKET_STATUSES.indexOf(st) >= 0 ? st : 'pending',
+    acceptedAt: String(r[7] || ''), doneAt: String(r[8] || ''), version: String(r[9] || ''), note: String(r[10] || ''), updatedAt: String(r[11] || '') };
+}
+function getTickets_() {
+  const sh = textSheet_(TICKETS_SHEET, TICKET_HEADERS, false);
+  if (!sh) return { ok: true, tickets: [] };
+  const rows = sh.getDataRange().getValues(); rows.shift();
+  return { ok: true, tickets: rows.filter(r => r[0] && r[2]).map(ticketOut_).reverse() };   // newest first
+}
+
+// Create a ticket, or (ticketId given) edit its type / title / details.
+function saveTicket_(p) {
+  const who = knownUser_(p.by);
+  if (!who) return { ok: false, error: 'Please log in again.' };
+  const admin = who === ADMIN_USER;
+  const type = String(p.type) === 'bug' ? 'bug' : 'feature';
+  const title = String(p.title || '').trim().slice(0, TICKET_LIMITS.title), body = String(p.body || '').trim().slice(0, TICKET_LIMITS.body);
+  if (!title) return { ok: false, error: 'Add a short title.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = textSheet_(TICKETS_SHEET, TICKET_HEADERS, true), now = stampNow_();
+    if (p.ticketId) {
+      const found = findRow_(sh, p.ticketId);
+      if (!found) return { ok: false, error: 'not found' };
+      const mine = String(found.row[4]).trim().toLowerCase() === who;
+      if (!admin && !(mine && String(found.row[6]) === 'pending')) return { ok: false, error: 'Only the person who sent this request can edit it, and only until it is accepted.' };
+      sh.getRange(found.idx, 2, 1, 3).setNumberFormat('@').setValues([[type, title, body]]);
+      sh.getRange(found.idx, 12, 1, 1).setNumberFormat('@').setValue(now);
+    } else {
+      const row = [newId_('k'), type, title, body, who, now, 'pending', '', '', '', '', now];
+      sh.getRange(sh.getLastRow() + 1, 1, 1, TICKET_HEADERS.length).setNumberFormat('@').setValues([row]);
+    }
+    return getTickets_();
+  } finally { lock.releaseLock(); }
+}
+
+// Admin only. status: building (accept) | done (+ version, note) | declined (+ note) | pending (back to requests).
+function setTicketStatus_(p) {
+  const who = knownUser_(p.by);
+  if (!who) return { ok: false, error: 'Please log in again.' };
+  if (who !== ADMIN_USER) return { ok: false, error: 'Only ' + ADMIN_USER + ' can change the status of a request.' };
+  const status = String(p.status || '');
+  if (TICKET_STATUSES.indexOf(status) < 0) return { ok: false, error: 'Unknown status.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = textSheet_(TICKETS_SHEET, TICKET_HEADERS, false), found = sh && findRow_(sh, p.ticketId);
+    if (!found) return { ok: false, error: 'not found' };
+    const now = stampNow_();
+    let accepted = String(found.row[7] || ''), doneAt = '', version = '', note = '';
+    if (status === 'pending' || status === 'declined') accepted = '';
+    if (status === 'building' || status === 'done') accepted = accepted || now;
+    if (status === 'done') { doneAt = now; version = String(p.version || '').trim().slice(0, TICKET_LIMITS.version); }
+    if (status === 'done' || status === 'declined') note = String(p.note || '').trim().slice(0, TICKET_LIMITS.note);
+    sh.getRange(found.idx, 7, 1, 6).setNumberFormat('@').setValues([[status, accepted, doneAt, version, note, now]]);   // Status..Updated (G-L)
+    return getTickets_();
+  } finally { lock.releaseLock(); }
+}
+
+// The person who sent a ticket can delete it while it is pending; the admin can delete any.
+function deleteTicket_(p) {
+  const who = knownUser_(p.by);
+  if (!who) return { ok: false, error: 'Please log in again.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = textSheet_(TICKETS_SHEET, TICKET_HEADERS, false), found = sh && findRow_(sh, p.ticketId);
+    if (!found) return { ok: false, error: 'not found' };
+    const mine = String(found.row[4]).trim().toLowerCase() === who;
+    if (who !== ADMIN_USER && !(mine && String(found.row[6]) === 'pending')) return { ok: false, error: 'Only the person who sent this request can delete it, and only until it is accepted.' };
+    sh.deleteRow(found.idx);
+    return getTickets_();
+  } finally { lock.releaseLock(); }
+}
+
+function versionOut_(r) {
+  return { id: String(r[0]), version: String(r[1] || ''), notes: String(r[2] || ''), date: String(r[3] || ''), by: String(r[4] || ''), updatedAt: String(r[5] || '') };
+}
+function getVersions_() {
+  const sh = textSheet_(VERSIONS_SHEET, VERSION_HEADERS, false);
+  if (!sh) return { ok: true, versions: [] };
+  const rows = sh.getDataRange().getValues(); rows.shift();
+  return { ok: true, versions: rows.filter(r => r[0] && r[1]).map(versionOut_).reverse() };   // newest first = the last row added
+}
+
+// Admin only. Add a version (versionId empty) or edit one (versionId given). The date is stamped when it is added and kept on edit.
+function saveVersion_(p) {
+  const who = knownUser_(p.by);
+  if (!who) return { ok: false, error: 'Please log in again.' };
+  if (who !== ADMIN_USER) return { ok: false, error: 'Only ' + ADMIN_USER + ' can edit the version history.' };
+  const version = String(p.version || '').trim().slice(0, VERSION_LIMITS.version), notes = String(p.notes || '').trim().slice(0, VERSION_LIMITS.notes);
+  if (!version) return { ok: false, error: 'Enter the version number.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = textSheet_(VERSIONS_SHEET, VERSION_HEADERS, true), now = stampNow_();
+    if (p.versionId) {
+      const found = findRow_(sh, p.versionId);
+      if (!found) return { ok: false, error: 'not found' };
+      sh.getRange(found.idx, 2, 1, 2).setNumberFormat('@').setValues([[version, notes]]);
+      sh.getRange(found.idx, 6, 1, 1).setNumberFormat('@').setValue(now);
+    } else {
+      const row = [newId_('v'), version, notes, todayStr_(), who, now];
+      sh.getRange(sh.getLastRow() + 1, 1, 1, VERSION_HEADERS.length).setNumberFormat('@').setValues([row]);
+    }
+    return getVersions_();
+  } finally { lock.releaseLock(); }
+}
+
+function deleteVersion_(p) {
+  const who = knownUser_(p.by);
+  if (!who) return { ok: false, error: 'Please log in again.' };
+  if (who !== ADMIN_USER) return { ok: false, error: 'Only ' + ADMIN_USER + ' can edit the version history.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = textSheet_(VERSIONS_SHEET, VERSION_HEADERS, false), found = sh && findRow_(sh, p.versionId);
+    if (!found) return { ok: false, error: 'not found' };
+    sh.deleteRow(found.idx);
+    return getVersions_();
+  } finally { lock.releaseLock(); }
 }
 
 /* ---------- Team logins ---------- */

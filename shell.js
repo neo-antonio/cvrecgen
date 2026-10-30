@@ -142,6 +142,7 @@
     social: '<circle cx="18" cy="5.5" r="2.7"/><circle cx="6" cy="12" r="2.7"/><circle cx="18" cy="18.5" r="2.7"/><path d="M8.4 10.7l7.2-3.9M8.4 13.3l7.2 3.9"/>',
     topics: '<path d="M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/><path d="M7 8.5h5M7 12h10M7 15.5h7"/>',
     pin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3.5 3.5V15h-11v-2.5L10 9z"/>',
+    appdev: '<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>',
     settings: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/>'
   };
   var svg = function (k) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[k] + '</svg>'; };
@@ -152,7 +153,8 @@
     ['Operations', [['receipt', 'Receipt', 'receipt.html'], ['portfolio', 'Portfolio', 'portfolio.html'], ['commercial', 'Commercial', 'commercial.html'], ['shipping', 'Shipping', 'shipping.html']]],
     ['Money', [['finance', 'Finance', 'finance.html'], ['charts', 'Charts', '#charts']]],
     ['Marketing', [['marketing', 'Marketing', 'marketing.html'], ['creatives', 'Creatives', 'creatives.html'], ['social', 'Social Media', '#social']]],
-    ['Team', [['topics', 'Topic Board', 'topics.html'], ['calendar', 'Calendar', 'calendar.html'], ['organization', 'Organization', 'organization.html'], ['legal', 'Legal', 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link']]]
+    ['Team', [['topics', 'Topic Board', 'topics.html'], ['calendar', 'Calendar', 'calendar.html'], ['organization', 'Organization', 'organization.html'], ['legal', 'Legal', 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link']]],
+    ['Tech', [['appdev', 'App Dev', 'appdev.html']]]
   ];
   var BACKEND_URL = 'https://docs.google.com/spreadsheets/d/1It4a7gEvyxr-gz4SL6gClC84o6mfxjr9Ooho_DxjL9o/edit?gid=1823529634#gid=1823529634';
   var SOCIAL = [['Facebook', 'https://www.facebook.com/courtvisioncollection'], ['Instagram', 'https://www.instagram.com/courtvisioncollection'], ['TikTok', 'https://www.tiktok.com/@courtvisioncollection'], ['YouTube', 'https://www.youtube.com/@courtvisioncollection']];
@@ -202,7 +204,7 @@
 
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   // sidebar number badges: page -> badge key (filled in by loadBadges below, or by other scripts through CVShell.setBadge)
-  var BADGE = { 'shipping.html': 'shipping', 'creatives.html': 'creatives', 'finance.html': 'finance' };
+  var BADGE = { 'shipping.html': 'shipping', 'creatives.html': 'creatives', 'finance.html': 'finance', 'appdev.html': 'appdev' };
   var link = function (it) {
     var on = it[2] === page, u = it[2], bk = BADGE[u];
     var tail = '<span>' + esc(it[1]) + '</span>' + (bk ? '<i class="sb-badge" data-badge="' + bk + '" hidden></i>' : '');
@@ -295,6 +297,85 @@
       paintPin();
     });
 
+    // ----- footer version + version history -----
+    // The footer's version label always shows the newest entry of the history. Click it to read the history; the admin can add and edit entries there.
+    var VKEY = 'cv:versions', vers = [];
+    try { var vc = JSON.parse(getPref(VKEY)); if (Array.isArray(vc)) vers = vc; } catch (e) {}
+    var vlabel = function (v) { v = String(v || '').trim(); return /^\d/.test(v) ? 'v' + v : v; };
+    var vdate = function (s) { var m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
+    var verEl = document.querySelector('.site-footer .ver');
+    var paintVer = function () { if (verEl && vers.length) verEl.textContent = vlabel(vers[0].version); };
+    var PENCIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>';
+    var TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+
+    var vm = document.createElement('div');
+    vm.className = 'modal'; vm.hidden = true; vm.setAttribute('role', 'dialog'); vm.setAttribute('aria-modal', 'true'); vm.setAttribute('aria-labelledby', 'cvVH');
+    vm.innerHTML = '<div class="sheet small wide vh"><h3 id="cvVH">Version history</h3>'
+      + '<div class="vh-form" id="cvVForm" hidden>'
+      + '<div class="field"><label for="cvVNum">Version</label><input type="text" id="cvVNum" maxlength="30" placeholder="e.g. 1.3" autocomplete="off"></div>'
+      + '<div class="field"><label for="cvVTxt">What changed</label><textarea id="cvVTxt" rows="4" maxlength="1200" placeholder="What did you deploy?"></textarea></div>'
+      + '<p class="cv-err" id="cvVErr" hidden></p>'
+      + '<div class="acts"><button type="button" class="go sm" id="cvVSave">Add version</button><button type="button" class="ghost" id="cvVCancel" hidden>Cancel edit</button></div></div>'
+      + '<div class="vh-list" id="cvVList"></div>'
+      + '<div class="acts"><button type="button" class="ghost" id="cvVClose">Close</button></div></div>';
+    body.appendChild(vm);
+    var vForm = vm.querySelector('#cvVForm'), vNum = vm.querySelector('#cvVNum'), vTxt = vm.querySelector('#cvVTxt'), vErr = vm.querySelector('#cvVErr'),
+        vSave = vm.querySelector('#cvVSave'), vCancel = vm.querySelector('#cvVCancel'), vList = vm.querySelector('#cvVList');
+    var vEditing = '', vBusy = false;
+
+    var paintVers = function () {
+      if (!vers.length) { vList.innerHTML = '<p class="stub-note vh-none">No versions recorded yet.</p>'; return; }
+      var adm = window.CVAuth.isAdmin();
+      vList.innerHTML = vers.map(function (v, i) {
+        return '<div class="vh-item"><div class="vh-h"><b>' + esc(vlabel(v.version)) + '</b>' + (i === 0 ? '<i class="vh-cur">Current</i>' : '') + '<span>' + esc(vdate(v.date)) + '</span>'
+          + (adm ? '<button type="button" class="icon-btn flat" data-vedit="' + esc(v.id) + '" aria-label="Edit version" title="Edit">' + PENCIL + '</button>'
+            + '<button type="button" class="icon-btn flat danger" data-vdel="' + esc(v.id) + '" aria-label="Delete version" title="Delete">' + TRASH + '</button>' : '') + '</div>'
+          + (v.notes ? '<p class="vh-n">' + esc(v.notes) + '</p>' : '') + '</div>';
+      }).join('');
+    };
+    var setVers = function (list) { vers = Array.isArray(list) ? list : []; setPref(VKEY, JSON.stringify(vers)); paintVer(); paintVers(); };
+    var vReset = function () { vEditing = ''; vNum.value = ''; vTxt.value = ''; vErr.hidden = true; vSave.textContent = 'Add version'; vCancel.hidden = true; };
+    var vFail = function (m) { vErr.textContent = m; vErr.hidden = false; };
+    var vBusyOn = function (on, label) { vBusy = on; vSave.disabled = on; vSave.textContent = on ? label : (vEditing ? 'Save changes' : 'Add version'); };
+
+    var openVers = function () { vForm.hidden = !window.CVAuth.isAdmin(); vReset(); paintVers(); vm.hidden = false; setOpen(false); };
+    var closeVers = function () { vm.hidden = true; };
+    vm.addEventListener('click', function (e) { if (e.target === vm) closeVers(); });
+    vm.querySelector('#cvVClose').addEventListener('click', closeVers);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeVers(); });
+    vCancel.addEventListener('click', vReset);
+    vSave.addEventListener('click', function () {
+      if (vBusy) return;
+      var num = vNum.value.trim();
+      if (!num) { vFail('Enter the version number.'); return; }
+      vErr.hidden = true; vBusyOn(true, 'Saving\u2026');
+      call('saveVersion', { by: curUser(), versionId: vEditing, version: num, notes: vTxt.value.trim() }).then(check).then(function (d) {
+        vBusyOn(false); vReset(); setVers(d.versions);
+      }).catch(function (e) { vBusyOn(false); vFail(e && e.message || 'Could not save.'); });
+    });
+    vList.addEventListener('click', function (e) {
+      var ed = e.target.closest('[data-vedit]'), del = e.target.closest('[data-vdel]');
+      if (ed) {
+        var v = vers.filter(function (x) { return x.id === ed.getAttribute('data-vedit'); })[0];
+        if (!v) return;
+        vEditing = v.id; vNum.value = v.version; vTxt.value = v.notes; vErr.hidden = true; vSave.textContent = 'Save changes'; vCancel.hidden = false;
+        vForm.scrollIntoView({ block: 'nearest' }); vNum.focus();
+      } else if (del && !vBusy) {
+        var dv = vers.filter(function (x) { return x.id === del.getAttribute('data-vdel'); })[0];
+        if (!dv || !confirm('Delete ' + vlabel(dv.version) + ' from the version history?')) return;
+        vBusy = true;
+        call('deleteVersion', { by: curUser(), versionId: dv.id }).then(check).then(function (d) { vBusy = false; if (vEditing === dv.id) vReset(); setVers(d.versions); })
+          .catch(function (e) { vBusy = false; vFail(e && e.message || 'Could not delete.'); });
+      }
+    });
+    if (verEl) {
+      verEl.classList.add('ver-btn'); verEl.setAttribute('role', 'button'); verEl.setAttribute('tabindex', '0'); verEl.title = 'Version history';
+      verEl.addEventListener('click', openVers);
+      verEl.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVers(); } });
+    }
+    paintVer();
+    if (curUser()) call('versions').then(check).then(function (d) { setVers(d.versions); }).catch(function () {});
+
     // ----- sidebar number badges -----
     // Shipping: shipping tasks (one per sale receipt, not per card) scheduled today.  Creatives: video + post tasks still to do.
     // Finance: set by notifs.js through CVShell.setBadge('finance', n) (transactions the assigned member has not seen yet).
@@ -312,8 +393,8 @@
     var BKEY = 'cv:badges';
     var loadBadges = function () {
       if (!curUser()) return;
-      try { var c = JSON.parse(sessionStorage.getItem(BKEY)); if (c && c.day === todayIso()) { counts.shipping = c.shipping; counts.creatives = c.creatives; paintBadges(); } } catch (e) {}
-      var save = function () { try { sessionStorage.setItem(BKEY, JSON.stringify({ day: todayIso(), shipping: counts.shipping || 0, creatives: counts.creatives || 0 })); } catch (e) {} };
+      try { var c = JSON.parse(sessionStorage.getItem(BKEY)); if (c && c.day === todayIso()) { counts.shipping = c.shipping; counts.creatives = c.creatives; if (curUser() === ADMIN) counts.appdev = c.appdev; paintBadges(); } } catch (e) {}
+      var save = function () { try { sessionStorage.setItem(BKEY, JSON.stringify({ day: todayIso(), shipping: counts.shipping || 0, creatives: counts.creatives || 0, appdev: counts.appdev || 0 })); } catch (e) {} };
       call('shipping').then(check).then(function (d) {
         var t = todayIso(), groups = {};
         (d.toShip || []).forEach(function (i) { if (d10(i.scheduledDate) === t) groups[i.groupKey || ('c:' + i.id)] = 1; });
@@ -323,10 +404,15 @@
         counts.creatives = (d.videos || []).filter(function (x) { return x.status === 'todo'; }).length + (d.posts || []).filter(function (x) { return x.status === 'toedit'; }).length;
         paintBadges(); save();
       }).catch(function () {});
+      // App Dev: the admin sees how many new requests are waiting to be accepted
+      if (curUser() === ADMIN) call('tickets').then(check).then(function (d) {
+        counts.appdev = (d.tickets || []).filter(function (t) { return t.status === 'pending'; }).length; paintBadges(); save();
+      }).catch(function () {});
     };
     window.CVShell = {
       setBadge: function (key, n) { counts[key] = Number(n) || 0; paintBadges(); },
-      refreshBadges: loadBadges
+      refreshBadges: loadBadges,
+      openVersions: openVers
     };
     loadBadges();
     loadAccess();

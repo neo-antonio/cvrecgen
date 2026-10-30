@@ -33,6 +33,8 @@ const APPS = [
     svg: '<path d=\"M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z\"/><path d=\"M7 8.5h5M7 12h10M7 15.5h7\"/>' },
   { id: 'organization', label: 'Organization', href: 'organization.html', desc: 'Team chart, goals and FAQ.',
     svg: '<rect x="9" y="3" width="6" height="5" rx="1.2"/><rect x="2.5" y="16" width="6" height="5" rx="1.2"/><rect x="15.5" y="16" width="6" height="5" rx="1.2"/><path d="M12 8v4M5.5 16v-4h13v4"/>' },
+  { id: 'appdev', label: 'App Dev', href: 'appdev.html', desc: 'Feature and bug requests, build queue and version history.',
+    svg: '<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>' },
   { id: 'legal', label: 'Legal', href: 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link', desc: 'Legal documents folder in Google Drive.',
     svg: '<path d="M12 3v18M7 21h10M5 7h14"/><path d="M5 7l-3 7a3.5 3.5 0 006 0z"/><path d="M19 7l-3 7a3.5 3.5 0 006 0z"/>' },
   { id: 'backend', label: 'Backend', href: 'https://docs.google.com/spreadsheets/d/1It4a7gEvyxr-gz4SL6gClC84o6mfxjr9Ooho_DxjL9o/edit?gid=1823529634#gid=1823529634', desc: 'The Google Sheet behind the app, opened in a new tab.',

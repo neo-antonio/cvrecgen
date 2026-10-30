@@ -5,7 +5,7 @@
    CVWidgets.load()             fetch people + goals from Organization
    CVWidgets.keysFor(user)      widget keys for a login (a login is the person whose name is that login or starts with it)
    CVWidgets.render(el, S, user, keys, ctx)   draws the assigned widgets into el, returns how many were drawn
-   S is the data Home already holds: port (cards), cr (creatives), fin, freshFin, cm (commercial price log), acct (account totals) */
+   S is the data Home already holds: port (cards), cr (creatives), fin, freshFin, cm (commercial price log), acct (account totals), tk (App Dev tickets) */
 (function () {
   const CATALOG = [
     { group: 'Goals', items: [
@@ -18,6 +18,8 @@
       { key: 'post_edit', label: 'Posts to edit', hint: 'Pending posts with title, due date and how many are due today' } ] },
     { group: 'Finance', items: [
       { key: 'fin_recent', label: 'Recent transactions', hint: 'The last 5 transactions, and which ones are new since you last looked' } ] },
+    { group: 'App Dev', items: [
+      { key: 'dev_queue', label: 'Build queue', hint: 'Accepted features and bugs being built, in order' } ] },
     { group: 'Pinned notification', items: [
       { key: 'ops_due', label: 'Shipping due today', hint: 'A pinned notice at the top of Home while shipments are scheduled for today' } ] }
   ];
@@ -189,6 +191,17 @@
     post_edit(S) {
       if (!S.cr) return null;
       return taskWidget('Posts to edit', 'creatives.html', (S.cr.posts || []).filter(x => x.status === 'toedit'), x => x.scheduled, x => x.label || x.title);
+    },
+
+    dev_queue(S) {
+      if (!S.tk) return null;
+      const q = S.tk.filter(t => t.status === 'building').sort((a, b) => String(a.acceptedAt).localeCompare(String(b.acceptedAt)));   // oldest accepted = next to build
+      const nBug = q.filter(t => t.type === 'bug').length, nFeat = q.length - nBug;
+      const cap = n => { n = String(n || ''); return n.charAt(0).toUpperCase() + n.slice(1).toLowerCase(); };
+      const body = q.length
+        ? `<ul class="wg-list">${q.slice(0, 5).map((t, i) => `<li><span>${esc(t.title)}<small>${t.type === 'bug' ? 'Bug' : 'Feature'} \u00b7 ${esc(cap(t.by))}</small></span><em>#${i + 1}</em></li>`).join('')}</ul>${q.length > 5 ? `<div class="wg-more">+${q.length - 5} more in App Dev</div>` : ''}`
+        : '<div class="wg-empty">Nothing is being built right now</div>';
+      return shell('', 'appdev.html', 'Build queue', q.length, q.length ? `${pl(nFeat, 'feature')} \u00b7 ${pl(nBug, 'bug')}` : '', body);
     },
 
     fin_recent(S, user) {
