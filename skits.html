@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>trackello &ndash; Skits</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="trackello">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="shell.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="hbar">
+    <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
+    <h2>Skits</h2>
+    <span class="hbar-spacer" aria-hidden="true"></span>
+  </div>
+</header>
+
+<main class="port-wrap">
+  <div class="filter-chips" id="kFilters">
+    <button type="button" class="chip active" data-f="todo">To do</button>
+    <button type="button" class="chip" data-f="done">Done</button>
+  </div>
+  <button type="button" class="ghost add-task" id="kAdd">+ Add skit</button>
+  <div class="rec-tools" style="margin-bottom:10px"><button type="button" class="ghost sm" id="kRefresh">Refresh</button></div>
+  <p class="rec-count" id="kCount"></p>
+  <p class="stub-note" id="kState">Loading&hellip;</p>
+  <div class="port-list sk-list" id="kList" hidden></div>
+</main>
+
+<!-- add / edit a skit -->
+<div class="modal" id="kSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="kHeading">Add skit</h3>
+    <div class="field">
+      <label for="kLink">Video link <small>(optional: YouTube, Instagram, Facebook or TikTok)</small></label>
+      <input type="url" id="kLink" inputmode="url" autocomplete="off" maxlength="500" placeholder="Paste a link to get the thumbnail">
+      <div class="sk-prev" id="kPrev" hidden></div>
+    </div>
+    <div class="field"><label for="kTitle">Title</label><input type="text" id="kTitle" maxlength="120" autocomplete="off" placeholder="Name this skit (filled from the link if you leave it empty)"></div>
+    <div class="field"><label for="kNotes">Notes <small>(optional)</small></label><textarea id="kNotes" rows="4" maxlength="1000" placeholder="The idea, who is in it, props, lines&hellip;"></textarea></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="kSave">Save</button>
+      <button type="button" class="ghost" id="kCancel">Cancel</button>
+      <button type="button" class="ghost danger" id="kDel" hidden>Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- one skit: embed, notes, actions -->
+<div class="modal" id="kView" hidden>
+  <div class="sheet small wide">
+    <h3 id="kvTitle"></h3>
+    <p class="stub-note" style="text-align:center;margin:-6px 0 14px;font-size:12px" id="kvSub"></p>
+    <div class="pd-embed" id="kvEmbed"></div>
+    <p class="cr-notes" id="kvNotes" hidden></p>
+    <div class="acts">
+      <button type="button" class="go sm" id="kvMove">Move to video edit</button>
+      <button type="button" class="ghost" id="kvDone">Mark done</button>
+      <button type="button" class="ghost" id="kvReopen">Back to to do</button>
+      <a class="ghost" id="kvOpen" href="#" target="_blank" rel="noopener noreferrer">Open</a>
+      <button type="button" class="ghost" id="kvEdit">Edit</button>
+      <button type="button" class="ghost danger" id="kvDel">Delete</button>
+      <button type="button" class="ghost" id="kvClose">Close</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="kToast" hidden></div>
+
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+  <p>trackello <span class="ver">v1.2</span></p>
+</footer>
+<script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="net.js"></script>
+<script src="skits.js"></script>
+</body>
+</html>

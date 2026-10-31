@@ -432,7 +432,7 @@
   const canDelete = t => t.kind === 'video' || String(t.id).indexOf('pc_') === 0;   // receipt groups (pg_) can only be hidden
   const find = id => allTasks().find(t => t.id === id);
   const shown = () => allTasks().filter(t => !t.hidden && (isReady(t) || isPosted(t)));
-  const whenOf = t => t.date || (isPosted(t) ? fbOf(t).date : '');   // every task sits on its planned date, posted or not, so it can be rescheduled either way
+  const whenOf = t => t.date || (isPosted(t) ? (CH.map(x => chOf(t, x.k).date).filter(Boolean).sort()[0] || '') : '');   // every task sits on its planned date, posted or not, so it can be rescheduled either way
   const waiting = () => shown().filter(isReady);
   const hiddenTasks = () => allTasks().filter(t => t.hidden && (isReady(t) || isPosted(t)));
   const ICON = {
@@ -580,7 +580,7 @@
     $('pubHeading').textContent = edit ? 'Edit channel links' : 'Publish';
     $('pubSub').textContent = t.title + (t.date ? ' \u00b7 planned ' + shortDay(parseIso(t.date) || new Date()) + (t.time ? ', ' + fmtClock(t.time) : '') : '');
     CH.forEach(x => { $(PUBIN[x.k]).value = chOf(t, x.k).link || ''; });
-    $('pubDate').value = fbOf(t).date || todayIso();
+    $('pubDate').value = CH.map(x => chOf(t, x.k).date).filter(Boolean).sort()[0] || todayIso();
     $('pubSave').textContent = edit ? 'Save' : 'Publish';
     // copy / hide / delete are for tasks that are not posted yet
     $('pubPlanDate').value = t.date || ''; $('pubPlanTime').value = t.time || '';

@@ -41,6 +41,10 @@
  *                   Previews (O) = JSON array of edited-photo preview links (posts).
  *                   Time (P) = planned post time 'HH:mm' (blank = no time set; used by the Socials Planner). Hidden (Q) = '1' when the task is hidden from the Done / Planner lists.
  *   Socials (A-G):  Date | Views | Engagement | Follows | Unfollows | Followers | Reach   (one row per day; filled by syncSocials from the Facebook Page, or by hand)
+ *   SocialsIG (A-G) / SocialsMetaIG (A-C): the same two tabs for Instagram (created on first use). Every social action takes platform=fb|ig (default fb).
+ *   Skits (A-L):    ID | Title | Link | Platform | Thumb | Notes | Status | VideoID | Created | Done | Updated | EmbedId   (Skits app, created automatically)
+ *                   Status: todo | edit (moved to a Creatives video task, VideoID) | done. A skit in 'edit' reads as done once that video task is posted, and goes back to todo if the video task is deleted.
+ *                   Link = YouTube / Instagram / Facebook / TikTok video (optional: an idea needs no link). Thumb = preview image (TikTok / Instagram / Facebook previews are copied to Drive because their links expire).
  *   SocialsMeta (A-C): Key | Value | Updated   (audience = followers vs non-followers views, traffic = traffic sources, sync = last Facebook sync; all-time panels)
  *                   Facebook sync needs two Script Properties (Project Settings > Script properties): FB_PAGE_ID and FB_PAGE_TOKEN (a Page access token with read_insights + pages_read_engagement).
  *                   Platforms is JSON {fb,ig,yt,tt: {on,date,link}}. Edited = pipe-separated card IDs already edited (posts).
@@ -61,6 +65,7 @@
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
  *               completeCreatives, deleteCreative, savePostGroup, allCards, setPostViews, socials, syncSocials, saveSocialDay, importSocialMetric, saveSocialPanel, login, changePassword, listUsers, createShippingTask, cancelShipping, setSafekeep, mergeShippingTasks, setAuction, titleCaseCards,
+ *               setPostChannels, skits, saveSkit, skitToVideo, deleteSkit, linkPreview,
  *               topicUsers, topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic,
  *               tickets, saveTicket, setTicketStatus, deleteTicket, versions, saveVersion, deleteVersion
  *   Small ID-only mutations are GET + JSONP (Apps Script does not reliably send CORS headers on POST responses).
@@ -160,6 +165,12 @@ function doGet(e) {
     if (action === 'saveSocialDay') return jsonpOut_(saveSocialDay_(e.parameter), cb);
     if (action === 'importSocialMetric') return jsonpOut_(importSocialMetric_(e.parameter), cb);
     if (action === 'saveSocialPanel') return jsonpOut_(saveSocialPanel_(e.parameter), cb);
+    if (action === 'setPostChannels') return jsonpOut_(setPostChannels_(e.parameter), cb);
+    if (action === 'skits') return jsonpOut_(getSkits_(), cb);
+    if (action === 'saveSkit') return jsonpOut_(saveSkit_(e.parameter), cb);
+    if (action === 'skitToVideo') return jsonpOut_(skitToVideo_(e.parameter), cb);
+    if (action === 'deleteSkit') return jsonpOut_(deleteSkit_(e.parameter.id), cb);
+    if (action === 'linkPreview') return jsonpOut_(linkPreview_(e.parameter), cb);
     if (action === 'topics') return jsonpOut_(getTopics_(), cb);
     if (action === 'topicUsers') return jsonpOut_(getTopicUsers_(), cb);
     if (action === 'saveTopic') return jsonpOut_(saveTopic_(e.parameter), cb);
@@ -1935,9 +1946,10 @@ function setPostViews_(p) {
     if (!found) return { ok: false, error: 'not found' };
     const row = found.row.slice();
     const pl = parsePlatforms_(row[6]);
-    const fb = pl.fb || { on: true, date: '', link: '' };
+    const key = ['fb', 'ig', 'yt', 'tt'].indexOf(String(p.platform || '')) >= 0 ? String(p.platform) : 'fb';
+    const fb = pl[key] || { on: true, date: '', link: '' };
     fb.views = Math.round(views); fb.viewsAt = nowStamp_();
-    pl.fb = fb;
+    pl[key] = fb;
     row[6] = JSON.stringify(pl);
     writeCreativeRow_(sh, found.idx, row);
     return { ok: true, views: fb.views, viewsAt: fb.viewsAt };
@@ -1948,9 +1960,13 @@ const SOCIALS_SHEET = 'Socials';
 const SOCIALS_HEADERS = ['Date', 'Views', 'Engagement', 'Follows', 'Unfollows', 'Followers', 'Reach'];
 const SOCIALS_META = 'SocialsMeta';
 const SOCIALS_META_HEADERS = ['Key', 'Value', 'Updated'];
+const SOCIALS_IG_SHEET = 'SocialsIG';
+const SOCIALS_IG_META = 'SocialsMetaIG';
+// which channel a social request is about: Instagram (ig) or Facebook (fb, the default)
+function socPlat_(p) { return p && String(p.platform || '') === 'ig' ? 'ig' : 'fb'; }
 
-function socialsSheet_(create) {
-  const sh = textSheet_(SOCIALS_SHEET, SOCIALS_HEADERS, create);
+function socialsSheet_(create, plat) {
+  const sh = textSheet_(plat === 'ig' ? SOCIALS_IG_SHEET : SOCIALS_SHEET, SOCIALS_HEADERS, create);
   // older sheets stop at Followers (F): add the Reach column (G) the first time we write
   if (sh && create && sh.getLastColumn() < SOCIALS_HEADERS.length) {
     sh.getRange(1, 1, 1, SOCIALS_HEADERS.length).setValues([SOCIALS_HEADERS]);
@@ -1958,20 +1974,27 @@ function socialsSheet_(create) {
   }
   return sh;
 }
-function socialsMetaSheet_(create) { return textSheet_(SOCIALS_META, SOCIALS_META_HEADERS, create); }
+function socialsMetaSheet_(create, plat) { return textSheet_(plat === 'ig' ? SOCIALS_IG_META : SOCIALS_META, SOCIALS_META_HEADERS, create); }
 function numOrBlank_(v) { return v === '' || v == null || !isFinite(Number(v)) ? '' : Math.max(0, Math.round(Number(v))); }
 
-function getSocials_() {
-  const sh = socialsSheet_(false);
+function readSocialDaily_(sh) {
   const daily = sh ? sh.getDataRange().getValues().slice(1).filter(r => r[0]).map(r => ({
     d: fmtDateCell_(r[0]).slice(0, 10), views: Number(r[1]) || 0, eng: Number(r[2]) || 0, fol: Number(r[3]) || 0, unf: Number(r[4]) || 0,
     tot: r[5] === '' || r[5] == null ? null : Number(r[5]), reach: Number(r[6]) || 0 })) : [];
   daily.sort((a, b) => a.d < b.d ? -1 : 1);
+  return daily;
+}
+function readSocialMeta_(ms) {
   const meta = {};
-  const ms = socialsMetaSheet_(false);
   if (ms) ms.getDataRange().getValues().slice(1).forEach(r => { if (r[0]) { let v = {}; try { v = JSON.parse(r[1] || '{}'); } catch (err) {} meta[String(r[0])] = { value: v, updated: String(r[2] || '') }; } });
+  return meta;
+}
+// Facebook stays at the top level (older app versions read it there); Instagram comes along under `ig`.
+function getSocials_() {
   const props = PropertiesService.getScriptProperties();
-  return { ok: true, daily, meta, configured: !!(props.getProperty('FB_PAGE_ID') && props.getProperty('FB_PAGE_TOKEN')) };
+  return { ok: true, daily: readSocialDaily_(socialsSheet_(false, 'fb')), meta: readSocialMeta_(socialsMetaSheet_(false, 'fb')),
+    ig: { daily: readSocialDaily_(socialsSheet_(false, 'ig')), meta: readSocialMeta_(socialsMetaSheet_(false, 'ig')) },
+    configured: !!(props.getProperty('FB_PAGE_ID') && props.getProperty('FB_PAGE_TOKEN')) };
 }
 
 // Manual entry / correction of one day.
@@ -1981,7 +2004,7 @@ function saveSocialDay_(p) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    const sh = socialsSheet_(true);
+    const sh = socialsSheet_(true, socPlat_(p));
     const found = (() => { const data = sh.getDataRange().getValues(); for (let r = 1; r < data.length; r++) if (fmtDateCell_(data[r][0]).slice(0, 10) === d) return { idx: r + 1, row: data[r] }; return null; })();
     const old = found ? found.row : ['', '', '', '', '', '', ''];
     const row = [d, 'views' in p ? numOrBlank_(p.views) : old[1], 'eng' in p ? numOrBlank_(p.eng) : old[2], 'fol' in p ? numOrBlank_(p.fol) : old[3],
@@ -2001,7 +2024,7 @@ function importSocialMetric_(p) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const sh = socialsSheet_(true);
+    const sh = socialsSheet_(true, socPlat_(p));
     const rows = sh.getDataRange().getValues().slice(1).filter(r => r[0]).map(r => {
       const o = r.slice(0, SOCIALS_HEADERS.length); while (o.length < SOCIALS_HEADERS.length) o.push('');
       o[0] = fmtDateCell_(o[0]).slice(0, 10); return o;
@@ -2028,7 +2051,7 @@ function saveSocialPanel_(p) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    const sh = socialsMetaSheet_(true), found = findRow_(sh, key), now = nowStamp_();
+    const sh = socialsMetaSheet_(true, socPlat_(p)), found = findRow_(sh, key), now = nowStamp_();
     sh.getRange(found ? found.idx : sh.getLastRow() + 1, 1, 1, 3).setNumberFormat('@').setValues([[key, JSON.stringify(v), now]]);
     return { ok: true, updated: now };
   } finally { lock.releaseLock(); }
@@ -2079,6 +2102,211 @@ function syncSocials_(p) {
     ms.getRange(found ? found.idx : ms.getLastRow() + 1, 1, 1, 3).setNumberFormat('@').setValues([['sync', JSON.stringify({ ok: true, problems: problems.slice(0, 5) }), now]]);
     return { ok: true, added, updated, problems, updatedAt: now };
   } finally { lock.releaseLock(); }
+}
+
+// Link + all-time views for each channel a task was posted on, in one save.
+//   json  {fb:{link,views}, ig:{...}, yt:{...}, tt:{...}}   A channel that is sent with no link and no views is switched off.
+function setPostChannels_(p) {
+  const id = String(p.id || '').trim();
+  if (!id) return { ok: false, error: 'missing id' };
+  let inp = {};
+  try { inp = JSON.parse(p.json || '{}') || {}; } catch (err) { return { ok: false, error: 'invalid data' }; }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = creativesSheet_(true);
+    const found = findRow_(sh, id);
+    if (!found) return { ok: false, error: 'not found' };
+    const row = found.row.slice(), pl = parsePlatforms_(row[6]), now = nowStamp_();
+    ['fb', 'ig', 'yt', 'tt'].forEach(k => {
+      const q = inp[k]; if (!q) return;
+      const c = pl[k] || { on: false, date: '', link: '' };
+      if ('link' in q) { const l = String(q.link || '').trim().slice(0, 500); c.link = /^https?:\/\//i.test(l) ? l : ''; }
+      if ('views' in q) {
+        if (q.views === '' || q.views == null) { delete c.views; delete c.viewsAt; }
+        else { const v = Number(q.views); if (isFinite(v) && v >= 0) { const nv = Math.round(v); if (c.views !== nv) c.viewsAt = now; c.views = nv; } }
+      }
+      c.on = !!(c.link || c.views !== undefined);
+      if (c.on && !c.date) c.date = todayStr_();
+      if (c.on) pl[k] = c; else delete pl[k];
+    });
+    row[6] = cleanPlatforms_(JSON.stringify(pl));
+    writeCreativeRow_(sh, found.idx, row);
+    return { ok: true, platforms: parsePlatforms_(row[6]) };
+  } finally { lock.releaseLock(); }
+}
+
+/* ---------- Skits: video ideas (with or without a link), moved to Creatives > Video when it is time to edit ---------- */
+const SKITS_SHEET = 'Skits';
+const SKIT_HEADERS = ['ID', 'Title', 'Link', 'Platform', 'Thumb', 'Notes', 'Status', 'VideoID', 'Created', 'Done', 'Updated', 'EmbedId'];
+const SKIT_PLAT_NAME = { yt: 'YouTube', ig: 'Instagram', fb: 'Facebook', tt: 'TikTok' };
+
+function skitsSheet_(create) { return textSheet_(SKITS_SHEET, SKIT_HEADERS, create); }
+function writeSkitRow_(sh, idx, row) {
+  while (row.length < SKIT_HEADERS.length) row.push('');
+  if (row.length > SKIT_HEADERS.length) row = row.slice(0, SKIT_HEADERS.length);
+  const at = idx || (sh.getLastRow() + 1);
+  if (at > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), at - sh.getMaxRows());
+  sh.getRange(at, 1, 1, SKIT_HEADERS.length).setNumberFormat('@').setValues([row]);
+}
+// Which channel a pasted link belongs to ('' = not a supported video site). Only these hosts are ever fetched.
+function skitPlatform_(url) {
+  const m = String(url || '').trim().match(/^https?:\/\/([^\/?#:]+)/i);
+  if (!m) return '';
+  const h = m[1].toLowerCase().replace(/^(www|m|mobile|web|vm|vt)\./, '');
+  if (/(^|\.)youtube\.com$|^youtu\.be$/.test(h)) return 'yt';
+  if (/(^|\.)instagram\.com$|^instagr\.am$/.test(h)) return 'ig';
+  if (/(^|\.)facebook\.com$|^fb\.watch$|^fb\.com$|^fb\.me$/.test(h)) return 'fb';
+  if (/(^|\.)tiktok\.com$/.test(h)) return 'tt';
+  return '';
+}
+// Creatives video tasks by id, so a skit can follow its video (posted = the skit is done)
+function videoMap_() {
+  const map = {}, cs = creativesSheet_(false);
+  if (cs) cs.getDataRange().getValues().slice(1).forEach(r => { if (r[0] && String(r[1]) === 'video') map[String(r[0])] = { status: String(r[5] || 'todo'), doneDate: fmtDateCell_(r[12]) }; });
+  return map;
+}
+function skitOut_(r, vmap) {
+  let status = String(r[6] || 'todo'); if (['todo', 'edit', 'done'].indexOf(status) < 0) status = 'todo';
+  const vid = String(r[7] || ''); let doneAt = String(r[9] || ''), videoStatus = '';
+  if (status === 'edit') {
+    const v = vmap[vid];
+    if (!v) status = 'todo';                                  // the video task was deleted: back to the to-do list
+    else { videoStatus = v.status; if (v.status === 'posted') { status = 'done'; doneAt = doneAt || v.doneDate; } }
+  }
+  return { id: String(r[0]), title: String(r[1] || ''), link: String(r[2] || ''), platform: String(r[3] || ''), thumb: toDisplayUrl_(r[4], 640),
+    notes: String(r[5] || ''), status, videoId: status === 'todo' ? '' : vid, videoStatus, createdAt: String(r[8] || ''), doneAt, updatedAt: String(r[10] || ''), embedId: String(r[11] || '') };
+}
+function getSkits_() {
+  const sh = skitsSheet_(false);
+  if (!sh) return { ok: true, skits: [] };
+  const vmap = videoMap_();
+  return { ok: true, skits: sh.getDataRange().getValues().slice(1).filter(r => r[0]).map(r => skitOut_(r, vmap)).reverse() };   // newest first
+}
+
+// Upsert. Only the fields that are sent change. status: todo | done (moving to video edit is skitToVideo).
+function saveSkit_(p) {
+  const id = String(p.id || '').trim();
+  if (id && !/^sk_[0-9a-f]{4,16}$/.test(id)) return { ok: false, error: 'invalid id' };
+  const link = 'link' in p ? String(p.link || '').trim().slice(0, 500) : null;
+  if (link && !skitPlatform_(link)) return { ok: false, error: 'Paste a YouTube, Instagram, Facebook or TikTok link.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = skitsSheet_(true), found = id ? findRow_(sh, id) : null;
+    if (id && !found) return { ok: false, error: 'not found' };
+    const row = found ? found.row.slice() : [newId_('sk'), '', '', '', '', '', 'todo', '', nowStamp_(), '', '', ''];
+    while (row.length < SKIT_HEADERS.length) row.push('');
+    if ('title' in p) row[1] = String(p.title || '').trim().slice(0, 120);
+    if (link !== null) {
+      if (link !== String(row[2] || '')) { row[4] = ''; row[11] = ''; }   // a different link: the old preview no longer applies
+      row[2] = link; row[3] = skitPlatform_(link);
+    }
+    if ('thumb' in p) { const t = String(p.thumb || '').trim().slice(0, 600); row[4] = /^https?:\/\//i.test(t) ? t : ''; }
+    if ('embedId' in p) row[11] = String(p.embedId || '').replace(/[^\w-]/g, '').slice(0, 40);
+    if ('notes' in p) row[5] = String(p.notes || '').trim().slice(0, 1000);
+    if ('status' in p) {
+      if (p.status === 'done') { row[6] = 'done'; row[9] = row[9] || todayStr_(); }
+      else { row[6] = 'todo'; row[7] = ''; row[9] = ''; }
+    }
+    if (!row[1] && !row[2]) return { ok: false, error: 'Add a title or paste a link.' };
+    if (!row[1]) row[1] = (SKIT_PLAT_NAME[row[3]] || 'Video') + ' skit';
+    row[10] = nowStamp_();
+    writeSkitRow_(sh, found ? found.idx : 0, row);
+    return { ok: true, id: String(row[0]) };
+  } finally { lock.releaseLock(); }
+}
+
+// "We will do this skit now": it becomes a to-do video task in Creatives and the skit follows that task.
+function skitToVideo_(p) {
+  const id = String(p.id || '').trim();
+  const sh0 = skitsSheet_(false), f0 = sh0 && findRow_(sh0, id);
+  if (!f0) return { ok: false, error: 'not found' };
+  const cur = skitOut_(f0.row, videoMap_());
+  if (cur.status === 'edit' && cur.videoId) return { ok: true, videoId: cur.videoId, already: true };
+  if (cur.status === 'done') return { ok: false, error: 'This skit is already done.' };
+  const notes = [f0.row[2], f0.row[5]].filter(Boolean).join('\n\n');
+  const r = saveCreative_({ title: ('Skit: ' + (f0.row[1] || 'Untitled')).slice(0, 200), notes, date: cleanDate_(p.date) || todayStr_() });   // takes its own lock
+  if (!r.ok) return r;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = skitsSheet_(true), f = findRow_(sh, id);
+    if (!f) return { ok: false, error: 'not found' };
+    const row = f.row.slice(); while (row.length < SKIT_HEADERS.length) row.push('');
+    row[6] = 'edit'; row[7] = r.id; row[9] = ''; row[10] = nowStamp_();
+    writeSkitRow_(sh, f.idx, row);
+    return { ok: true, videoId: r.id };
+  } finally { lock.releaseLock(); }
+}
+
+// Deleting a skit never deletes the video task it was moved to.
+function deleteSkit_(id) {
+  id = String(id || '').trim();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = skitsSheet_(false), found = sh && findRow_(sh, id);
+    if (!found) return { ok: false, error: 'not found' };
+    sh.deleteRow(found.idx);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+
+// Title / author / thumbnail for a pasted video link.
+//   YouTube and TikTok: their public oEmbed. Instagram and Facebook: the preview image they give link crawlers (public posts only).
+// Anything that is not a plain YouTube thumbnail is copied to Drive, because TikTok / Instagram / Facebook image links expire.
+function linkPreview_(p) {
+  const url = String(p.url || '').trim().slice(0, 500), plat = skitPlatform_(url);
+  if (!plat) return { ok: false, error: 'Paste a YouTube, Instagram, Facebook or TikTok link.' };
+  const out = { ok: true, platform: plat, title: '', author: '', thumb: '', embedId: '' };
+  const getJson = u => { try { const r = UrlFetchApp.fetch(u, { muteHttpExceptions: true, followRedirects: true }); return r.getResponseCode() === 200 ? JSON.parse(r.getContentText()) : null; } catch (err) { return null; } };
+  try {
+    if (plat === 'yt') {
+      const j = getJson('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent(url));
+      if (j) { out.title = String(j.title || ''); out.author = String(j.author_name || ''); out.thumb = String(j.thumbnail_url || ''); }
+    } else if (plat === 'tt') {
+      const j = getJson('https://www.tiktok.com/oembed?url=' + encodeURIComponent(url));
+      if (j) {
+        out.title = String(j.title || ''); out.author = String(j.author_name || '');
+        const m = String(j.html || '').match(/data-video-id="(\d+)"/); if (m) out.embedId = m[1];
+        out.thumb = cacheSkitThumb_(String(j.thumbnail_url || '')) || '';
+      }
+      if (!out.embedId) { const m2 = url.match(/\/video\/(\d+)/); if (m2) out.embedId = m2[1]; }
+    } else {
+      const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true, headers: { 'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Accept-Language': 'en' } });
+      if (res.getResponseCode() === 200) {
+        const html = res.getContentText().slice(0, 400000);
+        out.title = ogTag_(html, 'og:title').slice(0, 120);
+        out.thumb = cacheSkitThumb_(ogTag_(html, 'og:image')) || '';
+      }
+    }
+  } catch (err) {}
+  return out;
+}
+function decodeHtml_(s) { return String(s || '').replace(/&quot;/g, '"').replace(/&#0?39;|&#x27;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'); }
+function ogTag_(html, prop) {
+  const a = new RegExp('<meta[^>]+(?:property|name)=["\']' + prop + '["\'][^>]*content=["\']([^"\']*)["\']', 'i');
+  const b = new RegExp('<meta[^>]+content=["\']([^"\']*)["\'][^>]*(?:property|name)=["\']' + prop + '["\']', 'i');
+  const m = html.match(a) || html.match(b);
+  return m ? decodeHtml_(m[1]) : '';
+}
+// A YouTube thumbnail link never expires, so it is used as is; anything else is saved to a Drive folder (made on first use).
+function cacheSkitThumb_(url) {
+  try {
+    if (!/^https:\/\//i.test(url || '')) return '';
+    if (/^https:\/\/i\.ytimg\.com\//i.test(url)) return url;
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+    if (res.getResponseCode() !== 200) return '';
+    const blob = res.getBlob();
+    if (!/^image\//i.test(String(blob.getContentType() || '')) || blob.getBytes().length > 4000000) return '';
+    const it = DriveApp.getFoldersByName('trackello skit thumbs');
+    const folder = it.hasNext() ? it.next() : DriveApp.createFolder('trackello skit thumbs');
+    blob.setName(newId_('skit') + '.jpg');
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return file.getUrl();
+  } catch (err) { return ''; }
 }
 
 /* ---------- entities: sellers, buyers and trade partners ---------- */
