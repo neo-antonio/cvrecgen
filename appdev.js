@@ -10,6 +10,7 @@
   const admin = !!(window.CVAuth && CVAuth.isAdmin());
   const KEY = 'cv:tickets';
 
+  let people = [];   // team logins, for the admin's "Request as" picker
   let tickets = [], tab = 'requests', editId = '', actId = '', actKind = '', formType = 'feature', busy = false;
   try { const c = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(c)) tickets = c; } catch (_) {}
 
@@ -119,8 +120,19 @@
     document.querySelectorAll('.ad-types .chip').forEach(c => c.classList.toggle('active', c.dataset.type === formType));
     $('adBody').placeholder = PLACEHOLDER[formType];
   };
+  // admin only: who a NEW request is sent as (defaults to yourself)
+  function fillAs() {
+    const names = people.length ? people : [me];
+    $('adAs').innerHTML = names.map(n => '<option value="' + esc(n) + '"' + (n === me ? ' selected' : '') + '>' + esc(cap(n)) + (n === me ? ' (you)' : '') + '</option>').join('');
+  }
+  function loadPeople() {
+    if (!admin || people.length) return;
+    call('topicUsers').then(check).then(d => { people = (d.users || []).filter(Boolean); if (me && people.indexOf(me) < 0) people.unshift(me); fillAs(); }).catch(() => {});
+  }
   function openSheet(t) {
     editId = t ? t.id : '';
+    $('adAsWrap').hidden = !(admin && !t);
+    if (admin && !t) { fillAs(); loadPeople(); }
     $('adSheetH').textContent = t ? 'Edit request' : 'New request';
     $('adSave').textContent = t ? 'Save changes' : 'Send request';
     $('adTitle').value = t ? t.title : ''; $('adBody').value = t ? t.body : '';
@@ -133,10 +145,11 @@
     const title = $('adTitle').value.trim();
     if (!title) { $('adSheetErr').textContent = 'Add a short title.'; $('adSheetErr').hidden = false; return; }
     $('adSheetErr').hidden = true; setBusy(true);
-    call('saveTicket', { by: me, ticketId: editId, type: formType, title, body: $('adBody').value.trim() }).then(check).then(d => {
+    const extra = admin && !editId && $('adAs').value && $('adAs').value !== me ? { forUser: $('adAs').value } : {};
+    call('saveTicket', Object.assign({ by: me, ticketId: editId, type: formType, title, body: $('adBody').value.trim() }, extra)).then(check).then(d => {
       setBusy(false); closeSheet(); apply(d.tickets);
       if (!editId) { tab = 'requests'; paint(); }
-      toast(editId ? 'Request updated' : 'Request sent');
+      toast(editId ? 'Request updated' : (extra.forUser ? 'Request sent as ' + cap(extra.forUser) : 'Request sent'));
     }).catch(e => { setBusy(false); $('adSheetErr').textContent = e.message; $('adSheetErr').hidden = false; });
   }
 

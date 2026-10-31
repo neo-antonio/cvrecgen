@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>trackello &ndash; Socials</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="trackello">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="shell.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="hbar">
+    <a href="index.html" class="back" aria-label="Back to home">&lsaquo;</a>
+    <h2>Socials</h2>
+    <span class="hbar-spacer" aria-hidden="true"></span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-stab="insights" role="tab">Insights</button>
+    <button type="button" class="tab" data-stab="planner" role="tab">Planner<i class="tab-badge" id="plBadge" hidden></i></button>
+  </nav>
+</header>
+
+<main class="port-wrap so-wrap">
+  <!-- Facebook insights -->
+  <div id="panelInsights">
+    <div class="so-bar">
+      <div class="so-plat"><i class="so-both" id="soPlatIcon" aria-hidden="true">All</i><b id="soPlatName">Facebook + Instagram</b><a class="so-open" id="soOpen" href="https://www.facebook.com/courtvisioncollection" target="_blank" rel="noopener noreferrer" hidden>Open page &#8599;</a></div>
+      <div class="so-tools">
+        <button type="button" class="ghost sm" id="soImport">Import CSV</button>
+        <button type="button" class="ghost sm" id="soDay">Add day</button>
+      </div>
+    </div>
+    <div class="so-seg three" id="soPlat" role="group" aria-label="Channel">
+      <button type="button" data-p="all" aria-pressed="true">All</button>
+      <button type="button" data-p="fb" aria-pressed="false">Facebook</button>
+      <button type="button" data-p="ig" aria-pressed="false">Instagram</button>
+    </div>
+    <div class="so-seg" id="soView" role="group" aria-label="View">
+      <button type="button" data-v="day" aria-pressed="true">Daily</button>
+      <button type="button" data-v="week" aria-pressed="false">Weekly</button>
+      <button type="button" data-v="month" aria-pressed="false">Monthly</button>
+      <button type="button" data-v="all" aria-pressed="false">All time</button>
+    </div>
+    <p class="so-range" id="soRange"></p>
+    <p class="stub-note" id="soState">Loading&hellip;</p>
+    <section class="so-cards" id="soCards" aria-label="Key metrics" hidden></section>
+    <section class="so-charts" id="soCharts" hidden>
+      <div class="so-chart"><div class="so-chart-h"><h3 id="chViewsTitle">Views</h3><div class="so-seg-mini" id="soViewMode" role="group" aria-label="Chart shows"><button type="button" data-m="views" aria-pressed="true">Views</button><button type="button" data-m="both" aria-pressed="false">Both</button><button type="button" data-m="reach" aria-pressed="false">Reach</button></div></div><div class="so-canvas"><canvas id="chViews"></canvas></div></div>
+      <div class="so-chart"><div class="so-chart-h"><h3>Engagement</h3></div><div class="so-canvas"><canvas id="chEng"></canvas></div></div>
+      <div class="so-chart"><div class="so-chart-h"><h3>Follows &amp; unfollows</h3></div><div class="so-canvas"><canvas id="chAud"></canvas></div></div>
+      <div class="so-chart"><div class="so-chart-h"><h3>Total followers</h3></div><div class="so-canvas"><canvas id="chTot"></canvas></div></div>
+    </section>
+    <section class="so-charts" id="soAllTime" hidden>
+      <div class="so-chart">
+        <div class="so-chart-h"><h3>Followers vs non-followers views</h3><button type="button" class="ghost sm" id="soEditAud">Update</button></div>
+        <p class="so-upd" id="soAudUpd"></p>
+        <div class="so-canvas so-pie"><canvas id="chPie"></canvas></div>
+        <div class="so-legend" id="soPieLegend"></div>
+      </div>
+      <div class="so-chart">
+        <div class="so-chart-h"><h3>Traffic</h3><button type="button" class="ghost sm" id="soEditTr">Update</button></div>
+        <p class="so-upd" id="soTrUpd"></p>
+        <div class="so-canvas" id="soTrWrap"><canvas id="chTraffic"></canvas></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- planner: done tasks on their planned day / hour; faded = not posted yet (tap to post) -->
+  <div id="panelPlanner" hidden>
+    <div class="pl-nav">
+      <button type="button" class="back" id="plPrev" aria-label="Previous week">&lsaquo;</button>
+      <b id="plTitle"></b>
+      <button type="button" class="back" id="plNext" aria-label="Next week">&rsaquo;</button>
+    </div>
+    <div class="cal-tools">
+      <button type="button" class="ghost sm" id="plToday">Today</button>
+      <button type="button" class="ghost sm" id="plRefresh">Refresh</button>
+      <button type="button" class="ghost sm" id="plViewsBtn" aria-pressed="true">Views: On</button>
+      <button type="button" class="ghost sm" id="plHiddenBtn">Hidden (0)</button>
+    </div>
+    <button type="button" class="pl-alert" id="plAlert" hidden></button>
+    <p class="stub-note" id="plState" hidden></p>
+    <div class="pl-days" id="plDays"></div>
+    <div class="pl-week" id="plWeek"></div>
+    <p class="pl-note">Faded items are done but not posted yet. Tap one to post it.</p>
+  </div>
+</main>
+
+<!-- hidden planner tasks: view and unhide -->
+<div class="modal" id="hdSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Hidden tasks</h3>
+    <p class="stub-note" style="text-align:center;margin:-6px 0 14px;font-size:12px">These are not shown in the Planner. Unhide a task to put it back on its planned day.</p>
+    <p class="stub-note" id="hdEmpty" hidden>No hidden tasks.</p>
+    <div class="hd-list" id="hdList"></div>
+    <div class="acts">
+      <button type="button" class="ghost" id="hdClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- publish: paste the Facebook link -->
+<div class="modal" id="pubSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="pubHeading">Publish</h3>
+    <p class="stub-note" style="text-align:center;margin:-6px 0 14px;font-size:12px" id="pubSub"></p>
+    <div class="field"><label for="pubLink">Facebook link</label><input type="url" id="pubLink" inputmode="url" autocomplete="off" placeholder="https://www.facebook.com/&hellip;"></div>
+    <div class="field"><label>Other channels <small>(optional)</small></label>
+      <input type="url" id="pubLinkIg" class="ch-in" inputmode="url" autocomplete="off" placeholder="Instagram link">
+      <input type="url" id="pubLinkYt" class="ch-in" inputmode="url" autocomplete="off" placeholder="YouTube link">
+      <input type="url" id="pubLinkTt" class="ch-in" inputmode="url" autocomplete="off" placeholder="TikTok link">
+    </div>
+    <div class="field"><label for="pubDate">Date posted</label><input type="date" id="pubDate"></div>
+    <div class="field" id="pubPlanWrap"><label>Planned date &amp; time <small>(when it should go up)</small></label><div class="so-plan"><input type="date" id="pubPlanDate" aria-label="Planned date"><input type="time" id="pubPlanTime" aria-label="Planned time"></div></div>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px">Post it first, then paste the link of each channel you used (at least one). It shows up as an embed.</p>
+    <div class="acts">
+      <button type="button" class="go sm" id="pubSave">Publish</button>
+      <button type="button" class="ghost" id="pubSched">Save schedule</button>
+      <button type="button" class="ghost" id="pubCopy">Copy caption</button>
+      <button type="button" class="ghost" id="pubHide">Hide</button>
+      <button type="button" class="ghost danger" id="pubDel">Delete task</button>
+      <button type="button" class="ghost" id="pubCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- a published task: embed, views, link -->
+<div class="modal" id="pdSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="pdHeading">Published</h3>
+    <p class="stub-note" style="text-align:center;margin:-6px 0 14px;font-size:12px" id="pdSub"></p>
+    <div class="filter-chips pd-tabs" id="pdTabs" hidden></div>
+    <div class="pd-embed" id="pdEmbed"></div>
+    <div class="so-chs" id="pdViews"></div>
+    <div class="field" style="margin-top:12px"><label>Planned date &amp; time <small>(where it sits in the Planner)</small></label><div class="so-plan"><input type="date" id="pdPlanDate" aria-label="Planned date"><input type="time" id="pdPlanTime" aria-label="Planned time"></div></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="pdSched">Save schedule</button>
+      <button type="button" class="ghost" id="pdViewsBtn">Channels &amp; views</button>
+      <a class="ghost" id="pdOpen" href="#" target="_blank" rel="noopener noreferrer">Open</a>
+      <button type="button" class="ghost" id="pdEdit">Edit link</button>
+      <button type="button" class="ghost danger" id="pdUnpub">Unpublish</button>
+      <button type="button" class="ghost" id="pdClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- channels and all-time views of a published post -->
+<div class="modal" id="vwSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Channels &amp; views</h3>
+    <p class="stub-note" style="text-align:center;margin:-6px 0 14px;font-size:12px" id="vwSub"></p>
+    <div id="vwRows"></div>
+    <p class="stub-note" style="margin:0 0 14px;font-size:12px">Add the link and all-time views for each channel it was posted on. Leave a channel empty if it was not posted there. The date and time you save a number is kept as &ldquo;last updated&rdquo;.</p>
+    <div class="acts">
+      <button type="button" class="go sm" id="vwSave">Save</button>
+      <button type="button" class="ghost" id="vwCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- add / correct one day of page metrics -->
+<div class="modal" id="dySheet" hidden>
+  <div class="sheet small wide">
+    <h3>Add or edit a day</h3>
+    <div class="field"><label for="dyPlat">Channel</label><select id="dyPlat" class="so-field-select"><option value="fb">Facebook</option><option value="ig">Instagram</option></select></div>
+    <div class="field"><label for="dyDate">Date</label><input type="date" id="dyDate"></div>
+    <div class="field"><label for="dyViews">Views</label><input type="number" id="dyViews" inputmode="numeric" min="0" step="1"></div>
+    <div class="field"><label for="dyReach">Reach</label><input type="number" id="dyReach" inputmode="numeric" min="0" step="1"></div>
+    <div class="field"><label for="dyEng">Engagement</label><input type="number" id="dyEng" inputmode="numeric" min="0" step="1"></div>
+    <div class="field"><label for="dyFol">Follows</label><input type="number" id="dyFol" inputmode="numeric" min="0" step="1"></div>
+    <div class="field"><label for="dyUnf">Unfollows</label><input type="number" id="dyUnf" inputmode="numeric" min="0" step="1"></div>
+    <div class="field"><label for="dyTot">Total followers</label><input type="number" id="dyTot" inputmode="numeric" min="0" step="1"></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="dySave">Save</button>
+      <button type="button" class="ghost" id="dyCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- import a Meta Business Suite CSV into one metric -->
+<div class="modal" id="csvSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Import CSV</h3>
+    <p class="stub-note" style="text-align:center;margin:-6px 0 14px;font-size:12px">Export a metric from Meta Business Suite (Insights &gt; Export data) for Facebook or Instagram, then choose the channel and which metric it should fill.</p>
+    <div class="field"><label for="csvPlat">Channel</label><select id="csvPlat" class="so-field-select"><option value="fb">Facebook</option><option value="ig">Instagram</option></select></div>
+    <div class="field"><label for="csvFile">CSV file</label><input type="file" id="csvFile" class="so-file" accept=".csv,.txt,text/csv"></div>
+    <p class="so-imp-info" id="csvInfo" hidden></p>
+    <div class="field"><label for="csvMetric">Import as</label>
+      <select id="csvMetric" class="so-field-select"><option value="">Choose a metric&hellip;</option><option value="views">Views</option><option value="reach">Reach</option><option value="eng">Engagement</option><option value="fol">Follows</option><option value="unf">Unfollows</option><option value="tot">Total followers</option></select>
+    </div>
+    <div class="field" id="csvColWrap" hidden><label for="csvCol">Column to use</label><select id="csvCol" class="so-field-select"></select></div>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px">Only that metric is changed for the days in the file. Other numbers on those days stay as they are.</p>
+    <div class="acts">
+      <button type="button" class="go sm" id="csvGo" disabled>Import</button>
+      <button type="button" class="ghost" id="csvCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- followers vs non-followers -->
+<div class="modal" id="auSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Followers vs non-followers</h3>
+    <p class="stub-note" style="text-align:center;margin:-6px 0 14px;font-size:12px">All-time views, as shown in Meta Business Suite.</p>
+    <div class="field"><label for="auFol">Views from followers</label><input type="number" id="auFol" inputmode="numeric" min="0" step="1"></div>
+    <div class="field"><label for="auNon">Views from non-followers</label><input type="number" id="auNon" inputmode="numeric" min="0" step="1"></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="auSave">Save</button>
+      <button type="button" class="ghost" id="auCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- traffic sources -->
+<div class="modal" id="trSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Traffic</h3>
+    <div class="field"><label for="trText">One source per line <small>(name: views)</small></label><textarea id="trText" rows="8" placeholder="Feed: 1200&#10;Reels: 800&#10;Search: 150"></textarea></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="trSave">Save</button>
+      <button type="button" class="ghost" id="trCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="imgView" hidden>
+  <div class="sheet small">
+    <img id="imgViewImg" alt="">
+    <div class="acts"><button type="button" class="ghost" id="imgViewClose">Close</button></div>
+  </div>
+</div>
+<div class="toast" id="soToast" hidden></div>
+
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+  <p>trackello <span class="ver">v1.2</span></p>
+</footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="net.js"></script>
+<script src="socials.js"></script>
+</body>
+</html>

@@ -36,7 +36,7 @@
     <div class="filter-chips" id="vFilters">
       <button type="button" class="chip active" data-f="todo">To do</button>
       <button type="button" class="chip" data-f="done">Done</button>
-      <button type="button" class="chip" data-f="posted">Posted</button>
+      <button type="button" class="chip" data-f="hidden">Hidden</button>
     </div>
     <button type="button" class="ghost add-task" id="vAdd">+ Add task</button>
     <p class="rec-count" id="vCount"></p>
@@ -48,7 +48,7 @@
     <div class="filter-chips" id="pFilters">
       <button type="button" class="chip active" data-f="toedit">To do</button>
       <button type="button" class="chip" data-f="edited">Done</button>
-      <button type="button" class="chip" data-f="posted">Posted</button>
+      <button type="button" class="chip" data-f="hidden">Hidden</button>
     </div>
     <button type="button" class="ghost add-task" id="pAdd">+ New post task</button>
     <div class="rec-tools" style="margin-bottom:10px"><button type="button" class="ghost sm" id="cRefresh">Refresh</button></div>
@@ -63,13 +63,14 @@
   <div class="sheet small wide">
     <h3 id="vHeading">Add video task</h3>
     <div class="field"><label for="vTitle">Title</label><input type="text" id="vTitle" autocomplete="off" placeholder="e.g. Vlog: Unboxing 20 packs"></div>
-    <div class="field"><label for="vDate">Planned post date</label><input type="date" id="vDate"></div>
+    <div class="field"><label for="vDate">Planned post date &amp; time <small>(time optional)</small></label><div class="row"><input type="date" id="vDate"><input type="time" id="vTime" aria-label="Planned post time"></div></div>
     <div class="field"><label for="vStatus">Status</label>
-      <select id="vStatus"><option value="todo">To do</option><option value="done">Done</option><option value="posted">Posted</option></select>
+      <select id="vStatus"><option value="todo">To do</option><option value="done">Done</option></select>
     </div>
-    <div class="field" id="vPlatWrap">
-      <label>Uploaded to <small>(links can be added once Posted)</small></label>
-      <div id="vPlats"></div>
+    <div class="field">
+      <label>Cards <small id="vCardCount">0</small></label>
+      <div class="v-cards" id="vCards"></div>
+      <button type="button" class="ghost sm" id="vAddCards">+ Add cards</button>
     </div>
     <div class="field"><label for="vCaption">Caption <small>(to put on the video)</small></label><textarea id="vCaption" rows="4" maxlength="1500" placeholder="Caption for Facebook / Instagram / YouTube / TikTok&hellip;"></textarea></div>
     <div class="field"><label for="vNotes">Notes <small>(optional)</small></label><textarea id="vNotes" rows="3" maxlength="1000" placeholder="Ideas, footage location, reminders&hellip;"></textarea></div>
@@ -81,17 +82,28 @@
   </div>
 </div>
 
+<!-- video task: pick the cards linked to it -->
+<div class="modal" id="vcSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Cards in this video</h3>
+    <div class="field">
+      <label>Cards <small id="vcCount"></small></label>
+      <input type="search" id="vcSearch" placeholder="Search cards" autocomplete="off">
+      <div id="vcCards" class="m-cards"></div>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="vcDone">Done</button>
+      <button type="button" class="ghost" id="vcCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- post group: details -->
 <div class="modal" id="pSheet" hidden>
   <div class="sheet small wide">
     <h3 id="pHeading">Edit post</h3>
     <div class="field"><label for="pTitle">Title</label><input type="text" id="pTitle" maxlength="200" autocomplete="off"></div>
-    <div class="field"><label for="pDate">Planned post date</label><input type="date" id="pDate"></div>
-    <label class="port-chk"><input type="checkbox" id="pPosted"><span>Posted (marks every card edited; links can be added)</span></label>
-    <div class="field">
-      <label>Posted to</label>
-      <div id="pPlats"></div>
-    </div>
+    <div class="field"><label for="pDate">Planned post date &amp; time <small>(time optional)</small></label><div class="row"><input type="date" id="pDate"><input type="time" id="pTime" aria-label="Planned post time"></div></div>
     <div class="field">
       <label>Edited photo previews <small id="pPrevCount">0/30</small></label>
       <div class="img-grid" id="pPrevGrid"></div>
@@ -115,7 +127,7 @@
   <div class="sheet small wide">
     <h3 id="mHeading">New post task</h3>
     <div class="field"><label for="mTitle">Title</label><input type="text" id="mTitle" autocomplete="off" placeholder="e.g. Weekend pickups"></div>
-    <div class="field"><label for="mDate">Planned post date</label><input type="date" id="mDate"></div>
+    <div class="field"><label for="mDate">Planned post date &amp; time <small>(time optional)</small></label><div class="row"><input type="date" id="mDate"><input type="time" id="mTime" aria-label="Planned post time"></div></div>
     <div class="field" id="mMergeWrap" hidden>
       <label>Merge with other tasks <small>(adds all their cards)</small></label>
       <div id="mMerge" class="m-merge"></div>
@@ -128,19 +140,6 @@
     <div class="acts">
       <button type="button" class="go sm" id="mSave">Save</button>
       <button type="button" class="ghost" id="mCancel">Cancel</button>
-    </div>
-  </div>
-</div>
-
-<!-- shown right after a task is marked posted; can be skipped -->
-<div class="modal" id="lSheet" hidden>
-  <div class="sheet small wide">
-    <h3>Add post links</h3>
-    <p class="stub-note" style="text-align:center;margin:-6px 0 14px">Paste where it was posted. You can skip this and add the links later.</p>
-    <div id="lFields"></div>
-    <div class="acts">
-      <button type="button" class="go sm" id="lSave">Save links</button>
-      <button type="button" class="ghost" id="lSkip">Skip for now</button>
     </div>
   </div>
 </div>

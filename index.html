@@ -175,11 +175,11 @@ html[data-theme=dark] .wg-bar,html[data-theme=dark] .wg-badge{background:#2a2a2c
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
       <p class="tile-d">Vlogs and post edits</p>
     </a>
-    <a class="tile" data-app="social" href="#" id="socialTile">
+    <a class="tile" data-app="social" href="socials.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5.5" r="2.7"/><circle cx="6" cy="12" r="2.7"/><circle cx="18" cy="18.5" r="2.7"/><path d="M8.4 10.7l7.2-3.9M8.4 13.3l7.2 3.9"/></svg></div>
-      <div class="tile-t"><b>Social Media</b><small>Marketing</small></div>
+      <div class="tile-t"><b>Socials</b><small>Marketing</small></div>
       <svg class="tile-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
-      <p class="tile-d">Facebook, Instagram, TikTok, YouTube</p>
+      <p class="tile-d">Facebook insights and publishing</p>
     </a>
     <a class="tile" data-app="topics" href="topics.html">
       <div class="tile-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/><path d="M7 8.5h5M7 12h10M7 15.5h7"/></svg></div>
@@ -230,18 +230,6 @@ html[data-theme=dark] .wg-bar,html[data-theme=dark] .wg-badge{background:#2a2a2c
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
   <p>trackello <span class="ver">v1.2</span></p>
 </footer>
-<div class="modal" id="socialSheet" hidden>
-  <div class="sheet small">
-    <h3>Open which platform?</h3>
-    <div class="acts">
-      <a class="ghost" href="https://www.facebook.com/courtvisioncollection" target="_blank" rel="noopener noreferrer">Facebook</a>
-      <a class="ghost" href="https://www.instagram.com/courtvisioncollection" target="_blank" rel="noopener noreferrer">Instagram</a>
-      <a class="ghost" href="https://www.tiktok.com/@courtvisioncollection" target="_blank" rel="noopener noreferrer">TikTok</a>
-      <a class="ghost" href="https://www.youtube.com/@courtvisioncollection" target="_blank" rel="noopener noreferrer">YouTube</a>
-      <button type="button" class="ghost" id="socialCancel">Cancel</button>
-    </div>
-  </div>
-</div>
 <div class="toast" id="homeToast" hidden></div>
 <script src="boot.js"></script>
 <script src="config.js"></script>
@@ -257,15 +245,6 @@ document.getElementById('chartsTile').addEventListener('click', e => {
   t.textContent = 'Charts link is not set yet. Add chartsUrl in config.js.'; t.hidden = false;
   clearTimeout(t.timer); t.timer = setTimeout(() => t.hidden = true, 3200);
 });
-
-// Social Media: popup asking which platform to open
-(function () {
-  const sheet = document.getElementById('socialSheet');
-  const close = () => sheet.hidden = true;
-  document.getElementById('socialTile').addEventListener('click', e => { e.preventDefault(); sheet.hidden = false; });
-  document.getElementById('socialCancel').onclick = close;
-  sheet.addEventListener('click', e => { if (e.target === sheet || e.target.closest('a')) close(); });
-})();
 
 // Hide / show the money amounts (spendable, portfolio value, cash reserves, total business value); remembered on this device
 (function () {
@@ -470,4 +449,4 @@ document.getElementById('chartsTile').addEventListener('click', e => {
 })();
 </script>
 </body>
-</html>
+</html>

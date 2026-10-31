@@ -152,12 +152,11 @@
     ['Workspace', [['home', 'Home', 'index.html']]],
     ['Operations', [['receipt', 'Receipt', 'receipt.html'], ['portfolio', 'Portfolio', 'portfolio.html'], ['commercial', 'Commercial', 'commercial.html'], ['shipping', 'Shipping', 'shipping.html']]],
     ['Money', [['finance', 'Finance', 'finance.html'], ['charts', 'Charts', '#charts']]],
-    ['Marketing', [['marketing', 'Marketing', 'marketing.html'], ['creatives', 'Creatives', 'creatives.html'], ['social', 'Social Media', '#social']]],
+    ['Marketing', [['marketing', 'Marketing', 'marketing.html'], ['creatives', 'Creatives', 'creatives.html'], ['social', 'Socials', 'socials.html']]],
     ['Team', [['topics', 'Topic Board', 'topics.html'], ['calendar', 'Calendar', 'calendar.html'], ['organization', 'Organization', 'organization.html'], ['legal', 'Legal', 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link']]],
     ['Tech', [['appdev', 'App Dev', 'appdev.html']]]
   ];
   var BACKEND_URL = 'https://docs.google.com/spreadsheets/d/1It4a7gEvyxr-gz4SL6gClC84o6mfxjr9Ooho_DxjL9o/edit?gid=1823529634#gid=1823529634';
-  var SOCIAL = [['Facebook', 'https://www.facebook.com/courtvisioncollection'], ['Instagram', 'https://www.instagram.com/courtvisioncollection'], ['TikTok', 'https://www.tiktok.com/@courtvisioncollection'], ['YouTube', 'https://www.youtube.com/@courtvisioncollection']];
   var ALIAS = { 'receipts.html': 'receipt.html', '': 'index.html' };
   var page = (location.pathname.split('/').pop() || '').toLowerCase();
   page = ALIAS[page] || page;
@@ -204,12 +203,11 @@
 
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   // sidebar number badges: page -> badge key (filled in by loadBadges below, or by other scripts through CVShell.setBadge)
-  var BADGE = { 'shipping.html': 'shipping', 'creatives.html': 'creatives', 'finance.html': 'finance', 'appdev.html': 'appdev' };
+  var BADGE = { 'shipping.html': 'shipping', 'creatives.html': 'creatives', 'socials.html': 'social', 'finance.html': 'finance', 'appdev.html': 'appdev' };
   var link = function (it) {
     var on = it[2] === page, u = it[2], bk = BADGE[u];
     var tail = '<span>' + esc(it[1]) + '</span>' + (bk ? '<i class="sb-badge" data-badge="' + bk + '" hidden></i>' : '');
     if (u === '#charts') return '<a class="sb-link" href="#" data-charts="1">' + svg(it[0]) + '<span>' + esc(it[1]) + '</span></a>';
-    if (u === '#social') return '<a class="sb-link" href="#" data-social="1">' + svg(it[0]) + '<span>' + esc(it[1]) + '</span></a>';
     if (/^https?:/.test(u)) return '<a class="sb-link" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + svg(it[0]) + '<span>' + esc(it[1]) + '</span></a>';
     return '<a class="sb-link' + (on ? ' on' : '') + '" href="' + BASE + u + '"' + (on ? ' aria-current="page"' : '') + '>' + svg(it[0]) + tail + '</a>';
   };
@@ -256,18 +254,6 @@
         g.hidden = !any;
       });
     });
-
-    // Social Media: popup asking which platform to open
-    var sheet = document.createElement('div');
-    sheet.className = 'modal'; sheet.hidden = true;
-    sheet.innerHTML = '<div class="sheet small"><h3>Open which platform?</h3><div class="acts">'
-      + SOCIAL.map(function (p) { return '<a class="ghost" href="' + esc(p[1]) + '" target="_blank" rel="noopener noreferrer">' + esc(p[0]) + '</a>'; }).join('')
-      + '<button type="button" class="ghost">Cancel</button></div></div>';
-    body.appendChild(sheet);
-    var closeSocial = function () { sheet.hidden = true; };
-    sheet.addEventListener('click', function (e) { if (e.target === sheet || e.target.closest('a') || e.target.closest('button')) closeSocial(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSocial(); });
-    aside.querySelector('[data-social]').addEventListener('click', function (e) { e.preventDefault(); setOpen(false); sheet.hidden = false; });
 
     // Charts opens the link from config.js in a new tab (same behaviour as the home tile)
     aside.querySelector('[data-charts]').addEventListener('click', function (e) {
@@ -393,8 +379,8 @@
     var BKEY = 'cv:badges';
     var loadBadges = function () {
       if (!curUser()) return;
-      try { var c = JSON.parse(sessionStorage.getItem(BKEY)); if (c && c.day === todayIso()) { counts.shipping = c.shipping; counts.creatives = c.creatives; if (curUser() === ADMIN) counts.appdev = c.appdev; paintBadges(); } } catch (e) {}
-      var save = function () { try { sessionStorage.setItem(BKEY, JSON.stringify({ day: todayIso(), shipping: counts.shipping || 0, creatives: counts.creatives || 0, appdev: counts.appdev || 0 })); } catch (e) {} };
+      try { var c = JSON.parse(sessionStorage.getItem(BKEY)); if (c && c.day === todayIso()) { counts.shipping = c.shipping; counts.creatives = c.creatives; counts.social = c.social; if (curUser() === ADMIN) counts.appdev = c.appdev; paintBadges(); } } catch (e) {}
+      var save = function () { try { sessionStorage.setItem(BKEY, JSON.stringify({ day: todayIso(), shipping: counts.shipping || 0, creatives: counts.creatives || 0, social: counts.social || 0, appdev: counts.appdev || 0 })); } catch (e) {} };
       call('shipping').then(check).then(function (d) {
         var t = todayIso(), groups = {};
         (d.toShip || []).forEach(function (i) { if (d10(i.scheduledDate) === t) groups[i.groupKey || ('c:' + i.id)] = 1; });
@@ -402,6 +388,8 @@
       }).catch(function () {});
       call('creatives').then(check).then(function (d) {
         counts.creatives = (d.videos || []).filter(function (x) { return x.status === 'todo'; }).length + (d.posts || []).filter(function (x) { return x.status === 'toedit'; }).length;
+        // Socials (Planner): finished, visible tasks that are not posted yet
+        counts.social = (d.videos || []).filter(function (x) { return x.status === 'done' && !x.hidden; }).length + (d.posts || []).filter(function (x) { return x.status === 'edited' && !x.hidden; }).length;
         paintBadges(); save();
       }).catch(function () {});
       // App Dev: the admin sees how many new requests are waiting to be accepted

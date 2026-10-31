@@ -34,9 +34,10 @@ function linkify(s) {
     return `<a href="${url}" target="_blank" rel="noopener">${url}</a>${tail}`;
   });
 }
-const PLATS = { fb: 'Facebook', ig: 'Instagram', yt: 'YouTube', tt: 'TikTok' };
-const VIDEO_PLATS = ['fb', 'ig', 'yt', 'tt'], POST_PLATS = ['fb', 'ig'];
 
+const fmtClockC = v => { const m = String(v || '').match(/^(\d{1,2}):(\d{2})/); if (!m) return ''; const h = +m[1]; return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`; };
+/* what became of a card: "Sold PHP 1,200.00" / "Traded PHP 800.00" (blank while it is still on hand) */
+const outcomeTag = c => c.outcome ? `<em class="cr-sold ${c.outcome}">${c.outcome === 'traded' ? 'Traded' : 'Sold'} ${phpC(c.soldPrice)}</em>` : '';
 let tab = 'video', vFilter = 'todo', pFilter = 'toedit';
 let data = { videos: [], posts: [] };
 let crFirst = true;
@@ -76,17 +77,6 @@ async function save(action, params) {
   }
 }
 
-/* ---------- pills: links only show once the task is posted ---------- */
-function pills(plats, keys, showLinks) {
-  return `<div class="cr-pills">${keys.map(k => {
-    const p = (plats || {})[k] || {};
-    const lab = PLATS[k] + (p.on && p.date ? ' \u00b7 ' + fmtDayC(p.date) : '');
-    const href = showLinks ? safeUrl(p.link) : '';
-    if (p.on) return href ? `<a class="cr-pill on" href="${escC(href)}" target="_blank" rel="noopener">${escC(lab)} \u2197</a>` : `<span class="cr-pill on">${escC(lab)}</span>`;
-    return `<span class="cr-pill">${escC(PLATS[k])}</span>`;
-  }).join('')}</div>`;
-}
-
 /* ---------- Video ---------- */
 const ICON_C = {
   pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>',
@@ -94,47 +84,53 @@ const ICON_C = {
   copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   checks: '<path d="M2.5 12.5l4 4L14 8"/><path d="M10 15.5l1 1L21 7"/>',
-  send: '<path d="M21 3L10 14"/><path d="M21 3l-6.5 18-4-8-8-4z"/>',
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>',
   addcards: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 8v8M8 12h8"/>',
-  doc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M9 12h7M9 16h7"/>'
+  doc: '<path d="M6 2.5h9l4 4v15H6z"/><path d="M15 2.5v4h4"/><path d="M9 12h7M9 16h7"/>',
+  hide: '<path d="M3 3l18 18"/><path d="M10.6 6.2A9.8 9.8 0 0112 6c5 0 8.5 4.2 9.5 6-.4.8-1.3 2.1-2.7 3.3M6.5 7.6C4.4 9 3.1 10.9 2.5 12c1 1.8 4.5 6 9.5 6 1.4 0 2.7-.3 3.8-.8"/><path d="M9.9 10a3 3 0 004.1 4.1"/>',
+  show: '<path d="M2.5 12C3.5 10.2 7 6 12 6s8.5 4.2 9.5 6c-1 1.8-4.5 6-9.5 6s-8.5-4.2-9.5-6z"/><circle cx="12" cy="12" r="3"/>'
 };
 const iconC = (name, cls, label, id) => `<button type="button" class="icon-btn flat ${cls}" data-id="${escC(id)}" title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON_C[name]}</svg></button>`;
 
+/* the cards linked to a video task (read-only on the list; edit them from the task's edit sheet) */
+const miniCards = cards => (cards && cards.length) ? `<div class="cr-cards">${cards.map(c => {
+  const img = c.photo ? `<img src="${escC(c.photo)}" alt="${escC(c.name)}" loading="lazy" class="cr-zoom" data-full="${escC(c.full || c.photo)}">` : '<div class="port-noimg">No photo</div>';
+  return `<div class="cr-pc"><div class="port-thumb">${img}</div><div class="port-info"><b>${escC(c.name)}</b><span>${phpC(c.cost)}</span>${outcomeTag(c)}</div></div>`;
+}).join('')}</div>` : '';
+
 function videoHtml(v) {
-  const st = v.status || 'todo', done = st !== 'todo';
-  const sub = [v.auto ? 'From receipt' : '', st === 'done' && v.doneDate ? 'Done ' + fmtDayC(v.doneDate) : '', st === 'posted' && v.doneDate ? 'Done ' + fmtDayC(v.doneDate) : ''].filter(Boolean).join(' \u00b7 ');
+  const st = v.status || 'todo', done = st !== 'todo';   // anything not to-do counts as done here; posting happens in Socials
+  const sub = [v.auto ? 'From receipt' : '', v.time ? 'Post at ' + fmtClockC(v.time) : '', done && v.doneDate ? 'Done ' + fmtDayC(v.doneDate) : '', st === 'posted' ? 'Posted' : '', v.cards && v.cards.length ? nPlC(v.cards.length, 'card') : ''].filter(Boolean).join(' \u00b7 ');
   return `<div class="cr-card${done ? ' done' : ''}" data-id="${escC(v.id)}">
       <div class="cr-top">
         <input type="checkbox" class="cr-tick v-tick" ${done ? 'checked' : ''} aria-label="Mark ${done ? 'to do' : 'done'}">
         <div class="cr-main"><b>${escC(v.title)}</b>${sub ? `<span>${escC(sub)}</span>` : ''}</div>
-        <label class="cr-date-wrap"><small>Planned post date</small><input type="date" class="cr-date v-date" value="${escC(v.date)}" aria-label="Planned post date"></label>
+        <label class="cr-date-wrap"><small>Planned post date &amp; time</small><span class="cr-dt"><input type="date" class="cr-date v-date" value="${escC(v.date)}" aria-label="Planned post date"><input type="time" class="cr-time v-time" value="${escC(v.time || '')}" aria-label="Planned post time"></span></label>
       </div>
       ${metaHtml(v, done)}
-      ${pills(v.platforms, VIDEO_PLATS, st === 'posted')}
+      ${miniCards(v.cards)}
       ${v.caption ? `<p class="cr-notes"><small>Caption</small>${escC(v.caption)}</p>` : ''}
       ${v.notes ? `<p class="cr-notes"><small>Notes</small>${linkify(v.notes)}</p>` : ''}
       <div class="cr-acts">
         ${iconC('copy', 'v-copy', 'Copy caption', v.id)}
-        ${st === 'done' ? iconC('send', 'ok v-post', 'Mark posted', v.id) : ''}
-        ${st === 'posted' ? iconC('undo', 'v-unpost', 'Back to done', v.id) : ''}
+        ${done ? (v.hidden ? iconC('show', 'v-hide', 'Unhide', v.id) : iconC('hide', 'v-hide', 'Hide', v.id)) : ''}
         ${iconC('pencil', 'v-edit', 'Edit', v.id)}${iconC('trash', 'danger v-del', 'Delete', v.id)}
       </div>
     </div>`;
 }
 
 function renderVideo() {
-  const by = s => data.videos.filter(v => (v.status || 'todo') === s);
-  const todo = by('todo'), done = by('done'), posted = by('posted');
+  const isDone = v => (v.status || 'todo') !== 'todo';
+  const todo = data.videos.filter(v => !isDone(v)), done = data.videos.filter(v => isDone(v) && !v.hidden), hidden = data.videos.filter(v => isDone(v) && v.hidden);
   document.querySelector('#vFilters [data-f=todo]').textContent = `To do (${todo.length})`;
   document.querySelector('#vFilters [data-f=done]').textContent = `Done (${done.length})`;
-  document.querySelector('#vFilters [data-f=posted]').textContent = `Posted (${posted.length})`;
-  const list = ({ todo, done, posted })[vFilter].slice()
+  document.querySelector('#vFilters [data-f=hidden]').textContent = `Hidden (${hidden.length})`;
+  const list = ({ todo, done, hidden })[vFilter].slice()
     .sort((a, b) => vFilter === 'todo' ? (a.date || '9999').localeCompare(b.date || '9999') : (b.date || '').localeCompare(a.date || ''));
   $c('vCount').textContent = list.length ? nPlC(list.length, 'task') : '';
   if (!list.length) {
     $c('vState').textContent = data.videos.length
-      ? ({ todo: 'Nothing left to do. \ud83c\udf89', done: 'Nothing done and waiting to be posted.', posted: 'Nothing posted yet.' })[vFilter]
+      ? ({ todo: 'Nothing left to do. \ud83c\udf89', done: 'Nothing done yet.', hidden: 'No hidden tasks.' })[vFilter]
       : 'No video tasks yet. Tick \u201cVlog needed\u201d on a purchase or trade receipt, or tap + Add task.';
     $c('vState').hidden = false; $c('vList').hidden = true; return;
   }
@@ -142,76 +138,125 @@ function renderVideo() {
   $c('vState').hidden = true; $c('vList').hidden = false;
 }
 
-/* platform editor shared by the video and post sheets; the link box only exists for posted tasks */
-function platEditor(host, keys, plats, showLinks) {
-  host.innerHTML = keys.map(k => {
-    const p = (plats || {})[k] || {};
-    return `<div class="cr-plat" data-p="${k}">
-        <label class="port-chk"><input type="checkbox" class="pl-on" ${p.on ? 'checked' : ''}><span>${PLATS[k]}</span></label>
-        <div class="pl-fields" ${p.on ? '' : 'hidden'}>
-          <input type="date" class="pl-date" value="${escC(p.date || '')}" aria-label="${PLATS[k]} upload date">
-          <input type="url" class="pl-link" value="${escC(p.link || '')}" placeholder="${PLATS[k]} link" inputmode="url" autocomplete="off" ${showLinks ? '' : 'hidden'}>
-        </div>
-      </div>`;
-  }).join('');
-  host.querySelectorAll('.pl-on').forEach(cb => cb.onchange = () => {
-    const f = cb.closest('.cr-plat').querySelector('.pl-fields');
-    f.hidden = !cb.checked;
-    const d = f.querySelector('.pl-date'); if (cb.checked && !d.value) d.value = todayC();
-  });
+/* ---- video task sheet: add / edit, with the cards linked to it ---- */
+let editVideoId = '', vCardList = [];
+function renderVCards() {
+  $c('vCardCount').textContent = vCardList.length ? `(${vCardList.length})` : '(none)';
+  $c('vCards').innerHTML = vCardList.length ? vCardList.map((c, i) => {
+    const img = c.photo ? `<img src="${escC(c.photo)}" alt="" loading="lazy">` : '<div class="port-noimg">No photo</div>';
+    return `<div class="cr-pc v-cardrow"><div class="port-thumb">${img}</div>
+      <div class="port-info"><b>${escC(c.name)}</b><span>${phpC(c.cost)}</span></div>
+      ${iconC('pencil', 'vc-ren', 'Rename card', i)}${iconC('trash', 'danger vc-rm', 'Remove from this video', i)}</div>`;
+  }).join('') : '<p class="stub-note" style="margin:0 0 8px;font-size:12px">No cards linked. Cards from the receipt are linked automatically.</p>';
 }
-const setLinksVisible = (host, on) => host.querySelectorAll('.pl-link').forEach(i => i.hidden = !on);
-function readPlats(host) {
-  const out = {};
-  host.querySelectorAll('.cr-plat').forEach(r => {
-    const on = r.querySelector('.pl-on').checked;
-    out[r.dataset.p] = { on, date: on ? r.querySelector('.pl-date').value : '', link: r.querySelector('.pl-link').value.trim() };
-  });
-  return out;
-}
-
-let editVideoId = '';
 function openVideo(id) {
   const v = id ? findV(id) : null;
   editVideoId = v ? v.id : '';
   $c('vHeading').textContent = v ? 'Edit video task' : 'Add video task';
-  $c('vTitle').value = v ? v.title : ''; $c('vDate').value = v ? v.date : todayC(); $c('vNotes').value = v ? v.notes : '';
+  $c('vTitle').value = v ? v.title : ''; $c('vDate').value = v ? v.date : todayC(); $c('vTime').value = v ? (v.time || '') : ''; $c('vNotes').value = v ? v.notes : '';
   $c('vCaption').value = v ? (v.caption || '') : '';
-  $c('vStatus').value = v ? (v.status || 'todo') : 'todo';
-  platEditor($c('vPlats'), VIDEO_PLATS, v ? v.platforms : {}, $c('vStatus').value === 'posted');
+  $c('vStatus').value = v && (v.status || 'todo') !== 'todo' ? 'done' : 'todo';
+  vCardList = v ? (v.cards || []).map(c => Object.assign({}, c)) : [];
+  renderVCards();
   $c('vSheet').hidden = false;
   if (!v) $c('vTitle').focus();
 }
 const closeVideo = () => { $c('vSheet').hidden = true; editVideoId = ''; };
-$c('vStatus').onchange = () => setLinksVisible($c('vPlats'), $c('vStatus').value === 'posted');
 $c('vAdd').onclick = () => openVideo('');
 $c('vCancel').onclick = closeVideo;
 $c('vCopy').onclick = () => copyText($c('vCaption').value);
 $c('vSheet').addEventListener('click', e => { if (e.target.id === 'vSheet') closeVideo(); });
+$c('vCards').addEventListener('click', async e => {
+  const rm = e.target.closest('.vc-rm'), ren = e.target.closest('.vc-ren');
+  if (rm) { vCardList.splice(+rm.dataset.id, 1); renderVCards(); return; }
+  if (ren) {
+    const c = vCardList[+ren.dataset.id]; if (!c) return;
+    const nn = (prompt('Rename card', c.name) || '').trim().replace(/\s+/g, ' ');
+    if (!nn || nn === c.name) return;
+    const res = await save('renameCard', { cardId: c.id, name: nn });
+    if (res) { c.name = nn; renderVCards(); toast('Card renamed.'); }
+  }
+});
 $c('vSave').onclick = async () => {
   const title = $c('vTitle').value.trim().replace(/\s+/g, ' ');
   if (!title) return toast('Enter a title.');
   const date = $c('vDate').value || todayC(), notes = $c('vNotes').value.trim(), caption = $c('vCaption').value.trim();
-  const status = $c('vStatus').value, platforms = readPlats($c('vPlats'));
-  const btn = $c('vSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
   const existing = editVideoId ? findV(editVideoId) : null;
-  const id = existing ? existing.id : 'v_' + Math.random().toString(16).slice(2, 10);
-  const res = await save('saveCreative', { id, title, date, notes, caption, status, platforms: JSON.stringify(platforms) });
+  const params = { id: existing ? existing.id : 'v_' + Math.random().toString(16).slice(2, 10), title, date, time: $c('vTime').value || '', notes, caption, cardIds: vCardList.map(c => c.id).join(',') };
+  const was = existing ? ((existing.status || 'todo') !== 'todo' ? 'done' : 'todo') : 'todo';
+  if (!existing || $c('vStatus').value !== was) params.status = $c('vStatus').value;   // an already posted task keeps its posted state unless changed
+  const btn = $c('vSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
+  const res = await save('saveCreative', params);
   btn.disabled = false; btn.textContent = 'Save';
   if (!res) return;
   closeVideo(); toast(existing ? 'Task updated.' : 'Task added.');
   await loadData();
 };
 
+/* ---- card picker for a video task (every card, any status) ---- */
+let vcState = null;
+function renderVC() {
+  if (!vcState) return;
+  const q = $c('vcSearch').value.trim().toLowerCase();
+  $c('vcCount').textContent = vcState.sel.size ? `(${vcState.sel.size} selected)` : '';
+  if (vcState.loading) { $c('vcCards').innerHTML = '<p class="stub-note" style="margin:6px 0">Loading cards\u2026</p>'; return; }
+  const seen = new Set(), all = [];
+  vcState.base.concat(vcState.all).forEach(c => { if (!seen.has(c.id)) { seen.add(c.id); all.push(c); } });
+  vcState.known = all;
+  const list = all.filter(c => !q || String(c.name || '').toLowerCase().includes(q)).slice(0, 150);
+  $c('vcCards').innerHTML = list.length ? list.map(c => {
+    const img = c.photo ? `<img src="${escC(c.photo)}" alt="" loading="lazy">` : '<div class="port-noimg">No photo</div>';
+    const on = vcState.sel.has(c.id);
+    return `<label class="m-row${on ? ' on' : ''}"><input type="checkbox" data-id="${escC(c.id)}" ${on ? 'checked' : ''}>
+        <div class="port-thumb">${img}</div>
+        <div class="port-info"><b>${escC(c.name)}</b><span>${escC([c.status && c.status !== 'onhand' ? c.status : 'On hand', c.date ? fmtDayC(c.date) : '', phpC(c.cost)].filter(Boolean).join(' \u00b7 '))}</span></div></label>`;
+  }).join('') : '<p class="stub-note" style="margin:6px 0">No cards match.</p>';
+}
+async function openVC() {
+  vcState = { sel: new Set(vCardList.map(c => c.id)), base: vCardList.slice(), all: [], known: [], loading: true };
+  $c('vcSearch').value = ''; renderVC(); $c('vcSheet').hidden = false;
+  try {
+    const res = await jsonp(api('allCards'), 45000);
+    if (!res.ok) throw new Error(res.error || 'Request failed');
+    if (!vcState) return;
+    vcState.all = res.cards || [];
+  } catch (err) { toast('Could not load cards: ' + backendErr(err)); }
+  if (!vcState) return;
+  vcState.loading = false; renderVC();
+}
+const closeVC = () => { $c('vcSheet').hidden = true; vcState = null; };
+$c('vAddCards').onclick = openVC;
+$c('vcCancel').onclick = closeVC;
+$c('vcSheet').addEventListener('click', e => { if (e.target.id === 'vcSheet') closeVC(); });
+$c('vcSearch').addEventListener('input', renderVC);
+$c('vcCards').addEventListener('change', e => {
+  const cb = e.target.closest('input[data-id]'); if (!cb || !vcState) return;
+  if (cb.checked) vcState.sel.add(cb.dataset.id); else vcState.sel.delete(cb.dataset.id);
+  cb.closest('.m-row').classList.toggle('on', cb.checked);
+  $c('vcCount').textContent = vcState.sel.size ? `(${vcState.sel.size} selected)` : '';
+});
+$c('vcDone').onclick = () => {
+  if (!vcState) return;
+  const known = new Map(vcState.known.map(c => [c.id, c]));
+  const keep = vCardList.filter(c => vcState.sel.has(c.id));                       // already linked cards stay in their order
+  const have = new Set(keep.map(c => c.id));
+  vcState.sel.forEach(id => { if (!have.has(id) && known.get(id)) keep.push(Object.assign({}, known.get(id))); });
+  vCardList = keep; renderVCards(); closeVC();
+};
+
 function setVStatus(v, status) {
   v.status = status; v.doneDate = status === 'todo' ? '' : todayC();
-  renderVideo(); save('saveCreative', { id: v.id, status });
+  const p = { id: v.id, status }; if (status === 'todo' && v.hidden) { v.hidden = false; p.hidden = ''; }
+  renderVideo(); save('saveCreative', p);
 }
 $c('vList').addEventListener('change', e => {
   const card = e.target.closest('.cr-card'); if (!card) return;
   const v = findV(card.dataset.id); if (!v) return;
   if (e.target.classList.contains('v-tick')) {
     setVStatus(v, e.target.checked ? 'done' : 'todo');
+  } else if (e.target.classList.contains('v-time')) {
+    v.time = e.target.value || ''; renderVideo();
+    save('saveCreative', { id: v.id, time: v.time }).then(res => { if (res) toast(v.time ? 'Time set to ' + fmtClockC(v.time) + '.' : 'Time cleared.'); });
   } else if (e.target.classList.contains('v-date')) {
     const nd = e.target.value, prev = v.date;
     if (!nd) { e.target.value = prev || ''; return toast('Pick a date to reschedule.'); }   // a cleared field would blank the date
@@ -221,12 +266,17 @@ $c('vList').addEventListener('change', e => {
   }
 });
 $c('vList').addEventListener('click', async e => {
+  const zoom = e.target.closest('.cr-zoom');
+  if (zoom) { $c('imgViewImg').src = zoom.dataset.full; $c('imgView').hidden = false; return; }
   const cardEl = e.target.closest('.cr-card'); if (!cardEl) return;
   const v = findV(cardEl.dataset.id); if (!v) return;
   if (e.target.closest('.v-copy')) return copyText(v.caption);
-  if (e.target.closest('.v-post')) { setVStatus(v, 'posted'); return openLinks('video', v); }
-  if (e.target.closest('.v-unpost')) return setVStatus(v, 'done');
   if (e.target.closest('.v-edit')) return openVideo(v.id);
+  if (e.target.closest('.v-hide')) {
+    v.hidden = !v.hidden; renderVideo();
+    const res = await save('saveCreative', { id: v.id, hidden: v.hidden ? '1' : '' }); if (res) toast(v.hidden ? 'Task hidden. Find it under Hidden.' : 'Task is back under Done.');
+    return;
+  }
   if (e.target.closest('.v-del')) {
     if (!confirm(`Delete "${v.title}"?`)) return;
     data.videos = data.videos.filter(x => x.id !== v.id); renderVideo();
@@ -243,7 +293,7 @@ function cardRowHtml(g, c) {
   const img = c.photo ? `<img src="${escC(c.photo)}" alt="${escC(c.name)}" loading="lazy" class="cr-zoom" data-full="${escC(c.full || c.photo)}">` : '<div class="port-noimg">No photo</div>';
   return `<div class="cr-pc${c.edited ? ' edited' : ''}" data-card="${escC(c.id)}">
       <div class="port-thumb">${img}</div>
-      <div class="port-info"><b>${escC(c.name)}</b><span>${phpC(c.cost)}</span></div>
+      <div class="port-info"><b>${escC(c.name)}</b><span>${phpC(c.cost)}</span>${outcomeTag(c)}</div>
       ${c.edited ? iconC('undo', 'pc-btn', 'Back to to-edit', c.id) : iconC('check', 'ok pc-btn', 'Mark edited', c.id)}
     </div>`;
 }
@@ -272,42 +322,39 @@ $c('pPrevGrid').addEventListener('click', e => {
   prevList.splice(+x.dataset.i, 1); renderPrev();
 });
 function groupHtml(g) {
-  const st = g.status, finished = st !== 'toedit';
-  const sub = [g.custom ? 'Combined task' : '', (g.cards.length ? `${g.editedCount} of ${nPlC(g.cards.length, 'card')} edited` : 'No cards')].filter(Boolean).join(' \u00b7 ');
+  const st = g.status, finished = st !== 'toedit';   // edited (every card done) or already posted from Socials
+  const sub = [g.custom ? 'Combined task' : '', g.time ? 'Post at ' + fmtClockC(g.time) : '', (g.cards.length ? `${g.editedCount} of ${nPlC(g.cards.length, 'card')} edited` : 'No cards'), st === 'posted' ? 'Posted' : ''].filter(Boolean).join(' \u00b7 ');
   return `<div class="cr-card${finished ? ' done' : ''}" data-id="${escC(g.id)}">
       <div class="cr-top">
         <div class="cr-main"><b>${escC(g.label || 'Cards')}</b><span>${escC(sub)}</span></div>
-        <label class="cr-date-wrap"><small>Planned post date</small><input type="date" class="cr-date p-date" value="${escC(g.scheduled)}" aria-label="Planned post date"></label>
+        <label class="cr-date-wrap"><small>Planned post date &amp; time</small><span class="cr-dt"><input type="date" class="cr-date p-date" value="${escC(g.scheduled)}" aria-label="Planned post date"><input type="time" class="cr-time p-time" value="${escC(g.time || '')}" aria-label="Planned post time"></span></label>
       </div>
       ${metaHtml(g, finished)}
       <div class="cr-cards">${g.cards.map(c => cardRowHtml(g, c)).join('')}</div>
       ${prevStrip(g)}
-      ${pills(g.platforms, POST_PLATS, st === 'posted')}
       ${g.caption ? `<p class="cr-notes"><small>Caption</small>${escC(g.caption)}</p>` : ''}
       ${g.notes ? `<p class="cr-notes"><small>Notes</small>${linkify(g.notes)}</p>` : ''}
       <div class="cr-acts">
         ${iconC('copy', 'p-copy', 'Copy caption', g.id)}
         ${st === 'toedit' && g.cards.length ? iconC('checks', 'ok p-all', 'Mark all edited', g.id) : ''}
-        ${st === 'edited' || (st === 'toedit' && !g.cards.length) ? iconC('send', 'ok p-post', 'Mark posted', g.id) : ''}
-        ${st === 'posted' ? iconC('undo', 'p-unpost', 'Back to done', g.id) : ''}
         ${iconC('addcards', 'p-merge', 'Add / merge cards', g.id)}
         ${iconC('pencil', 'p-edit', 'Edit', g.id)}
+        ${finished ? (g.hidden ? iconC('show', 'p-hide', 'Unhide', g.id) : iconC('hide', 'p-hide', 'Hide', g.id)) : ''}
         ${g.custom ? iconC('trash', 'danger p-del', 'Delete task', g.id) : ''}
       </div>
     </div>`;
 }
 function renderPosts() {
-  const by = s => data.posts.filter(g => g.status === s);
-  const toedit = by('toedit'), edited = by('edited'), posted = by('posted');
+  const toedit = data.posts.filter(g => g.status === 'toedit'), edited = data.posts.filter(g => g.status !== 'toedit' && !g.hidden), hidden = data.posts.filter(g => g.status !== 'toedit' && g.hidden);
   document.querySelector('#pFilters [data-f=toedit]').textContent = `To do (${toedit.length})`;
   document.querySelector('#pFilters [data-f=edited]').textContent = `Done (${edited.length})`;
-  document.querySelector('#pFilters [data-f=posted]').textContent = `Posted (${posted.length})`;
-  const list = ({ toedit, edited, posted })[pFilter].slice()
+  document.querySelector('#pFilters [data-f=hidden]').textContent = `Hidden (${hidden.length})`;
+  const list = ({ toedit, edited, hidden })[pFilter].slice()
     .sort((a, b) => pFilter === 'toedit' ? (a.scheduled || '9999').localeCompare(b.scheduled || '9999') : (b.scheduled || '').localeCompare(a.scheduled || ''));
   $c('pCount').textContent = list.length ? nPlC(list.length, 'task') + ' \u00b7 ' + nPlC(list.reduce((a, g) => a + g.cards.length, 0), 'card') : '';
   if (!list.length) {
     $c('pState').textContent = data.posts.length
-      ? ({ toedit: 'No cards waiting to be edited.', edited: 'Nothing edited and waiting to be posted.', posted: 'Nothing posted yet.' })[pFilter]
+      ? ({ toedit: 'No cards waiting to be edited.', edited: 'Nothing done yet.', hidden: 'No hidden tasks.' })[pFilter]
       : 'No cards yet. Cards from purchase and trade receipts show up here, grouped per receipt. Tap + New post task to make your own.';
     $c('pState').hidden = false; $c('pList').hidden = true; return;
   }
@@ -316,9 +363,17 @@ function renderPosts() {
 }
 function refreshGroup(g) {
   g.editedCount = g.cards.filter(c => c.edited).length;
-  g.status = g.cards.length && g.editedCount === g.cards.length ? 'edited' : 'toedit';   // any change to the cards un-posts the task (the server does the same)
+  const all = g.cards.length && g.editedCount === g.cards.length;
+  g.status = all ? (g.status === 'posted' ? 'posted' : 'edited') : 'toedit';
+  if (g.status === 'toedit') g.hidden = false;   // un-editing a card sends the task back to to-do (the server does the same)
 }
 $c('pList').addEventListener('change', e => {
+  if (e.target.classList.contains('p-time')) {
+    const g = findP(e.target.closest('.cr-card').dataset.id); if (!g) return;
+    g.time = e.target.value || ''; renderPosts();
+    save('saveCreative', { id: g.id, time: g.time }).then(res => { if (res) toast(g.time ? 'Time set to ' + fmtClockC(g.time) + '.' : 'Time cleared.'); });
+    return;
+  }
   if (!e.target.classList.contains('p-date')) return;
   const g = findP(e.target.closest('.cr-card').dataset.id); if (!g) return;
   const nd = e.target.value;
@@ -345,14 +400,9 @@ $c('pList').addEventListener('click', async e => {
     save('completeCreatives', { ids: g.id, status: 'done' }); toast('All cards marked edited.');
     return;
   }
-  if (e.target.closest('.p-post')) {
-    g.status = 'posted'; renderPosts();
-    save('saveCreative', { id: g.id, status: 'posted' });
-    return openLinks('post', g);
-  }
-  if (e.target.closest('.p-unpost')) {
-    g.status = g.cards.length ? 'edited' : 'toedit'; renderPosts();
-    save('saveCreative', { id: g.id, status: 'todo' });
+  if (e.target.closest('.p-hide')) {
+    g.hidden = !g.hidden; renderPosts();
+    const res = await save('saveCreative', { id: g.id, hidden: g.hidden ? '1' : '' }); if (res) toast(g.hidden ? 'Task hidden. Find it under Hidden.' : 'Task is back under Done.');
     return;
   }
   if (e.target.closest('.p-merge')) return openPicker(g.id);
@@ -374,32 +424,21 @@ let editPostId = '';
 function openPost(id) {
   const g = findP(id); if (!g) return;
   editPostId = id;
-  const posted = g.status === 'posted';
   $c('pHeading').textContent = 'Edit post';
   prevList = (g.previews || []).map(x => x.u); $c('pPrevInput').value = ''; renderPrev();
   $c('pTitle').value = g.label || '';
-  $c('pDate').value = g.scheduled || ''; $c('pCaption').value = g.caption || ''; $c('pNotes').value = g.notes || '';
-  $c('pPosted').checked = posted;
-  platEditor($c('pPlats'), POST_PLATS, g.platforms, posted);
+  $c('pDate').value = g.scheduled || ''; $c('pTime').value = g.time || ''; $c('pCaption').value = g.caption || ''; $c('pNotes').value = g.notes || '';
   $c('pSheet').hidden = false;
 }
 const closePost = () => { $c('pSheet').hidden = true; editPostId = ''; };
-$c('pPosted').onchange = () => setLinksVisible($c('pPlats'), $c('pPosted').checked);
 $c('pCancel').onclick = closePost;
 $c('pSheet').addEventListener('click', e => { if (e.target.id === 'pSheet') closePost(); });
 $c('pCopy').onclick = () => copyText($c('pCaption').value);
 $c('pSave').onclick = async () => {
   const g = findP(editPostId); if (!g) return;
-  const posted = $c('pPosted').checked;
-  g.scheduled = $c('pDate').value || g.scheduled; g.caption = $c('pCaption').value.trim(); g.notes = $c('pNotes').value.trim(); g.platforms = readPlats($c('pPlats'));
+  g.scheduled = $c('pDate').value || g.scheduled; g.time = $c('pTime').value || ''; g.caption = $c('pCaption').value.trim(); g.notes = $c('pNotes').value.trim();
   const btn = $c('pSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
-  // a posted task has every card edited
-  if (posted && g.cards.some(c => !c.edited)) {
-    g.cards.forEach(c => c.edited = true); g.editedCount = g.cards.length;
-    await save('setCreativeCards', { id: g.id, cardIds: g.cards.map(c => c.id).join(','), edited: true, complete: '1' });
-  }
-  g.status = posted ? 'posted' : (g.cards.length && g.cards.every(c => c.edited) ? 'edited' : 'toedit');
-  const params = { id: g.id, date: g.scheduled, caption: g.caption, notes: g.notes, platforms: JSON.stringify(g.platforms), status: posted ? 'posted' : 'todo' };
+  const params = { id: g.id, date: g.scheduled, time: g.time, caption: g.caption, notes: g.notes };
   const newTitle = $c('pTitle').value.trim().replace(/\s+/g, ' ');
   if (newTitle && newTitle !== g.label) { g.label = newTitle; params.title = newTitle; params.renamed = '1'; }   // empty = keep the current title
   const oldPrev = (g.previews || []).map(x => x.u);
@@ -411,39 +450,6 @@ $c('pSave').onclick = async () => {
   btn.disabled = false; btn.textContent = 'Save';
   if (!res) return;
   closePost(); renderPosts(); toast('Saved.');
-};
-
-/* ---------- links popup: appears when a video or post is marked posted; dismissible ---------- */
-let linkCtx = null;
-function openLinks(kind, item) {
-  const keys = kind === 'video' ? VIDEO_PLATS : POST_PLATS;
-  linkCtx = { kind, item, keys };
-  $c('lFields').innerHTML = keys.map(k => {
-    const p = (item.platforms || {})[k] || {};
-    return `<div class="field"><label for="lk_${k}">${PLATS[k]}</label><input type="url" id="lk_${k}" data-p="${k}" value="${escC(p.link || '')}" placeholder="${PLATS[k]} link" inputmode="url" autocomplete="off"></div>`;
-  }).join('');
-  $c('lSheet').hidden = false;
-  const first = $c('lFields').querySelector('input'); if (first) first.focus();
-}
-const closeLinks = () => { $c('lSheet').hidden = true; linkCtx = null; };
-$c('lSkip').onclick = closeLinks;
-$c('lSheet').addEventListener('click', e => { if (e.target.id === 'lSheet') closeLinks(); });
-$c('lSave').onclick = async () => {
-  if (!linkCtx) return;
-  const { kind, item } = linkCtx;
-  const plats = JSON.parse(JSON.stringify(item.platforms || {}));
-  let n = 0;
-  for (const inp of $c('lFields').querySelectorAll('input')) {
-    const v = inp.value.trim(); if (!v) continue;
-    if (!safeUrl(v)) return toast('Links must start with http:// or https://');
-    const k = inp.dataset.p, cur = plats[k] || {};
-    plats[k] = { on: true, date: cur.date || todayC(), link: v }; n++;
-  }
-  if (!n) return closeLinks();
-  item.platforms = plats;
-  closeLinks(); if (kind === 'video') renderVideo(); else renderPosts();
-  const res = await save('saveCreative', { id: item.id, platforms: JSON.stringify(plats) });
-  if (res) toast('Links saved.');
 };
 
 /* ---------- new post task / add cards / merge tasks ---------- */
@@ -481,7 +487,7 @@ async function openPicker(id) {
   mState = { id: id || '', sel: new Set(g ? g.cards.map(c => c.id) : []), merge: new Set(), base: g ? g.cards.slice() : [], onhand: [], loading: true,
     baseTitle: g ? (g.label || '') : '', titleTouched: false };
   $c('mHeading').textContent = g ? 'Add / merge cards' : 'New post task';
-  $c('mDate').value = g ? (g.scheduled || todayC()) : todayC();
+  $c('mDate').value = g ? (g.scheduled || todayC()) : todayC(); $c('mTime').value = g ? (g.time || '') : '';
   $c('mSearch').value = '';
   // only tasks that still hold on-hand cards can be merged: once every card is sold or traded the task drops out of the list
   const others = data.posts.filter(p => p.id !== mState.id && p.status !== 'posted' && p.cards.some(c => c.onhand !== false));
@@ -529,7 +535,7 @@ $c('mSave').onclick = async () => {
   if (!cardIds.length && !typed) return toast('Give the task a title.');
   const title = typed || ('Post: ' + (first ? first.name : 'cards') + (cardIds.length > 1 ? ` +${cardIds.length - 1}` : ''));
   const btn = $c('mSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
-  const res = await save('savePostGroup', { id: mState.id, title, date: $c('mDate').value || todayC(), cardIds: cardIds.join(','), mergeIds: [...mState.merge].join(',') });
+  const res = await save('savePostGroup', { id: mState.id, title, date: $c('mDate').value || todayC(), time: $c('mTime').value || '', cardIds: cardIds.join(','), mergeIds: [...mState.merge].join(',') });
   btn.disabled = false; btn.textContent = 'Save';
   if (!res) return;
   const merged = mState.merge.size;
