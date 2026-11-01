@@ -67,6 +67,10 @@
     <div class="field"><label for="vStatus">Status</label>
       <select id="vStatus"><option value="todo">To do</option><option value="done">Done</option></select>
     </div>
+    <div class="field" id="vMergeWrap" hidden>
+      <label>Merge other video tasks into this one <small>(their cards, notes and links are added, then they are deleted)</small></label>
+      <div id="vMerge" class="m-merge"></div>
+    </div>
     <div class="field">
       <label>Cards <small id="vCardCount">0</small></label>
       <div class="v-cards" id="vCards"></div>

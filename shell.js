@@ -139,6 +139,7 @@
     creatives: '<path d="M12 3a9 9 0 100 18c1.4 0 2-.9 2-1.8 0-1.2-1-1.5-1-2.7 0-1 .8-1.7 1.9-1.7H17a4 4 0 004-4C21 6.6 17 3 12 3z"/><circle cx="7.6" cy="11.2" r="1" fill="currentColor" stroke="none"/><circle cx="10.2" cy="7.4" r="1" fill="currentColor" stroke="none"/><circle cx="14.6" cy="7.4" r="1" fill="currentColor" stroke="none"/>',
     organization: '<rect x="9" y="3" width="6" height="5" rx="1.2"/><rect x="2.5" y="16" width="6" height="5" rx="1.2"/><rect x="15.5" y="16" width="6" height="5" rx="1.2"/><path d="M12 8v4M5.5 16v-4h13v4"/>',
     backend: '<rect x="3" y="3.5" width="18" height="7" rx="2"/><rect x="3" y="13.5" width="18" height="7" rx="2"/><circle cx="7" cy="7" r=".9" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r=".9" fill="currentColor" stroke="none"/><path d="M11 7h6M11 17h6"/>',
+    skits: '<rect x="3" y="6.5" width="12" height="11" rx="2"/><path d="M15 10.5l6-3v9l-6-3"/>',
     social: '<circle cx="18" cy="5.5" r="2.7"/><circle cx="6" cy="12" r="2.7"/><circle cx="18" cy="18.5" r="2.7"/><path d="M8.4 10.7l7.2-3.9M8.4 13.3l7.2 3.9"/>',
     topics: '<path d="M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/><path d="M7 8.5h5M7 12h10M7 15.5h7"/>',
     pin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3.5 3.5V15h-11v-2.5L10 9z"/>',
@@ -152,7 +153,7 @@
     ['Workspace', [['home', 'Home', 'index.html']]],
     ['Operations', [['receipt', 'Receipt', 'receipt.html'], ['portfolio', 'Portfolio', 'portfolio.html'], ['commercial', 'Commercial', 'commercial.html'], ['shipping', 'Shipping', 'shipping.html']]],
     ['Money', [['finance', 'Finance', 'finance.html'], ['charts', 'Charts', '#charts']]],
-    ['Marketing', [['marketing', 'Marketing', 'marketing.html'], ['creatives', 'Creatives', 'creatives.html'], ['social', 'Socials', 'socials.html']]],
+    ['Marketing', [['marketing', 'Marketing', 'marketing.html'], ['creatives', 'Creatives', 'creatives.html'], ['social', 'Socials', 'socials.html'], ['skits', 'Skits', 'skits.html']]],
     ['Team', [['topics', 'Topic Board', 'topics.html'], ['calendar', 'Calendar', 'calendar.html'], ['organization', 'Organization', 'organization.html'], ['legal', 'Legal', 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link']]],
     ['Tech', [['appdev', 'App Dev', 'appdev.html']]]
   ];

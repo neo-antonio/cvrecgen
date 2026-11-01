@@ -35,31 +35,39 @@
   <!-- Facebook insights -->
   <div id="panelInsights">
     <div class="so-bar">
-      <div class="so-plat"><i class="so-both" id="soPlatIcon" aria-hidden="true">All</i><b id="soPlatName">Facebook + Instagram</b><a class="so-open" id="soOpen" href="https://www.facebook.com/courtvisioncollection" target="_blank" rel="noopener noreferrer" hidden>Open page &#8599;</a></div>
+      <div class="so-plat"><i class="so-both" id="soPlatIcon" aria-hidden="true">All</i><b id="soPlatName">Facebook + Instagram</b></div>
       <div class="so-tools">
         <button type="button" class="ghost sm" id="soImport">Import CSV</button>
         <button type="button" class="ghost sm" id="soDay">Add day</button>
       </div>
     </div>
-    <div class="so-seg three" id="soPlat" role="group" aria-label="Channel">
-      <button type="button" data-p="all" aria-pressed="true">All</button>
-      <button type="button" data-p="fb" aria-pressed="false">Facebook</button>
-      <button type="button" data-p="ig" aria-pressed="false">Instagram</button>
-    </div>
-    <div class="so-seg" id="soView" role="group" aria-label="View">
-      <button type="button" data-v="day" aria-pressed="true">Daily</button>
-      <button type="button" data-v="week" aria-pressed="false">Weekly</button>
-      <button type="button" data-v="month" aria-pressed="false">Monthly</button>
-      <button type="button" data-v="all" aria-pressed="false">All time</button>
+    <div class="so-filters">
+      <label class="so-sel"><span>Channel</span>
+        <select id="soPlat" aria-label="Channel">
+          <option value="all">All</option>
+          <option value="fb">Facebook</option>
+          <option value="ig">Instagram</option>
+        </select>
+      </label>
+      <label class="so-sel"><span>Date range</span>
+        <select id="soView" aria-label="Date range">
+          <option value="all">All time</option>
+          <option value="d90">Last 90 days</option>
+          <option value="d30" selected>Last 30 days</option>
+          <option value="d14">Last 14 days</option>
+          <option value="d7">Last 7 days</option>
+        </select>
+      </label>
     </div>
     <p class="so-range" id="soRange"></p>
     <p class="stub-note" id="soState">Loading&hellip;</p>
+    <section class="so-cards so-fol" id="soFollowers" aria-label="Total followers"></section>
     <section class="so-cards" id="soCards" aria-label="Key metrics" hidden></section>
     <section class="so-charts" id="soCharts" hidden>
       <div class="so-chart"><div class="so-chart-h"><h3 id="chViewsTitle">Views</h3><div class="so-seg-mini" id="soViewMode" role="group" aria-label="Chart shows"><button type="button" data-m="views" aria-pressed="true">Views</button><button type="button" data-m="both" aria-pressed="false">Both</button><button type="button" data-m="reach" aria-pressed="false">Reach</button></div></div><div class="so-canvas"><canvas id="chViews"></canvas></div></div>
       <div class="so-chart"><div class="so-chart-h"><h3>Engagement</h3></div><div class="so-canvas"><canvas id="chEng"></canvas></div></div>
-      <div class="so-chart"><div class="so-chart-h"><h3>Follows &amp; unfollows</h3></div><div class="so-canvas"><canvas id="chAud"></canvas></div></div>
-      <div class="so-chart"><div class="so-chart-h"><h3>Total followers</h3></div><div class="so-canvas"><canvas id="chTot"></canvas></div></div>
+      <div class="so-chart"><div class="so-chart-h"><h3>Follows</h3></div><div class="so-canvas"><canvas id="chAud"></canvas></div></div>
+      <div class="so-chart" id="chPvWrap"><div class="so-chart-h"><h3>Profile visits</h3></div><div class="so-canvas"><canvas id="chPv"></canvas></div></div>
     </section>
     <section class="so-charts" id="soAllTime" hidden>
       <div class="so-chart">
@@ -86,7 +94,9 @@
     <div class="cal-tools">
       <button type="button" class="ghost sm" id="plToday">Today</button>
       <button type="button" class="ghost sm" id="plRefresh">Refresh</button>
+      <button type="button" class="ghost sm" id="plAddBtn">+ Add posted</button>
       <button type="button" class="ghost sm" id="plViewsBtn" aria-pressed="true">Views: On</button>
+      <button type="button" class="ghost sm" id="plRankBtn">Ranking</button>
       <button type="button" class="ghost sm" id="plHiddenBtn">Hidden (0)</button>
     </div>
     <button type="button" class="pl-alert" id="plAlert" hidden></button>
@@ -97,6 +107,21 @@
   </div>
 </main>
 
+<!-- ranking: posted tasks from most to least views -->
+<div id="panelRanking" class="rk-wrap" hidden>
+  <div class="pl-nav">
+    <button type="button" class="back" id="rkBack" aria-label="Back to the Planner">&lsaquo;</button>
+    <b>Ranking by views</b>
+    <span style="width:36px" aria-hidden="true"></span>
+  </div>
+  <div class="filter-chips rk-chips" id="rkChips"></div>
+  <p class="rec-count" id="rkSum"></p>
+  <p class="stub-note" id="rkEmpty" hidden></p>
+  <div class="rk-list" id="rkList"></div>
+  <p class="pl-note" id="rkNoneNote" hidden></p>
+  <div class="rk-list rk-none" id="rkNone"></div>
+</div>
+
 <!-- hidden planner tasks: view and unhide -->
 <div class="modal" id="hdSheet" hidden>
   <div class="sheet small wide">
@@ -106,6 +131,24 @@
     <div class="hd-list" id="hdList"></div>
     <div class="acts">
       <button type="button" class="ghost" id="hdClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- add / edit a posted photo or video that has no task -->
+<div class="modal" id="fpSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="fpHeading">Add posted photo / video</h3>
+    <p class="stub-note" id="fpNote" style="text-align:center;margin:-6px 0 14px;font-size:12px">For something you posted without a video or post task. It sits on the Planner on the date you pick.</p>
+    <div class="field" id="fpMediaWrap"><label for="fpMedia">Type</label><select id="fpMedia" class="so-field-select"><option value="photo">Photo</option><option value="video">Video</option></select></div>
+    <div class="field"><label for="fpTitle">Title</label><input type="text" id="fpTitle" maxlength="200" autocomplete="off" placeholder="e.g. Pull of the day"></div>
+    <div class="field" id="fpDateWrap"><label>Date &amp; time posted <small>(time optional)</small></label><div class="so-plan"><input type="date" id="fpDate" aria-label="Date posted"><input type="time" id="fpTime" aria-label="Time posted"></div></div>
+    <div class="field"><label>Links &amp; views <small>(at least one link)</small></label><div id="fpRows"></div></div>
+    <div class="field" id="fpThumbWrap"><label for="fpThumb">Thumbnail image link <small>(optional &ndash; otherwise the embed&rsquo;s thumbnail is used)</small></label><input type="url" id="fpThumb" inputmode="url" autocomplete="off" maxlength="600" placeholder="https://&hellip;"></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="fpSave">Save</button>
+      <button type="button" class="ghost danger" id="fpDel" hidden>Delete</button>
+      <button type="button" class="ghost" id="fpCancel">Cancel</button>
     </div>
   </div>
 </div>
@@ -143,13 +186,18 @@
     <div class="filter-chips pd-tabs" id="pdTabs" hidden></div>
     <div class="pd-embed" id="pdEmbed"></div>
     <div class="so-chs" id="pdViews"></div>
+    <div class="field" style="margin-top:12px"><label>Planner thumbnail <small>(what the card shows without opening it)</small></label>
+      <div class="pd-thumb-row"><span class="pd-thumb-prev" id="pdThumbPrev"></span><select id="pdThumbSrc" class="so-field-select"></select></div>
+      <input type="url" id="pdThumbUrl" inputmode="url" autocomplete="off" maxlength="600" placeholder="Paste image link (https://&hellip;)" hidden>
+      <div class="pd-thumb-btns"><button type="button" class="ghost sm" id="pdThumbSave">Save thumbnail</button><button type="button" class="ghost sm" id="pdThumbRefresh">Refresh from embed</button></div>
+    </div>
     <div class="field" style="margin-top:12px"><label>Planned date &amp; time <small>(where it sits in the Planner)</small></label><div class="so-plan"><input type="date" id="pdPlanDate" aria-label="Planned date"><input type="time" id="pdPlanTime" aria-label="Planned time"></div></div>
     <div class="acts">
       <button type="button" class="go sm" id="pdSched">Save schedule</button>
-      <button type="button" class="ghost" id="pdViewsBtn">Channels &amp; views</button>
-      <a class="ghost" id="pdOpen" href="#" target="_blank" rel="noopener noreferrer">Open</a>
-      <button type="button" class="ghost" id="pdEdit">Edit link</button>
+      <button type="button" class="ghost" id="pdEdit">Edit details</button>
+      <button type="button" class="ghost" id="pdHide">Hide</button>
       <button type="button" class="ghost danger" id="pdUnpub">Unpublish</button>
+      <button type="button" class="ghost danger" id="pdDel" hidden>Delete</button>
       <button type="button" class="ghost" id="pdClose">Close</button>
     </div>
   </div>
@@ -179,8 +227,7 @@
     <div class="field"><label for="dyReach">Reach</label><input type="number" id="dyReach" inputmode="numeric" min="0" step="1"></div>
     <div class="field"><label for="dyEng">Engagement</label><input type="number" id="dyEng" inputmode="numeric" min="0" step="1"></div>
     <div class="field"><label for="dyFol">Follows</label><input type="number" id="dyFol" inputmode="numeric" min="0" step="1"></div>
-    <div class="field"><label for="dyUnf">Unfollows</label><input type="number" id="dyUnf" inputmode="numeric" min="0" step="1"></div>
-    <div class="field"><label for="dyTot">Total followers</label><input type="number" id="dyTot" inputmode="numeric" min="0" step="1"></div>
+    <div class="field"><label for="dyPv">Profile visits</label><input type="number" id="dyPv" inputmode="numeric" min="0" step="1"></div>
     <div class="acts">
       <button type="button" class="go sm" id="dySave">Save</button>
       <button type="button" class="ghost" id="dyCancel">Cancel</button>
@@ -197,13 +244,27 @@
     <div class="field"><label for="csvFile">CSV file</label><input type="file" id="csvFile" class="so-file" accept=".csv,.txt,text/csv"></div>
     <p class="so-imp-info" id="csvInfo" hidden></p>
     <div class="field"><label for="csvMetric">Import as</label>
-      <select id="csvMetric" class="so-field-select"><option value="">Choose a metric&hellip;</option><option value="views">Views</option><option value="reach">Reach</option><option value="eng">Engagement</option><option value="fol">Follows</option><option value="unf">Unfollows</option><option value="tot">Total followers</option></select>
+      <select id="csvMetric" class="so-field-select"><option value="">Choose a metric&hellip;</option><option value="views">Views</option><option value="reach">Reach</option><option value="eng">Engagement</option><option value="fol">Follows</option><option value="pv">Profile visits</option></select>
     </div>
     <div class="field" id="csvColWrap" hidden><label for="csvCol">Column to use</label><select id="csvCol" class="so-field-select"></select></div>
     <p class="stub-note" style="margin:-6px 0 14px;font-size:12px">Only that metric is changed for the days in the file. Other numbers on those days stay as they are.</p>
     <div class="acts">
       <button type="button" class="go sm" id="csvGo" disabled>Import</button>
       <button type="button" class="ghost" id="csvCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- total followers scorecard -->
+<div class="modal" id="flSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Total followers</h3>
+    <p class="stub-note" style="text-align:center;margin:-6px 0 14px;font-size:12px" id="flSub"></p>
+    <div class="field"><label for="flNum">Followers right now</label><input type="number" id="flNum" inputmode="numeric" min="0" step="1"></div>
+    <p class="stub-note" style="margin:-6px 0 14px;font-size:12px">The date and time you save it is shown on the scorecard as &ldquo;last updated&rdquo;.</p>
+    <div class="acts">
+      <button type="button" class="go sm" id="flSave">Save</button>
+      <button type="button" class="ghost" id="flCancel">Cancel</button>
     </div>
   </div>
 </div>

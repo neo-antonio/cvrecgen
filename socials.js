@@ -37,34 +37,26 @@
     return res;
   }
 
-  let tab = 'insights', view = 'day', vMode = 'views';   // vMode: what the top chart shows (views | both | reach)
+  let tab = 'insights', view = 'd30', vMode = 'views';   // view: the date range (all | d90 | d30 | d14 | d7), Last 30 days by default
+  const RANGE_DAYS = { d7: 7, d14: 14, d30: 30, d90: 90 };   // vMode: what the top chart shows (views | both | reach)
   const startOfWeek = d => addDays(d, -d.getDay());   // weeks start on Sunday, like Meta's planner
   let weekStart = startOfWeek(new Date()), selDay = todayIso();
-  let soc = { fb: { daily: [], meta: {} }, ig: { daily: [], meta: {} }, configured: false }, cre = { videos: [], posts: [] };
+  let soc = { fb: { daily: [], meta: {} }, ig: { daily: [], meta: {} }, configured: false }, cre = { videos: [], posts: [], free: [] };
   let plat = 'all';   // Insights channel filter: all | fb | ig (everything is shown by default)
   let charts = {}, busy = false;
 
   /* ================= Insights ================= */
-  const FIELDS = ['views', 'reach', 'eng', 'fol', 'unf'];
+  const FIELDS = ['views', 'reach', 'eng', 'fol', 'pv'];
+  const zero = () => ({ views: 0, reach: 0, eng: 0, fol: 0, pv: 0 });
   const sumRange = (rows, from, to) => {
-    const a = isoOf(from), b = isoOf(to), o = { views: 0, reach: 0, eng: 0, fol: 0, unf: 0 };
+    const a = isoOf(from), b = isoOf(to), o = zero();
     rows.forEach(r => { if (r.d >= a && r.d <= b) FIELDS.forEach(f => { o[f] += r[f] || 0; }); });
-    o.net = o.fol - o.unf;
     return o;
   };
   const PNAME = { fb: 'Facebook', ig: 'Instagram', all: 'Facebook + Instagram' };
+  const CHN = { fb: { n: 'Facebook', c: '#1877f2' }, ig: { n: 'Instagram', c: '#e1306c' } };
   const normSoc = r => ({ fb: { daily: (r && r.daily) || [], meta: (r && r.meta) || {} }, ig: { daily: (r && r.ig && r.ig.daily) || [], meta: (r && r.ig && r.ig.meta) || {} }, configured: !!(r && r.configured) });
-  /* two channels added together: one row per date; total followers = each channel's latest known total on or before that date, added up */
-  function mergeDaily(a, b) {
-    const dates = {}, maps = [a, b].map(list => { const m = {}; list.forEach(r => { m[r.d] = r; dates[r.d] = true; }); return m; }), last = [null, null], out = [];
-    Object.keys(dates).sort().forEach(d => {
-      const row = { d, views: 0, reach: 0, eng: 0, fol: 0, unf: 0, tot: null };
-      maps.forEach((m, i) => { const r = m[d]; if (r) { FIELDS.forEach(f => { row[f] += r[f] || 0; }); if (r.tot != null) last[i] = r.tot; } });
-      row.tot = last[0] == null && last[1] == null ? null : (last[0] || 0) + (last[1] || 0);
-      out.push(row);
-    });
-    return out;
-  }
+  const selKeys = () => plat === 'all' ? ['fb', 'ig'] : [plat];   // the channels switched on above the charts
   /* all-time panels of both channels added together (followers vs non-followers, and traffic sources by name) */
   function mergeMeta(a, b) {
     const out = {}, both = k => [a[k], b[k]].filter(Boolean), newest = list => list.map(x => x.updated || '').sort().pop() || '';
@@ -74,28 +66,22 @@
     if (tr.length) { const m = {}; tr.forEach(x => (x.value.items || []).forEach(i => { m[i.label] = (m[i.label] || 0) + (Number(i.value) || 0); })); out.traffic = { value: { items: Object.keys(m).map(k => ({ label: k, value: m[k] })) }, updated: newest(tr) }; }
     return out;
   }
-  const V = () => plat === 'fb' ? soc.fb : plat === 'ig' ? soc.ig : { daily: mergeDaily(soc.fb.daily, soc.ig.daily), meta: mergeMeta(soc.fb.meta, soc.ig.meta) };
+  const metaNow = () => plat === 'all' ? mergeMeta(soc.fb.meta, soc.ig.meta) : soc[plat].meta;
   function setPlatHeader() {
     const ic = $('soPlatIcon');
     ic.className = plat === 'ig' ? 'so-ig' : plat === 'fb' ? 'so-fb' : 'so-both';
     ic.textContent = plat === 'ig' ? 'IG' : plat === 'fb' ? 'f' : 'All';
     $('soPlatName').textContent = PNAME[plat];
-    $('soOpen').hidden = plat !== 'fb';
-    $('soPlat').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.p === plat ? 'true' : 'false'));
+    $('soPlat').value = plat;
   }
-  /* total followers at the end of a period: the latest known value on or before that day */
-  function totAt(rows, end) {
-    const b = isoOf(end); let v = null;
-    for (const r of rows) { if (r.d > b) break; if (r.tot != null) v = r.tot; }
-    return v;
-  }
-  /* buckets of `size` days anchored on the newest day with data (daily 1, weekly 7, monthly 30); All time uses calendar months */
-  function buckets(rows) {
-    const out = [];
-    if (!rows.length) return out;
-    const last = parseIso(rows[rows.length - 1].d);
+  /* buckets of `size` days anchored on the newest day with data in ANY shown channel (daily 1, weekly 7, monthly 30); All time uses calendar months.
+     Each bucket keeps one sum per channel (b.by) and their total (b.all), so the charts can draw the channels side by side. */
+  function buckets(sets) {
+    const out = [], firsts = sets.map(s => s.rows[0].d).sort(), lasts = sets.map(s => s.rows[s.rows.length - 1].d).sort();
+    if (!sets.length) return out;
+    const last = parseIso(lasts[lasts.length - 1]);
     if (view === 'all') {
-      const first = parseIso(rows[0].d);
+      const first = parseIso(firsts[0]);
       let y = first.getFullYear(), m = first.getMonth();
       while (y < last.getFullYear() || (y === last.getFullYear() && m <= last.getMonth())) {
         const from = new Date(y, m, 1), to = new Date(y, m + 1, 0);
@@ -103,14 +89,18 @@
         m++; if (m > 11) { m = 0; y++; }
       }
     } else {
-      const size = view === 'day' ? 1 : view === 'week' ? 7 : 30, count = view === 'day' ? 30 : 12;
-      for (let i = count - 1; i >= 0; i--) {
-        const to = addDays(last, -i * size), from = addDays(to, -(size - 1));
-        out.push({ from, to, label: size === 1 ? shortDay(to) : shortDay(from) + '\u2013' + shortDay(to) });
-      }
+      // Last N days: one point per day, ending on the newest day with data
+      const count = RANGE_DAYS[view] || 30;
+      for (let i = count - 1; i >= 0; i--) { const to = addDays(last, -i); out.push({ from: to, to, label: shortDay(to) }); }
     }
-    out.forEach(b => { Object.assign(b, sumRange(rows, b.from, b.to)); b.tot = totAt(rows, b.to); });
+    out.forEach(b => { b.by = {}; b.all = zero(); sets.forEach(s => { const t = sumRange(s.rows, b.from, b.to); b.by[s.k] = t; FIELDS.forEach(f => { b.all[f] += t[f]; }); }); });
     return out;
+  }
+  function totalBucket(bs, keys) {
+    const t = { all: zero(), by: {} };
+    keys.forEach(k => { t.by[k] = zero(); });
+    bs.forEach(b => keys.forEach(k => FIELDS.forEach(f => { t.by[k][f] += b.by[k][f]; t.all[f] += b.by[k][f]; })));
+    return t;
   }
 
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -154,8 +144,8 @@
     const pct = prev ? Math.abs(d / prev * 100).toFixed(1) + '%' : (cur ? 'new' : '0%');
     return `<span class="so-delta ${d === 0 ? '' : up ? 'up' : 'down'}">${d === 0 ? '\u2013' : d > 0 ? '\u25B2' : '\u25BC'} ${num(Math.abs(d))}<span class="so-pct">${pct}</span></span><span class="so-prev">vs ${num(prev)}</span>`;
   }
-  function card(label, value, deltaStr) {
-    return `<div class="so-card"><span class="so-lbl">${esc(label)}</span><b class="so-val" data-v="${esc(value)}">${esc(value)}</b><div class="so-d">${deltaStr || ''}</div></div>`;
+  function card(label, value, deltaStr, extra) {
+    return `<div class="so-card"><span class="so-lbl">${esc(label)}</span><b class="so-val" data-v="${esc(value)}">${esc(value)}</b><div class="so-d">${deltaStr || ''}</div>${extra || ''}</div>`;
   }
   /* the numbers count up once when the cards appear */
   function countUp(el) {
@@ -170,64 +160,90 @@
     })(start);
   }
 
+  /* Total followers is a scorecard, not a chart: one number per channel (typed in) with the date and time it was last updated.
+     Before a number is typed in, the latest daily total from older data is shown with its day. */
+  function followerOf(k) {
+    const m = soc[k].meta.followers;
+    if (m && m.value && m.value.total != null && m.value.total !== '') return { n: Number(m.value.total) || 0, stamp: m.updated || '' };
+    const rows = soc[k].daily;
+    for (let i = rows.length - 1; i >= 0; i--) if (rows[i].tot != null) return { n: rows[i].tot, day: rows[i].d };
+    return null;
+  }
+  function renderFollowers() {
+    const keys = selKeys(), got = keys.map(k => ({ k, v: followerOf(k) }));
+    const sub = v => !v ? 'Not entered yet' : v.stamp ? 'Last updated ' + fmtStamp(v.stamp) : v.day ? 'As of ' + longDay(parseIso(v.day)) : '';
+    // a channel's card is itself the update button: tap it to type in the new total (the combined card is just a sum)
+    const one = (label, v, k) => `<div class="so-card${k ? ' so-tap' : ''}"${k ? ` data-k="${k}" role="button" tabindex="0" aria-label="Update ${esc(label)}"` : ''}><span class="so-lbl">${esc(label)}</span><b class="so-val">${v ? num(v.n) : '\u2013'}</b><div class="so-d"><span class="so-asof">${esc(sub(v))}</span></div></div>`;
+    let html = '';
+    if (keys.length > 1) {
+      const have = got.filter(x => x.v), st = have.map(x => x.v.stamp || '').filter(Boolean).sort().pop() || '', dy = have.map(x => x.v.day || '').filter(Boolean).sort().pop() || '';
+      html += one('Total followers', have.length ? { n: have.reduce((n, x) => n + x.v.n, 0), stamp: st, day: st ? '' : dy } : null, '');
+    }
+    got.forEach(x => { html += one(keys.length > 1 ? PNAME[x.k] + ' followers' : 'Total followers', x.v, x.k); });
+    $('soFollowers').innerHTML = html;
+  }
+
   function renderInsights() {
-    const rows = V().daily, has = rows.length > 0;
+    const keys = selKeys(), sets = keys.map(k => ({ k, rows: soc[k].daily })).filter(s => s.rows.length), has = sets.length > 0, multi = sets.length > 1;
     $('soState').hidden = has;
     $('soCards').hidden = !has; $('soCharts').hidden = !has;
     $('soAllTime').hidden = view !== 'all';
+    renderFollowers();
     if (!has) {
       $('soRange').textContent = '';
       $('soState').textContent = 'No data yet. Tap Add day to enter your first numbers.';
       if (view === 'all') renderAllTimePanels();
       return;
     }
-    const bs = buckets(rows), cur = bs[bs.length - 1], prev = view === 'all' ? null : bs[bs.length - 2];
-    const firstDay = parseIso(rows[0].d), lastDay = parseIso(rows[rows.length - 1].d);
-    const totalNow = totAt(rows, lastDay);
-    const hasReach = rows.some(r => r.reach > 0);
-    let html;
-    if (view === 'all') {
-      const all = sumRange(rows, firstDay, lastDay);
-      $('soRange').textContent = `All data on record: ${longDay(firstDay)} \u2013 ${longDay(lastDay)} (${pl(rows.length, 'day')})`;
-      html = card('Views', num(all.views)) + (hasReach ? card('Reach', num(all.reach)) : '') + card('Engagement', num(all.eng)) + card('Net follows', (all.net > 0 ? '+' : '') + num(all.net)) + card('Unfollows', num(all.unf)) + card('Total followers', totalNow == null ? '\u2013' : num(totalNow));
-    } else {
-      const name = { day: 'Day', week: '7 days', month: '30 days' }[view];
-      $('soRange').textContent = (view === 'day' ? 'Latest day ' + longDay(cur.to) : name + ': ' + shortDay(cur.from) + ' \u2013 ' + longDay(cur.to)) + ' vs the ' + (view === 'day' ? 'day' : name) + ' before';
-      const prevTot = prev ? prev.tot : null;
-      html = card('Views', num(cur.views), deltaHtml(cur.views, prev && prev.views))
-        + (hasReach ? card('Reach', num(cur.reach), deltaHtml(cur.reach, prev && prev.reach)) : '')
-        + card('Engagement', num(cur.eng), deltaHtml(cur.eng, prev && prev.eng))
-        + card('Net follows', (cur.net > 0 ? '+' : '') + num(cur.net), deltaHtml(cur.net, prev && prev.net))
-        + card('Unfollows', num(cur.unf), deltaHtml(cur.unf, prev && prev.unf, true))
-        + card('Total followers', cur.tot == null ? '\u2013' : num(cur.tot), cur.tot != null && prevTot != null ? deltaHtml(cur.tot, prevTot) : '');
+    const present = sets.map(s => s.k), bs = buckets(sets), cur = bs[bs.length - 1];
+    const hasReach = sets.some(s => s.rows.some(r => r.reach > 0)), hasPv = sets.some(s => s.rows.some(r => r.pv > 0));
+    const dayset = {}; sets.forEach(s => s.rows.forEach(r => { dayset[r.d] = 1; }));
+    const dates = Object.keys(dayset).sort(), firstDay = parseIso(dates[0]), lastDay = parseIso(dates[dates.length - 1]);
+    const src = totalBucket(bs, present);   // the whole range, per channel and added up
+    // the comparison is the same number of days right before the range (7 days vs the 7 before, 30 vs the 30 before, ...); All time has none
+    let prev = null;
+    if (view !== 'all') {
+      const n = RANGE_DAYS[view], pEnd = addDays(bs[0].from, -1), pStart = addDays(pEnd, -(n - 1));
+      prev = { all: zero(), by: {} };
+      sets.forEach(s => { const t = sumRange(s.rows, pStart, pEnd); prev.by[s.k] = t; FIELDS.forEach(f => { prev.all[f] += t[f]; }); });
+      prev.from = pStart; prev.to = pEnd;
     }
-    $('soCards').innerHTML = html;
+    if (view === 'all') $('soRange').textContent = `All data on record: ${longDay(firstDay)} \u2013 ${longDay(lastDay)} (${pl(dates.length, 'day')})`;
+    else {
+      const n = RANGE_DAYS[view];
+      $('soRange').textContent = `Last ${n} days: ${shortDay(bs[0].from)} \u2013 ${longDay(cur.to)}, vs the ${n} days before (${shortDay(prev.from)} \u2013 ${shortDay(prev.to)})`;
+    }
+    // when two channels are shown the card is their total, with each channel's own number underneath
+    const by = (f, b) => multi ? `<div class="so-by">${present.map(k => `<span><i style="background:${CHN[k].c}"></i>${num(b.by[k][f])}</span>`).join('')}</div>` : '';
+    const mk = (label, f) => card(label, num(src.all[f]), prev ? deltaHtml(src.all[f], prev.all[f]) : '', by(f, src));
+    $('soCards').innerHTML = mk('Views', 'views') + (hasReach ? mk('Reach', 'reach') : '') + mk('Engagement', 'eng') + mk('Follows', 'fol') + (hasPv ? mk('Profile visits', 'pv') : '');
     $('soCards').querySelectorAll('.so-val').forEach(countUp);
 
     const labels = bs.map(b => b.label), mut = css('--mut') || '#737373';
-    const multi = { plugins: { legend: { display: false } }, scales: axes() };
-    // the top chart: views, reach, or both overlaid on the same axis
+    // one line / bar set per channel when both are shown, in the channel's colour
+    const colorOf = (k, base) => multi ? CHN[k].c : base;
+    const nm = (k, w) => multi ? CHN[k].n + ' ' + w.toLowerCase() : w;
+    const lineSet = (f, label, base, o) => present.map(k => Object.assign({ label: nm(k, label), data: bs.map(b => b.by[k][f]), borderColor: colorOf(k, base), backgroundColor: multi ? colorOf(k, base) : gradient(base), fill: !multi }, o || {}));
+    const barSet = (f, label, base) => present.map(k => ({ label: nm(k, label), data: bs.map(b => b.by[k][f]), backgroundColor: rgba(colorOf(k, base), 0.9) }));
+    const legend = on => ({ display: on, position: 'bottom', labels: { color: mut } });
+    // the top chart: views, reach, or both overlaid on the same axis (reach dashed)
     const mode = hasReach ? vMode : 'views', ds = [];
-    if (mode !== 'reach') ds.push({ label: 'Views', data: bs.map(b => b.views), borderColor: COL.blue, backgroundColor: gradient(COL.blue), fill: true });
-    if (mode !== 'views') ds.push({ label: 'Reach', data: bs.map(b => b.reach), borderColor: COL.orange, backgroundColor: mode === 'reach' ? gradient(COL.orange) : rgba(COL.orange, 0.12), fill: true });
+    if (mode !== 'reach') ds.push(...lineSet('views', 'Views', COL.blue));
+    if (mode !== 'views') ds.push(...lineSet('reach', 'Reach', COL.orange, mode === 'both' ? { borderDash: [6, 4], fill: false } : {}));
     $('chViewsTitle').textContent = mode === 'both' ? 'Views & reach' : mode === 'reach' ? 'Reach' : 'Views';
     $('soViewMode').hidden = !hasReach;
     $('soViewMode').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.m === mode ? 'true' : 'false'));
-    draw('chViews', { type: 'line', data: { labels, datasets: ds }, options: { plugins: { legend: { display: ds.length > 1, position: 'bottom', labels: { color: mut } } }, scales: axes() } });
-    draw('chEng', { type: 'bar', data: { labels, datasets: [{ label: 'Engagement', data: bs.map(b => b.eng), backgroundColor: rgba(COL.orange, 0.9) }] }, options: multi });
-    draw('chAud', { data: { labels, datasets: [
-      { type: 'bar', label: 'Follows', data: bs.map(b => b.fol), backgroundColor: rgba(COL.blue, 0.9) },
-      { type: 'bar', label: 'Unfollows', data: bs.map(b => b.unf), backgroundColor: rgba(COL.verm, 0.9) },
-      { type: 'line', label: 'Net follows', data: bs.map(b => b.net), borderColor: COL.ink, backgroundColor: COL.ink }] },
-      options: { plugins: { legend: { display: true, position: 'bottom', labels: { color: mut } } }, scales: axes({ beginAtZero: false }) } });
-    draw('chTot', { type: 'line', data: { labels, datasets: [{ label: 'Total followers', data: bs.map(b => b.tot), borderColor: COL.green, backgroundColor: gradient(COL.green), fill: true, spanGaps: true }] },
-      options: { plugins: { legend: { display: false } }, scales: axes({ beginAtZero: false }) } });
+    draw('chViews', { type: 'line', data: { labels, datasets: ds }, options: { plugins: { legend: legend(ds.length > 1) }, scales: axes() } });
+    draw('chEng', { type: 'bar', data: { labels, datasets: barSet('eng', 'Engagement', COL.orange) }, options: { plugins: { legend: legend(multi) }, scales: axes() } });
+    draw('chAud', { type: 'bar', data: { labels, datasets: barSet('fol', 'Follows', COL.blue) }, options: { plugins: { legend: legend(multi) }, scales: axes() } });
+    $('chPvWrap').hidden = !hasPv;
+    if (hasPv) draw('chPv', { type: 'line', data: { labels, datasets: lineSet('pv', 'Profile visits', COL.green) }, options: { plugins: { legend: legend(multi) }, scales: axes() } });
     if (view === 'all') renderAllTimePanels();
   }
 
   /* all-time only: followers vs non-followers pie and the traffic bars, each with its own last-updated stamp */
   function renderAllTimePanels() {
-    const M = V().meta, au = M.audience, tr = M.traffic, notYet = plat === 'all' ? 'Not entered yet. Choose Facebook or Instagram to add it.' : 'Not entered yet. Tap Update.';
+    const M = metaNow(), au = M.audience, tr = M.traffic, notYet = plat === 'all' ? 'Not entered yet. Choose Facebook or Instagram to add it.' : 'Not entered yet. Tap Update.';
     $('soEditAud').hidden = $('soEditTr').hidden = plat === 'all';
     const f = au ? Number(au.value.followers) || 0 : 0, n = au ? Number(au.value.nonFollowers) || 0 : 0, tot = f + n;
     $('soAudUpd').textContent = au && au.updated ? 'Last updated ' + fmtStamp(au.updated) : notYet;
@@ -254,17 +270,8 @@
     const b = e.target.closest('button[data-m]'); if (!b) return;
     vMode = b.dataset.m; renderInsights();
   });
-  $('soView').addEventListener('click', e => {
-    const b = e.target.closest('button[data-v]'); if (!b) return;
-    view = b.dataset.v;
-    $('soView').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
-    renderInsights();
-  });
-
-  $('soPlat').addEventListener('click', e => {
-    const b = e.target.closest('button[data-p]'); if (!b) return;
-    plat = b.dataset.p; setPlatHeader(); renderInsights();
-  });
+  $('soView').addEventListener('change', () => { view = $('soView').value; renderInsights(); });
+  $('soPlat').addEventListener('change', () => { plat = $('soPlat').value; setPlatHeader(); renderInsights(); });
 
   /* ---- load ---- */
   async function loadSocials(quiet) {
@@ -283,7 +290,7 @@
   }
 
   /* ---- add / edit a day by hand ---- */
-  const ids = { views: 'dyViews', reach: 'dyReach', eng: 'dyEng', fol: 'dyFol', unf: 'dyUnf', tot: 'dyTot' };
+  const ids = { views: 'dyViews', reach: 'dyReach', eng: 'dyEng', fol: 'dyFol', pv: 'dyPv' };
   const fillDay = () => {
     const r = ($('dyPlat').value === 'ig' ? soc.ig : soc.fb).daily.find(x => x.d === $('dyDate').value);
     Object.keys(ids).forEach(k => { $(ids[k]).value = r && r[k] != null ? r[k] : ''; });
@@ -321,7 +328,7 @@
     const s = String(v || '').trim(), m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
     const t = Date.parse(s); return isNaN(t) ? '' : isoOf(new Date(t));
   };
-  const GUESS = [[/follower/i, 'tot'], [/unfollow/i, 'unf'], [/follow/i, 'fol'], [/reach/i, 'reach'], [/view|impression/i, 'views'], [/interaction|engage/i, 'eng']];
+  const GUESS = [[/profile/i, 'pv'], [/reach/i, 'reach'], [/follow/i, 'fol'], [/view|impression/i, 'views'], [/interaction|engage/i, 'eng']];
   let csv = null;   // { title, cols: [names], rows: [{ d, vals: [] }] }
   function parseCsv(text) {
     let lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim()), sep = ',';
@@ -376,10 +383,29 @@
         added += r.added || 0; updated += r.updated || 0;
       }
       $('csvSheet').hidden = true; csv = null;
-      toast(`Imported ${pl(list.length, 'day')} into ${PNAME[$('csvPlat').value]} ${({ views: 'Views', reach: 'Reach', eng: 'Engagement', fol: 'Follows', unf: 'Unfollows', tot: 'Total followers' })[metric]} (${added} new, ${updated} updated).`);
+      toast(`Imported ${pl(list.length, 'day')} into ${PNAME[$('csvPlat').value]} ${({ views: 'Views', reach: 'Reach', eng: 'Engagement', fol: 'Follows', pv: 'Profile visits' })[metric]} (${added} new, ${updated} updated).`);
       await loadSocials(true);
     } catch (err) { toast('Could not import: ' + backendErr(err)); }
     b.textContent = 'Import'; b.disabled = false;
+  };
+
+  /* ---- total followers scorecard ---- */
+  let flK = '';
+  const openFollowers = e => {
+    const b = e.target.closest('.so-tap[data-k]'); if (!b) return false;
+    flK = b.dataset.k; const v = followerOf(flK);
+    $('flSub').textContent = PNAME[flK]; $('flNum').value = v ? v.n : ''; $('flSheet').hidden = false; $('flNum').focus();
+    return true;
+  };
+  $('soFollowers').addEventListener('click', openFollowers);
+  $('soFollowers').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && openFollowers(e)) e.preventDefault(); });
+  $('flCancel').onclick = () => { $('flSheet').hidden = true; };
+  $('flSave').onclick = async () => {
+    const n = $('flNum').value.trim(); if (n === '' || !isFinite(+n) || +n < 0) return toast('Enter the total followers.');
+    const b = $('flSave'); b.disabled = true; b.textContent = 'Saving\u2026';
+    try { await call('saveSocialPanel', { key: 'followers', platform: flK, json: JSON.stringify({ total: Math.round(+n) }) }); $('flSheet').hidden = true; toast('Saved.'); await loadSocials(true); }
+    catch (err) { toast('Could not save: ' + backendErr(err)); }
+    b.disabled = false; b.textContent = 'Save';
   };
 
   /* ---- all-time panels ---- */
@@ -407,8 +433,10 @@
   const fmtClock = v => { const m = String(v || '').match(/^(\d{1,2}):(\d{2})/); if (!m) return ''; const h = +m[1]; return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`; };
   const hourLabel = v => { const h = +String(v).slice(0, 2); return `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`; };
   function allTasks() {
-    return cre.videos.map(v => ({ kind: 'video', id: v.id, title: v.title, date: v.date, time: v.time || '', hidden: !!v.hidden, status: v.status, platforms: v.platforms || {}, caption: v.caption, cards: v.cards || [], previews: [], doneDate: v.doneDate }))
-      .concat(cre.posts.map(g => ({ kind: 'post', id: g.id, title: g.label || 'Post', date: g.scheduled || g.date, time: g.time || '', hidden: !!g.hidden, status: g.status, platforms: g.platforms || {}, caption: g.caption, cards: g.cards || [], previews: g.previews || [], doneDate: g.doneDate })));
+    return cre.videos.map(v => ({ kind: 'video', id: v.id, title: v.title, date: v.date, time: v.time || '', hidden: !!v.hidden, status: v.status, platforms: v.platforms || {}, caption: v.caption, cards: v.cards || [], previews: [], doneDate: v.doneDate, thumbSel: v.thumbSel || '', thumbCustom: v.thumbCustom || '' }))
+      .concat(cre.posts.map(g => ({ kind: 'post', id: g.id, title: g.label || 'Post', date: g.scheduled || g.date, time: g.time || '', hidden: !!g.hidden, status: g.status, platforms: g.platforms || {}, caption: g.caption, cards: g.cards || [], previews: g.previews || [], doneDate: g.doneDate, thumbSel: g.thumbSel || '', thumbCustom: g.thumbCustom || '' })))
+      // a posted photo / video logged by hand: no task, no cards; already posted
+      .concat((cre.free || []).map(f => ({ kind: f.media === 'video' ? 'video' : 'post', free: true, id: f.id, title: f.title, date: f.date, time: f.time || '', hidden: !!f.hidden, status: 'posted', platforms: f.platforms || {}, caption: f.caption, cards: [], previews: [], doneDate: f.doneDate, thumbSel: f.thumbSel || '', thumbCustom: f.thumbCustom || '' })));
   }
   const isReady = t => t.kind === 'video' ? t.status === 'done' : t.status === 'edited';
   const isPosted = t => t.status === 'posted';
@@ -429,7 +457,8 @@
   /* the Views button above the planner: shows or hides the view counts on the cards (on by default, remembered on this device) */
   let showViews = true; try { showViews = localStorage.getItem('cv_plViews') !== '0'; } catch (_) {}
   const syncViewsBtn = () => { const b = $('plViewsBtn'); b.textContent = 'Views: ' + (showViews ? 'On' : 'Off'); b.setAttribute('aria-pressed', showViews ? 'true' : 'false'); };
-  const canDelete = t => t.kind === 'video' || String(t.id).indexOf('pc_') === 0;   // receipt groups (pg_) can only be hidden
+  const kindLabel = t => t.kind === 'video' ? 'Video' : (t.free ? 'Photo' : 'Post');
+  const canDelete = t => t.free || t.kind === 'video' || String(t.id).indexOf('pc_') === 0;   // receipt groups (pg_) can only be hidden
   const find = id => allTasks().find(t => t.id === id);
   const shown = () => allTasks().filter(t => !t.hidden && (isReady(t) || isPosted(t)));
   const whenOf = t => t.date || (isPosted(t) ? (CH.map(x => chOf(t, x.k).date).filter(Boolean).sort()[0] || '') : '');   // every task sits on its planned date, posted or not, so it can be rescheduled either way
@@ -440,7 +469,42 @@
     post: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M3 17l5-5 4 4 3-3 6 6"/>'
   };
   const svgI = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
-  const thumbOf = t => { const x = t.previews[0]; if (x) return x.t || x.u; const c = t.cards.find(c => c.photo); return c ? c.photo : ''; };
+  /* planner thumbnail, shown on the card itself (no need to open it): the embed's thumbnail of a pasted link first, then the first edited preview, then a card photo */
+  const dispUrl = u => { const m = /drive\.google\.com/.test(u) && String(u).match(/[-\w]{25,}/); return m ? 'https://drive.google.com/thumbnail?id=' + m[0] + '&sz=w480' : u; };
+  const ytThumb = link => { const m = String(link || '').match(/(?:youtu\.be\/|\/shorts\/|\/live\/|\/embed\/|[?&]v=)([\w-]{11})/); return m ? 'https://i.ytimg.com/vi/' + m[1] + '/hqdefault.jpg' : ''; };
+  const linkThumb = t => {
+    if (t.thumbCustom) return t.thumbCustom;   // a thumbnail link you pasted
+    const pick = /^ch:/.test(t.thumbSel || '') ? t.thumbSel.slice(3) : '';   // or the embed of the channel you chose
+    if (pick) { const c = chOf(t, pick), u = c.link && (c.thumbD || (c.thumb && dispUrl(c.thumb)) || (pick === 'yt' && ytThumb(c.link))); if (u) return u; }
+    for (const x of CH) { const c = chOf(t, x.k); if (c.link && (c.thumbD || c.thumb)) return c.thumbD || dispUrl(c.thumb); }
+    for (const x of CH) { const c = chOf(t, x.k); if (x.k === 'yt' && c.link && ytThumb(c.link)) return ytThumb(c.link); }   // YouTube needs no lookup: its thumbnail is built from the link
+    return '';
+  };
+  const thumbOf = t => { const lt = linkThumb(t); if (lt) return lt; const x = (t.previews || [])[0]; if (x) return x.t || x.u; const c = (t.cards || []).find(c => c.photo); return c ? c.photo : ''; };
+  /* ask the backend for a pasted link's thumbnail (YouTube / TikTok oEmbed, Instagram / Facebook preview image); '' when there is none */
+  async function fetchThumb(link) {
+    try { const r = await call('linkPreview', { url: link }, 30000); return (r && r.thumb) || ''; } catch (_) { return ''; }
+  }
+  /* posted tasks that have a link but no thumbnail yet get one in the background, a few per load, and show up on the planner as each arrives.
+     A link that found nothing is tried again after a day. */
+  async function backfillThumbs() {
+    let tried = {}; try { tried = JSON.parse(localStorage.getItem('cv_thumbTried2') || '{}') || {}; } catch (_) {}
+    const now = Date.now(), todo = [];
+    allTasks().filter(isPosted).forEach(t => CH.forEach(x => {
+      const c = chOf(t, x.k), key = t.id + '|' + x.k + '|' + c.link;
+      if (c.link && !c.thumb && x.k !== 'yt' && !(tried[key] && now - tried[key] < 864e5)) todo.push({ t, k: x.k, link: c.link, key });
+    }));
+    for (const j of todo.slice(0, 8)) {
+      tried[j.key] = now;
+      const th = await fetchThumb(j.link); if (!th) continue;
+      try {
+        await call('setPostChannels', { id: j.t.id, json: JSON.stringify({ [j.k]: { thumb: th } }) });
+        const c = chOf(j.t, j.k); c.thumb = th; c.thumbD = dispUrl(th);   // show it right away
+        cacheSet('creatives', cre); renderLists();
+      } catch (_) {}
+    }
+    try { localStorage.setItem('cv_thumbTried2', JSON.stringify(tried)); } catch (_) {}
+  }
 
   function viewsHtml(t) {
     if (!anyViews(t)) return '<span class="pl-views none">No views yet</span>';
@@ -449,7 +513,7 @@
   function itemHtml(t) {
     const posted = isPosted(t), th = thumbOf(t);
     return `<button type="button" class="pl-item ${posted ? 'posted' : 'pending'}" data-id="${esc(t.id)}" aria-label="${esc(t.title)}${posted ? ', posted' : ', not posted yet, tap to post'}">
-      <span class="pl-meta">${svgI(t.kind)}<span>${t.time ? esc(fmtClock(t.time)) : 'No time set'} \u00b7 ${t.kind === 'video' ? 'Video' : 'Post'}</span></span>
+      <span class="pl-meta">${svgI(t.kind)}<span>${t.time ? esc(fmtClock(t.time)) : 'No time set'} \u00b7 ${kindLabel(t)}</span></span>
       <span class="pl-thumb">${th ? `<img src="${esc(th)}" alt="" loading="lazy">` : svgI(t.kind)}</span>
       <b>${esc(t.title)}</b>
       ${posted && showViews ? viewsHtml(t) : ''}
@@ -490,6 +554,7 @@
     if (pend.length) al.innerHTML = `<i>${pend.length}</i> ${pend.length === 1 ? 'task is' : 'tasks are'} waiting to be posted. Tap to jump to the first.`;
     $('plState').hidden = true;
     renderHiddenBtn();
+    if (!$('panelRanking').hidden) renderRanking();
   }
   function renderHiddenBtn() { $('plHiddenBtn').textContent = `Hidden (${hiddenTasks().length})`; if (!$('hdSheet').hidden) renderHiddenList(); }
   const plRefreshBadge = () => { const pend = waiting(), b = $('plBadge'); b.hidden = !pend.length; b.textContent = String(pend.length); try { if (window.CVShell) CVShell.setBadge('social', pend.length); } catch (_) {} };
@@ -499,6 +564,39 @@
   $('plNext').onclick = () => { weekStart = addDays(weekStart, 7); selDay = isoOf(weekStart); renderPlanner(); };
   $('plToday').onclick = () => { weekStart = startOfWeek(new Date()); selDay = todayIso(); renderPlanner(); };
   $('plRefresh').onclick = () => loadCreatives(true);
+  /* ---- ranking: every posted task from most to least views (all channels added up, or one channel) ---- */
+  let rkCh = 'all';
+  function renderRanking() {
+    $('rkChips').innerHTML = [{ k: 'all', n: 'All channels' }].concat(CH).map(x => `<button type="button" class="chip${x.k === rkCh ? ' active' : ''}" data-k="${x.k}">${x.n}</button>`).join('');
+    const val = t => rkCh === 'all' ? (anyViews(t) ? totalViews(t) : null) : (hasViews(chOf(t, rkCh)) ? +chOf(t, rkCh).views : null);
+    const rows = allTasks().filter(isPosted).map(t => ({ t, v: val(t) }));
+    const ranked = rows.filter(r => r.v != null).sort((a, b) => b.v - a.v), none = rows.filter(r => r.v == null);
+    const max = ranked.length ? Math.max(1, ranked[0].v) : 1, sum = ranked.reduce((n, r) => n + r.v, 0);
+    let rank = 0, prevV = null;
+    $('rkList').innerHTML = ranked.map((r, i) => {
+      if (r.v !== prevV) { rank = i + 1; prevV = r.v; }
+      const t = r.t, th = thumbOf(t), d = parseIso(whenOf(t));
+      const chips = CH.filter(x => hasViews(chOf(t, x.k))).map(x => `<i class="ch ${x.k}" title="${x.n}">${x.s}<em>${fmtK(+chOf(t, x.k).views)}</em></i>`).join('');
+      return `<button type="button" class="rk-item${rank <= 3 ? ' top' : ''}" data-id="${esc(t.id)}">
+        <span class="rk-n">${rank}</span>
+        <span class="rk-thumb">${th ? `<img src="${esc(th)}" alt="" loading="lazy">` : svgI(t.kind)}</span>
+        <span class="rk-main"><b>${esc(t.title)}</b><small>${kindLabel(t)}${d ? ' \u00b7 ' + esc(shortDay(d)) : ''}</small><span class="rk-bar"><i style="width:${Math.max(2, Math.round(r.v / max * 100))}%"></i></span>${chips ? `<span class="pl-chs">${chips}</span>` : ''}</span>
+        <strong class="rk-v">${num(r.v)}</strong>
+      </button>`;
+    }).join('');
+    $('rkSum').textContent = ranked.length ? `${pl(ranked.length, 'post')} ranked \u00b7 ${num(sum)} views in total` : '';
+    $('rkEmpty').hidden = ranked.length > 0;
+    $('rkEmpty').textContent = rows.length ? 'No views entered yet' + (rkCh === 'all' ? '' : ' for ' + CH.find(x => x.k === rkCh).n) + '. Open a posted card and tap Edit details.' : 'Nothing is posted yet. Posted tasks are ranked here.';
+    $('rkNoneNote').hidden = !none.length || !ranked.length;
+    $('rkNoneNote').textContent = ranked.length ? `Posted, no views entered yet (${none.length})` : '';
+    $('rkNone').innerHTML = ranked.length ? none.map(r => `<button type="button" class="rk-item dim" data-id="${esc(r.t.id)}"><span class="rk-n">\u2013</span><span class="rk-main"><b>${esc(r.t.title)}</b><small>${kindLabel(r.t)}</small></span></button>`).join('') : '';
+  }
+  const showRanking = on => { $('panelRanking').hidden = !on; $('panelPlanner').hidden = on; if (on) { renderRanking(); window.scrollTo(0, 0); } };
+  $('plRankBtn').onclick = () => showRanking(true);
+  $('rkBack').onclick = () => showRanking(false);
+  $('rkChips').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b) { rkCh = b.dataset.k; renderRanking(); } });
+  const rkOpen = e => { const b = e.target.closest('.rk-item'), t = b && find(b.dataset.id); if (t) openDetail(t); };
+  $('rkList').addEventListener('click', rkOpen); $('rkNone').addEventListener('click', rkOpen);
   $('plViewsBtn').onclick = () => { showViews = !showViews; try { localStorage.setItem('cv_plViews', showViews ? '1' : '0'); } catch (_) {} syncViewsBtn(); renderPlanner(); };
 
   /* ---- hidden tasks: list them and bring them back ---- */
@@ -509,7 +607,7 @@
       const th = thumbOf(t), d = String(whenOf(t) || '').slice(0, 10), posted = isPosted(t);
       return `<div class="hd-item" data-id="${esc(t.id)}">
         <span class="pl-thumb">${th ? `<img src="${esc(th)}" alt="" loading="lazy">` : svgI(t.kind)}</span>
-        <span class="hd-info"><b>${esc(t.title)}</b><small>${t.kind === 'video' ? 'Video' : 'Post'} \u00b7 ${posted ? 'Posted' : 'Not posted yet'}${d ? ' \u00b7 ' + esc(fmtStamp(d + (t.time ? ' ' + t.time : ''))) : ''}</small></span>
+        <span class="hd-info"><b>${esc(t.title)}</b><small>${kindLabel(t)} \u00b7 ${posted ? 'Posted' : 'Not posted yet'}${d ? ' \u00b7 ' + esc(fmtStamp(d + (t.time ? ' ' + t.time : ''))) : ''}</small></span>
         <button type="button" class="ghost sm hd-unhide">Unhide</button>
       </div>`;
     }).join('');
@@ -522,7 +620,7 @@
     btn.disabled = true;
     try {
       await call('saveCreative', { id: t.id, hidden: '' });
-      const src = (t.kind === 'video' ? cre.videos : cre.posts).find(x => x.id === t.id); if (src) src.hidden = false;
+      const src = cre.videos.concat(cre.posts, cre.free || []).find(x => x.id === t.id); if (src) src.hidden = false;
       cacheSet('creatives', cre); renderLists(); renderHiddenBtn();
       toast('Task is back in the Planner.');
     } catch (err) { toast('Could not unhide: ' + backendErr(err)); btn.disabled = false; }
@@ -544,9 +642,10 @@
     else { $('plState').textContent = 'Loading\u2026'; $('plState').hidden = false; }
     try {
       const r = await call('creatives');
-      cre = { videos: r.videos || [], posts: r.posts || [] };
+      cre = { videos: r.videos || [], posts: r.posts || [], free: r.free || [] };
       cacheSet('creatives', cre); renderLists();
       if (manual) toast('Planner refreshed.');
+      if (!loadCreatives.bf) { loadCreatives.bf = true; backfillThumbs(); }
     } catch (err) {
       if (!c) { $('plState').textContent = "Couldn't load tasks (offline, wrong secret, or Code.gs needs a new deployment)."; $('plState').hidden = false; }
       else toast('Could not refresh \u2014 showing your last saved data.');
@@ -597,13 +696,21 @@
     const plats = JSON.parse(JSON.stringify(t.platforms || {}));
     for (const x of CH) {
       const link = $(PUBIN[x.k]).value.trim();
-      if (!link) { if (pubEdit && plats[x.k]) plats[x.k].link = ''; continue; }
+      if (!link) { if (pubEdit && plats[x.k]) { plats[x.k].link = ''; delete plats[x.k].thumb; delete plats[x.k].thumbD; } continue; }
       if (!safeUrl(link) || !x.ok(link)) return toast(`That is not a ${x.n} link.`);
       plats[x.k] = Object.assign({}, plats[x.k], { on: true, date: x.k === 'fb' ? date : (plats[x.k] && plats[x.k].date) || date, link });
     }
     if (!CH.some(x => plats[x.k] && plats[x.k].link)) return toast('Paste at least one link.');
     const b = $('pubSave'); b.disabled = true; b.textContent = 'Saving\u2026';
     try {
+      // the embed's thumbnail becomes the planner thumbnail; a new or changed link gets a fresh one (a failed fetch never blocks saving)
+      for (const x of CH) {
+        const p = plats[x.k], was = chOf(t, x.k);
+        if (!p || !p.link) continue;
+        if (p.link !== was.link || !was.thumb) { b.textContent = 'Getting thumbnail\u2026'; p.thumb = await fetchThumb(p.link); } else p.thumb = was.thumb;
+        delete p.thumbD;
+      }
+      b.textContent = 'Saving\u2026';
       await call('saveCreative', { id: t.id, status: 'posted', platforms: JSON.stringify(plats) });
       closePub(); toast(pubEdit ? 'Links saved.' : 'Published.');
       await loadCreatives();
@@ -648,7 +755,7 @@
     pdId = t.id;
     const links = CH.filter(x => chOf(t, x.k).link), cur = (ch && links.find(x => x.k === ch)) || links[0];
     const when = CH.map(x => chOf(t, x.k).date).filter(Boolean).sort()[0], d = parseIso(when);
-    $('pdSub').textContent = `${t.title} \u00b7 ${t.kind === 'video' ? 'Video' : 'Post'}${d ? ' \u00b7 posted ' + longDay(d) : ''}`;
+    $('pdSub').textContent = `${t.title} \u00b7 ${kindLabel(t)}${d ? ' \u00b7 posted ' + longDay(d) : ''}`;
     $('pdTabs').hidden = links.length < 2;
     $('pdTabs').innerHTML = links.length < 2 ? '' : links.map(x => `<button type="button" class="chip${x === cur ? ' active' : ''}" data-k="${x.k}">${x.n}</button>`).join('');
     $('pdEmbed').innerHTML = cur ? embedFor(cur.k, chOf(t, cur.k).link, Math.min(420, window.innerWidth - 80)) : '<p class="stub-note">No link saved.</p>';
@@ -658,7 +765,8 @@
     }).join('');
     $('pdViews').innerHTML = `<div class="so-ch-total"><small>Total views, all channels</small><strong>${anyViews(t) ? num(totalViews(t)) : '\u2013'}</strong></div>${rows}`;
     $('pdPlanDate').value = t.date || ''; $('pdPlanTime').value = t.time || '';
-    const open = $('pdOpen'); open.hidden = !cur; if (cur) open.href = chOf(t, cur.k).link;
+    $('pdUnpub').hidden = !!t.free; $('pdDel').hidden = !t.free;
+    fillThumbUI(t, links);
     $('pdSheet').hidden = false;
   }
   const closeDetail = () => { $('pdSheet').hidden = true; $('pdEmbed').innerHTML = ''; pdId = ''; };
@@ -677,8 +785,130 @@
     } catch (err) { toast('Could not save: ' + backendErr(err)); }
     b.disabled = false;
   };
-  $('pdViewsBtn').onclick = () => { const t = find(pdId); if (t) { closeDetail(); openViews(t); } };
-  $('pdEdit').onclick = () => { const t = find(pdId); if (t) { closeDetail(); openPub(t, true); } };
+  $('pdEdit').onclick = () => { const t = find(pdId); if (!t) return; closeDetail(); openFree(t); };   // Edit details: title and every channel's link and views (a hand-added photo / video also gets type, date and thumbnail)
+  /* hide a posted item (a task, a receipt post or a hand-added photo / video) from the Planner; the Hidden button brings it back */
+  $('pdHide').onclick = async () => {
+    const t = find(pdId); if (!t) return;
+    const b = $('pdHide'); b.disabled = true;
+    try { await call('saveCreative', { id: t.id, hidden: '1' }); closeDetail(); toast('Hidden. Bring it back with the Hidden button.'); await loadCreatives(); }
+    catch (err) { toast('Could not hide: ' + backendErr(err)); }
+    b.disabled = false;
+  };
+  $('pdDel').onclick = async () => {
+    const t = find(pdId); if (!t) return;
+    if (!confirm(`Delete "${t.title}"?\n\nThis only removes it from the Planner. The post itself stays on your channels.`)) return;
+    try { await call('deleteCreative', { id: t.id }); closeDetail(); toast('Deleted.'); await loadCreatives(); }
+    catch (err) { toast('Could not delete: ' + backendErr(err)); }
+  };
+
+  /* ---- planner thumbnail: automatic (embed), one channel's embed, or a pasted image link ---- */
+  function fillThumbUI(t, links) {
+    const cur = t.thumbCustom ? 'custom' : (links.some(x => 'ch:' + x.k === t.thumbSel) ? t.thumbSel : '');
+    $('pdThumbSrc').innerHTML = [['', 'Automatic (from the embed)']].concat(links.map(x => ['ch:' + x.k, 'From the ' + x.n + ' embed']), [['custom', 'Custom image link']])
+      .map(o => `<option value="${o[0]}"${o[0] === cur ? ' selected' : ''}>${esc(o[1])}</option>`).join('');
+    $('pdThumbUrl').value = /^https:/i.test(t.thumbSel || '') ? t.thumbSel : '';
+    syncThumbUI();
+  }
+  function syncThumbUI() {
+    const t = find(pdId); if (!t) return;
+    const v = $('pdThumbSrc').value, url = $('pdThumbUrl').value.trim();
+    $('pdThumbUrl').hidden = v !== 'custom';
+    const th = thumbOf(Object.assign({}, t, { thumbSel: v === 'custom' ? '' : v, thumbCustom: v === 'custom' && /^https:\/\//i.test(url) ? dispUrl(url) : '' }));
+    $('pdThumbPrev').innerHTML = th ? `<img src="${esc(th)}" alt="">` : svgI(t.kind);
+  }
+  $('pdThumbSrc').onchange = () => { syncThumbUI(); if ($('pdThumbSrc').value === 'custom') $('pdThumbUrl').focus(); };
+  $('pdThumbUrl').addEventListener('input', syncThumbUI);
+  $('pdThumbSave').onclick = async () => {
+    const t = find(pdId); if (!t) return;
+    const v = $('pdThumbSrc').value, val = v === 'custom' ? $('pdThumbUrl').value.trim() : v;
+    if (v === 'custom' && !/^https:\/\//i.test(val)) return toast('Paste an image link that starts with https://');
+    const b = $('pdThumbSave'); b.disabled = true;
+    try { await call('saveCreative', { id: t.id, thumb: val }); toast('Thumbnail saved.'); await loadCreatives(); syncThumbUI(); }
+    catch (err) { toast('Could not save: ' + backendErr(err)); }
+    b.disabled = false;
+  };
+  $('pdThumbRefresh').onclick = async () => {
+    const t = find(pdId); if (!t) return;
+    const b = $('pdThumbRefresh'); b.disabled = true; b.textContent = 'Fetching\u2026';
+    let got = 0;
+    for (const x of CH) {
+      const c = chOf(t, x.k); if (!c.link) continue;
+      const th = await fetchThumb(c.link); if (!th) continue;
+      try { await call('setPostChannels', { id: t.id, json: JSON.stringify({ [x.k]: { thumb: th } }) }); got++; } catch (err) { toast('Could not save: ' + backendErr(err)); }
+    }
+    b.disabled = false; b.textContent = 'Refresh from embed';
+    toast(got ? 'Thumbnail refreshed from the embed.' : 'The embed gave no thumbnail (private posts do not).');
+    if (got) { await loadCreatives(); syncThumbUI(); }
+  };
+
+  /* ---- add / edit a posted photo or video that has no task ---- */
+  let fpId = '', fpMediaTouched = false;   // until you pick Photo / Video yourself, the type follows the pasted links
+  function renderFpRows(t) {
+    $('fpRows').innerHTML = CH.map(x => {
+      const c = t ? chOf(t, x.k) : {};
+      return `<div class="vw-ch"><div class="vw-h"><i class="ch ${x.k}">${x.s}</i><b>${x.n}</b></div><div class="vw-row"><input type="url" id="fpL_${x.k}" placeholder="Link" inputmode="url" autocomplete="off" maxlength="600" value="${esc(c.link || '')}" aria-label="${x.n} link"><input type="number" id="fpV_${x.k}" placeholder="Views" inputmode="numeric" min="0" step="1" value="${hasViews(c) ? esc(c.views) : ''}" aria-label="${x.n} views"></div></div>`;
+    }).join('');
+  }
+  function openFree(t) {
+    fpId = t ? t.id : '';
+    const fr = !t || t.free;   // only a hand-added item has its own type, date and thumbnail here; for a task those are set on its card
+    $('fpHeading').textContent = t ? 'Edit details' : 'Add posted photo / video';
+    $('fpNote').hidden = !!t; ['fpMediaWrap', 'fpDateWrap', 'fpThumbWrap'].forEach(id => { $(id).hidden = !fr; });
+    $('fpMedia').value = t && t.kind === 'video' ? 'video' : 'photo'; fpMediaTouched = !!t;
+    $('fpTitle').value = t ? t.title : ''; $('fpDate').value = t ? (t.date || todayIso()) : todayIso(); $('fpTime').value = t ? (t.time || '') : '';
+    $('fpThumb').value = t && /^https:/i.test(t.thumbSel || '') ? t.thumbSel : '';
+    renderFpRows(t); $('fpDel').hidden = !(t && t.free); $('fpSave').textContent = 'Save';
+    $('fpSheet').hidden = false; if (!t) $('fpTitle').focus();
+  }
+  $('plAddBtn').onclick = () => openFree(null);
+  /* a link says what it is: YouTube / TikTok / reels / Facebook videos are videos. The thumbnail image never changes the type. */
+  const isVideoLink = (k, l) => k === 'yt' || k === 'tt' || (k === 'ig' ? /\/(reels?|tv)\//i.test(l) : /\/(videos?|reels?|watch)\b|fb\.watch/i.test(l));
+  $('fpMedia').onchange = () => { fpMediaTouched = true; };
+  $('fpRows').addEventListener('input', e => {
+    if (fpMediaTouched || !/^fpL_/.test(e.target.id)) return;
+    const ls = CH.map(x => ({ k: x.k, l: $('fpL_' + x.k).value.trim() })).filter(x => x.l);
+    if (ls.length) $('fpMedia').value = ls.some(x => isVideoLink(x.k, x.l)) ? 'video' : 'photo';
+  });
+  $('fpCancel').onclick = () => { $('fpSheet').hidden = true; fpId = ''; };
+  $('fpDel').onclick = async () => {
+    const t = find(fpId); if (!t) return;
+    if (!confirm(`Delete "${t.title}"?\n\nThis only removes it from the Planner. The post itself stays on your channels.`)) return;
+    try { await call('deleteCreative', { id: t.id }); $('fpSheet').hidden = true; fpId = ''; toast('Deleted.'); await loadCreatives(); }
+    catch (err) { toast('Could not delete: ' + backendErr(err)); }
+  };
+  $('fpSave').onclick = async () => {
+    const title = $('fpTitle').value.trim().replace(/\s+/g, ' '); if (!title) return toast('Give it a title.');
+    const date = $('fpDate').value || todayIso(), time = $('fpTime').value || '', media = $('fpMedia').value, thumb = $('fpThumb').value.trim();
+    if (thumb && !/^https:\/\//i.test(thumb)) return toast('The thumbnail link must start with https://');
+    const old = fpId ? find(fpId) : null, data = {};
+    for (const x of CH) {
+      const link = $('fpL_' + x.k).value.trim(), v = $('fpV_' + x.k).value.trim();
+      if (link && (!safeUrl(link) || !x.ok(link))) return toast(`That is not a ${x.n} link.`);
+      if (v !== '' && (!isFinite(+v) || +v < 0)) return toast(`Check the ${x.n} views.`);
+      data[x.k] = { link, views: v };
+    }
+    if ((!old || old.free) && !CH.some(x => data[x.k].link)) return toast('Paste at least one link.');
+    const b = $('fpSave'); b.disabled = true; b.textContent = 'Saving\u2026';
+    try {
+      for (const x of CH) {   // each channel's embed thumbnail, for new or changed links
+        const d = data[x.k], was = old ? chOf(old, x.k) : {}; if (!d.link) continue;
+        if (d.link !== was.link || !was.thumb) { b.textContent = 'Getting thumbnail\u2026'; d.thumb = await fetchThumb(d.link); }
+      }
+      b.textContent = 'Saving\u2026';
+      if (old) {
+        if (old.free) await call('saveCreative', { id: old.id, title, date, time, media, thumb });
+        else if (title !== old.title) await call('saveCreative', { id: old.id, title, renamed: '1' });   // renamed: a receipt post keeps its own name instead of the receipt's
+        await call('setPostChannels', { id: old.id, json: JSON.stringify(data) });
+      } else {
+        const plats = {}; CH.forEach(x => { const d = data[x.k]; if (d.link) plats[x.k] = { on: true, date, link: d.link, thumb: d.thumb || '', views: d.views }; });
+        await call('addFreePost', { title, media, date, time, thumb, platforms: JSON.stringify(plats) });
+      }
+      $('fpSheet').hidden = true; fpId = ''; toast(old ? 'Saved.' : 'Added to the Planner.');
+      const dd = parseIso(date); if (dd) { weekStart = startOfWeek(dd); selDay = date; }
+      await loadCreatives();
+    } catch (err) { toast('Could not save: ' + backendErr(err)); }
+    b.disabled = false; b.textContent = 'Save';
+  };
   $('pdUnpub').onclick = async () => {
     const t = find(pdId); if (!t) return;
     if (!confirm(`Unpublish "${t.title}"?\n\nIt goes back to the planner as not posted. The link and views are kept.`)) return;
@@ -707,7 +937,13 @@
       data[x.k] = { link, views: v };
     }
     const b = $('vwSave'); b.disabled = true; b.textContent = 'Saving\u2026';
-    try { await call('setPostChannels', { id: vwId, json: JSON.stringify(data) }); $('vwSheet').hidden = true; vwId = ''; toast('Saved.'); await loadCreatives(); }
+    try {
+      for (const x of CH) {
+        const d = data[x.k], was = chOf(t, x.k); if (!d.link) continue;
+        if (d.link !== was.link || !was.thumb) { b.textContent = 'Getting thumbnail\u2026'; d.thumb = await fetchThumb(d.link); }
+      }
+      b.textContent = 'Saving\u2026';
+      await call('setPostChannels', { id: vwId, json: JSON.stringify(data) }); $('vwSheet').hidden = true; vwId = ''; toast('Saved.'); await loadCreatives(); }
     catch (err) { toast('Could not save: ' + backendErr(err)); }
     b.disabled = false; b.textContent = 'Save';
   };
@@ -716,14 +952,14 @@
   document.querySelectorAll('.tab[data-stab]').forEach(t => t.onclick = () => {
     document.querySelectorAll('.tab[data-stab]').forEach(x => x.classList.toggle('active', x === t));
     tab = t.dataset.stab;
-    $('panelInsights').hidden = tab !== 'insights'; $('panelPlanner').hidden = tab !== 'planner';
+    $('panelInsights').hidden = tab !== 'insights'; $('panelPlanner').hidden = tab !== 'planner'; $('panelRanking').hidden = true;
     document.querySelector('main.so-wrap').classList.toggle('pl-wide', tab === 'planner');
     if (tab === 'insights') renderInsights(); else renderPlanner();
   });
   $('imgViewClose').onclick = () => { $('imgView').hidden = true; };
   $('imgView').addEventListener('click', e => { if (e.target.id === 'imgView') $('imgView').hidden = true; });
-  ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'auSheet', 'trSheet', 'hdSheet'].forEach(id => $(id).addEventListener('click', e => { if (e.target.id === id) $(id).hidden = true; }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'auSheet', 'trSheet', 'hdSheet', 'imgView'].forEach(id => { $(id).hidden = true; }); });
+  ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'auSheet', 'trSheet', 'hdSheet', 'flSheet', 'fpSheet'].forEach(id => $(id).addEventListener('click', e => { if (e.target.id === id) $(id).hidden = true; }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'auSheet', 'trSheet', 'hdSheet', 'flSheet', 'fpSheet', 'imgView'].forEach(id => { $(id).hidden = true; }); });
 
   setupChartDefaults();
   setPlatHeader(); syncViewsBtn();

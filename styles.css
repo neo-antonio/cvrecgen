@@ -1631,3 +1631,63 @@ i.ch.tt{background:#111;box-shadow:inset -1.5px -1.5px 0 #25f4ee,inset 1.5px 1.5
 .sheet .sk-prev img{width:96px;height:auto;aspect-ratio:16/9;object-fit:cover;border:0;border-radius:8px;margin:0;flex:none}
 html[data-theme=dark] .sk-tag.todo{background:#16263f;color:#8db8ff}
 html[data-theme=dark] .sk-tag.edit{background:#3a2f12;color:#f2c76b}
+
+/* planner ranking */
+.rk-wrap{max-width:720px;margin:0 auto}
+.rk-chips{justify-content:center}
+.rk-list{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.rk-item{display:grid;grid-template-columns:30px 64px 1fr auto;align-items:center;gap:10px;width:100%;padding:8px 12px 8px 8px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);color:var(--fg);cursor:pointer;font-family:inherit}
+.rk-item:hover{background:var(--soft,#f6f6f6)}
+.rk-item.dim{grid-template-columns:30px 1fr;opacity:.65}
+.rk-n{font:700 15px Inter,system-ui,sans-serif;color:var(--mut);text-align:center}
+.rk-item.top .rk-n{color:var(--fg);font-size:18px}
+.rk-thumb{width:64px;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:var(--soft,#f3f3f3);display:flex;align-items:center;justify-content:center;color:var(--mut)}
+.rk-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.rk-thumb svg{width:20px;height:20px}
+.rk-main{display:flex;flex-direction:column;gap:4px;min-width:0}
+.rk-main b{font:500 13px/1.35 Inter,system-ui,sans-serif;overflow-wrap:anywhere}
+.rk-main small{font:500 11px Inter,system-ui,sans-serif;color:var(--mut)}
+.rk-bar{display:block;height:6px;border-radius:999px;background:var(--soft,#eee);overflow:hidden}
+.rk-bar i{display:block;height:100%;border-radius:999px;background:var(--fg)}
+.rk-v{font:600 16px Inter,system-ui,sans-serif;letter-spacing:-.01em;text-align:right}
+
+/* Socials: channel toggles, per-channel numbers on cards, followers scorecard */
+.so-chans{display:flex;gap:8px;margin-bottom:10px}
+.so-chan{display:inline-flex;align-items:center;gap:8px;padding:7px 14px 7px 8px;border:1px solid var(--line);border-radius:999px;background:none;color:var(--mut);font:500 13px Inter,system-ui,sans-serif;cursor:pointer;transition:background .2s,color .2s,border-color .2s,transform .15s}
+.so-chan i{width:22px;height:22px;border-radius:7px;font-size:13px;line-height:22px;min-width:22px;padding:0}
+.so-chan .so-ig{font-size:10px}
+.so-chan[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg);font-weight:600}
+.so-chan[aria-pressed=false] i{filter:grayscale(1);opacity:.55}
+.so-chan:active{transform:scale(.96)}
+.so-by{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:2px;font:600 12px Inter,system-ui,sans-serif;color:var(--mut)}
+.so-by span{display:inline-flex;align-items:center;gap:5px}
+.so-by i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.so-fol{margin-bottom:12px}
+.so-asof{font:500 11px Inter,system-ui,sans-serif;color:var(--mut)}
+.so-upd-btn{align-self:flex-start}
+
+/* Socials: channel + date range dropdowns side by side */
+.so-filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.so-sel{display:flex;flex-direction:column;gap:4px;min-width:0}
+.so-sel span{font:500 11px Inter,system-ui,sans-serif;color:var(--mut);letter-spacing:.04em;text-transform:uppercase}
+.so-sel select{width:100%;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--fg);font:500 14px Inter,system-ui,sans-serif;cursor:pointer}
+.so-sel select:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+
+/* Creatives: planned date and time sit on their own row below the task title (posts and video tasks) */
+.cr-top{flex-wrap:wrap}
+.cr-top .cr-date-wrap{flex:1 1 100%;margin-top:2px}
+.cr-top .cr-dt{width:100%}
+.cr-top input[type=date].cr-date{flex:1;width:auto;max-width:190px}
+.cr-top input[type=time].cr-time{flex:1;width:auto;max-width:150px}
+
+.so-tap{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.so-tap:active{transform:scale(.98)}
+.so-tap:focus-visible{outline:2px solid var(--fg,#171717);outline-offset:2px}
+
+.pd-thumb-row{display:flex;gap:10px;align-items:center}
+.pd-thumb-row select{flex:1;min-width:0}
+.pd-thumb-prev{flex:none;width:96px;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:var(--soft,#f3f3f3);display:flex;align-items:center;justify-content:center;color:var(--mut)}
+.pd-thumb-prev img{width:100%;height:100%;object-fit:cover;display:block}
+.pd-thumb-prev svg{width:22px;height:22px}
+#pdThumbUrl{margin-top:8px}
+.pd-thumb-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}

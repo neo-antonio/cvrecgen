@@ -41,7 +41,9 @@
  *                   Previews (O) = JSON array of edited-photo preview links (posts).
  *                   Time (P) = planned post time 'HH:mm' (blank = no time set; used by the Socials Planner). Hidden (Q) = '1' when the task is hidden from the Done / Planner lists.
  *   Socials (A-G):  Date | Views | Engagement | Follows | Unfollows | Followers | Reach   (one row per day; filled by syncSocials from the Facebook Page, or by hand)
- *   SocialsIG (A-G) / SocialsMetaIG (A-C): the same two tabs for Instagram (created on first use). Every social action takes platform=fb|ig (default fb).
+ *   Socials columns: Date | Views | Engagement | Follows | Unfollows (old, not shown) | Followers (old daily total, only a fallback) | Reach | ProfileVisits.
+ *   SocialsMeta key 'followers' = {total} with the time it was saved: the Total followers scorecard.
+ *   SocialsIG (A-H) / SocialsMetaIG (A-C): the same two tabs for Instagram (created on first use). Every social action takes platform=fb|ig (default fb).
  *   Skits (A-L):    ID | Title | Link | Platform | Thumb | Notes | Status | VideoID | Created | Done | Updated | EmbedId   (Skits app, created automatically)
  *                   Status: todo | edit (moved to a Creatives video task, VideoID) | done. A skit in 'edit' reads as done once that video task is posted, and goes back to todo if the video task is deleted.
  *                   Link = YouTube / Instagram / Facebook / TikTok video (optional: an idea needs no link). Thumb = preview image (TikTok / Instagram / Facebook previews are copied to Drive because their links expire).
@@ -64,7 +66,7 @@
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
  *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
- *               completeCreatives, deleteCreative, savePostGroup, allCards, setPostViews, socials, syncSocials, saveSocialDay, importSocialMetric, saveSocialPanel, login, changePassword, listUsers, createShippingTask, cancelShipping, setSafekeep, mergeShippingTasks, setAuction, titleCaseCards,
+ *               completeCreatives, deleteCreative, addFreePost, mergeVideoTasks, savePostGroup, allCards, setPostViews, socials, syncSocials, saveSocialDay, importSocialMetric, saveSocialPanel, login, changePassword, listUsers, createShippingTask, cancelShipping, setSafekeep, mergeShippingTasks, setAuction, titleCaseCards,
  *               setPostChannels, skits, saveSkit, skitToVideo, deleteSkit, linkPreview,
  *               topicUsers, topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic,
  *               tickets, saveTicket, setTicketStatus, deleteTicket, versions, saveVersion, deleteVersion
@@ -127,6 +129,8 @@ function doGet(e) {
     if (action === 'setLot') return jsonpOut_(setLot_(e.parameter), cb);
     if (action === 'clearLot') return jsonpOut_(clearLot_(e.parameter), cb);
     if (action === 'setTargets') return jsonpOut_(setTargets_(e.parameter), cb);
+    if (action === 'offers') return jsonpOut_(getOffers_(), cb);
+    if (action === 'saveOffers') return jsonpOut_(saveOffers_(e.parameter), cb);
     if (action === 'linkFinanceReceipt') return jsonpOut_(linkFinanceReceipt_(e.parameter), cb);
     if (action === 'unlinkFinanceReceipt') return jsonpOut_(setTaskReceipt_(e.parameter.financeId, ''), cb);
     if (action === 'clearPhoto') return jsonpOut_(clearPhoto_(e.parameter.cardId, e.parameter.which), cb);
@@ -157,6 +161,8 @@ function doGet(e) {
     if (action === 'setCreativeCards') return jsonpOut_(setCreativeCards_(e.parameter), cb);
     if (action === 'completeCreatives') return jsonpOut_(completeCreatives_(e.parameter), cb);
     if (action === 'deleteCreative') return jsonpOut_(deleteCreative_(e.parameter.id), cb);
+    if (action === 'addFreePost') return jsonpOut_(addFreePost_(e.parameter), cb);
+    if (action === 'mergeVideoTasks') return jsonpOut_(mergeVideoTasks_(e.parameter), cb);
     if (action === 'savePostGroup') return jsonpOut_(savePostGroup_(e.parameter), cb);
     if (action === 'allCards') return jsonpOut_(getAllCards_(), cb);
     if (action === 'setPostViews') return jsonpOut_(setPostViews_(e.parameter), cb);
@@ -1542,7 +1548,7 @@ function getReceipts_() {
 // Optional: only show post groups for receipts dated on/after this day (yyyy-mm-dd). '' = every receipt on record.
 const CREATIVES_POSTS_FROM = '';
 const CREATIVES_SHEET = 'Creatives';
-const CREATIVE_HEADERS = ['ID', 'Kind', 'ReceiptKey', 'Title', 'Date', 'Status', 'Platforms', 'Notes', 'Caption', 'Edited', 'Auto', 'Created', 'DoneDate', 'Cards', 'Previews', 'Time', 'Hidden'];
+const CREATIVE_HEADERS = ['ID', 'Kind', 'ReceiptKey', 'Title', 'Date', 'Status', 'Platforms', 'Notes', 'Caption', 'Edited', 'Auto', 'Created', 'DoneDate', 'Cards', 'Previews', 'Time', 'Hidden', 'Thumb'];
 
 function creativesSheet_(create) {
   const ss = ss_();
@@ -1560,6 +1566,11 @@ function creativesSheet_(create) {
   return sh;
 }
 
+// Planner thumbnail choice: 'ch:fb|ig|yt|tt' = that channel's embed thumbnail, an https image link = custom, '' = automatic
+function cleanThumb_(v) {
+  v = String(v || '').trim().slice(0, 600);
+  return /^ch:(fb|ig|yt|tt)$/.test(v) || /^https:\/\//i.test(v) ? v : '';
+}
 function cleanDate_(d) { d = String(d || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : ''; }
 function cleanPlatforms_(json) {
   let o = {};
@@ -1569,6 +1580,8 @@ function cleanPlatforms_(json) {
     const p = o[k]; if (!p) return;
     const link = String(p.link || '').trim().slice(0, 500);
     out[k] = { on: p.on === true || p.on === 'true', date: cleanDate_(p.date), link: /^https?:\/\//i.test(link) ? link : '' };
+    const th = String(p.thumb || '').trim().slice(0, 500);   // the embed's own thumbnail (from linkPreview), shown on the planner card
+    if (/^https:\/\//i.test(th) && out[k].link) out[k].thumb = th;
     if (p.views !== undefined && p.views !== '' && isFinite(Number(p.views))) { out[k].views = Math.max(0, Math.round(Number(p.views))); out[k].viewsAt = String(p.viewsAt || '').slice(0, 20); }
   });
   return JSON.stringify(out);
@@ -1600,7 +1613,7 @@ function nowStamp_() { return Utilities.formatDate(new Date(), Session.getScript
 function stampCell_(v) { return v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(v || ''); }
 // Created (col L) is the task-created timestamp, 'yyyy-MM-dd HH:mm' (older rows hold the date only)
 function blankCreative_(id, kind, key) {
-  return [id, kind, key || '', '', '', 'todo', '', '', '', '', '', nowStamp_(), '', '', '', '', ''];
+  return [id, kind, key || '', '', '', 'todo', '', '', '', '', '', nowStamp_(), '', '', '', '', '', ''];
 }
 
 // A vlog task made automatically from a purchase / trade receipt.
@@ -1655,20 +1668,25 @@ function cardGroupId_(c) {
   return key ? 'pg_' + key : 'pg_n_' + fmtDateCell_(c[1]) + '_' + String(c[2] || '').replace(/[^\w]+/g, '').slice(0, 20);
 }
 function creativeObj_(r) {
+  const plats = parsePlatforms_(r[6]);
+  Object.keys(plats).forEach(k => { if (plats[k] && plats[k].thumb) plats[k].thumbD = toDisplayUrl_(plats[k].thumb, 480); });
   return { id: String(r[0]), kind: String(r[1]), receiptKey: String(r[2] || ''), title: String(r[3] || ''), date: fmtDateCell_(r[4]),
-    status: r[5] === 'done' ? 'done' : r[5] === 'posted' ? 'posted' : 'todo', platforms: parsePlatforms_(r[6]), notes: String(r[7] || ''), caption: String(r[8] || ''),
+    status: r[5] === 'done' ? 'done' : r[5] === 'posted' ? 'posted' : 'todo', platforms: plats, notes: String(r[7] || ''), caption: String(r[8] || ''),
     edited: pipeIds_(r[9]), auto: r[10] === 'auto', titled: r[10] === 'titled', created: stampCell_(r[11]), doneDate: fmtDateCell_(r[12]), cardIds: pipeIds_(r[13]).filter(x => x !== '-'),
-    cardsSet: String(r[13] || '') !== '', previews: parsePreviews_(r[14]), time: cleanTime_(fmtTimeCell_(r[15])), hidden: String(r[16] || '') === '1' };
+    cardsSet: String(r[13] || '') !== '', previews: parsePreviews_(r[14]), time: cleanTime_(fmtTimeCell_(r[15])), hidden: String(r[16] || '') === '1',
+    thumbSel: String(r[17] || ''), thumbCustom: /^https:\/\//i.test(String(r[17] || '')) ? toDisplayUrl_(String(r[17]), 480) : '',
+    media: r[1] === 'free' ? (r[10] === 'video' ? 'video' : 'photo') : '' };
 }
 
 function getCreatives_() {
   const sh = creativesSheet_(false);
   const rows = sh ? sh.getDataRange().getValues().slice(1) : [];
-  const videos = [], stored = {}, claimed = {};
+  const videos = [], free = [], stored = {}, claimed = {};
   rows.forEach(r => {
     if (!r[0]) return;
     const o = creativeObj_(r);
     if (o.kind === 'video') videos.push(o);
+    else if (o.kind === 'free') free.push(o);   // a posted photo / video logged by hand, not tied to any task
     else {
       stored[o.id] = o;
       if (o.id.indexOf('pc_') === 0) o.cardIds.forEach(x => claimed[x] = o.id);   // cards that belong to a hand-made / merged task
@@ -1708,7 +1726,7 @@ function getCreatives_() {
     const done = {}; st.edited.forEach(x => done[x] = true);
     g.cards.forEach(c => c.edited = !!done[c.id]);
     const n = g.cards.filter(c => c.edited).length;
-    return Object.assign(g, { created: g.created || st.created, doneDate: st.doneDate, scheduled: st.date || g.date, time: st.time, hidden: st.hidden, platforms: st.platforms, notes: st.notes, caption: st.caption, previews: st.previews || [],
+    return Object.assign(g, { created: g.created || st.created, doneDate: st.doneDate, scheduled: st.date || g.date, time: st.time, hidden: st.hidden, thumbSel: st.thumbSel, thumbCustom: st.thumbCustom, platforms: st.platforms, notes: st.notes, caption: st.caption, previews: st.previews || [],
       editedCount: n, status: st.status === 'posted' ? 'posted' : (g.cards.length && n === g.cards.length ? 'edited' : 'toedit') });
   };
   const posts = order.map(id => finish(groups[id], stored[id] || creativeObj_(blankCreative_(id, 'post', groups[id].receiptKey)))).reverse();
@@ -1719,13 +1737,13 @@ function getCreatives_() {
     // a hand-made task may have no cards (yet), so it stays on the list
     posts.push(finish({ id, receiptKey: '', type: 'custom', custom: true, label: st.title || 'Post', date: st.date, cards }, st));
   });
-  return { ok: true, videos: videos.reverse(), posts };
+  return { ok: true, videos: videos.reverse(), posts, free: free.reverse() };
 }
 
 // Upsert by id. Only the fields that are present in the request are changed, so a date change never wipes the links.
 function saveCreative_(p) {
   let id = String(p.id || '').trim();
-  const isPost = /^p[gc]_/.test(id);
+  const isFree = /^pf_[0-9a-f]{4,16}$/.test(id), isPost = isFree || /^p[gc]_/.test(id);
   if (!isPost && !/^v_[0-9a-f]{4,16}$/.test(id)) id = newId_('v');
   if ('title' in p && !isPost && !String(p.title).trim()) return { ok: false, error: 'missing title' };
   if ('date' in p && p.date && !cleanDate_(p.date)) return { ok: false, error: 'invalid date' };
@@ -1734,7 +1752,7 @@ function saveCreative_(p) {
   try {
     const sh = creativesSheet_(true);
     const found = findRow_(sh, id);
-    if (!found && id.indexOf('pc_') === 0) return { ok: false, error: 'not found' };
+    if (!found && (id.indexOf('pc_') === 0 || isFree)) return { ok: false, error: 'not found' };
     const row = found ? found.row.slice() : blankCreative_(id, isPost ? 'post' : 'video', id.indexOf('pg_') === 0 ? id.slice(3) : '');
     if (!found && !isPost) { row[3] = String(p.title || '').trim().slice(0, 200); row[4] = cleanDate_(p.date) || todayStr_(); }
     if (id.indexOf('pg_') === 0) {
@@ -1753,6 +1771,8 @@ function saveCreative_(p) {
     if ('platforms' in p) row[6] = cleanPlatforms_(p.platforms);
     if ('time' in p) row[15] = cleanTime_(p.time);
     if ('hidden' in p) row[16] = (p.hidden === '1' || p.hidden === 'true') ? '1' : '';
+    if ('thumb' in p) row[17] = cleanThumb_(p.thumb);   // planner thumbnail: 'ch:fb' (that channel's embed), an https image link, or '' = automatic
+    if ('media' in p && isFree) row[10] = p.media === 'video' ? 'video' : 'photo';
     if ('notes' in p) row[7] = String(p.notes).trim().slice(0, 1000);
     if ('caption' in p) row[8] = String(p.caption).trim().slice(0, 1500);
     if ('previews' in p && isPost) row[14] = cleanPreviews_(p.previews);
@@ -1786,6 +1806,99 @@ function setCreativeCards_(p) {
     if (p.complete === '1') { if (!row[12]) row[12] = todayStr_(); } else if (p.complete === '0') row[12] = '';   // client says whether every card is now edited
     writeCreativeRow_(sh, found ? found.idx : 0, row);
     return { ok: true, edited: Object.keys(set) };
+  } finally { lock.releaseLock(); }
+}
+
+// A photo or video that was posted without any video / post task. Kind 'free', id pf_...; it is already posted (links required).
+//   media 'photo' | 'video'   title   date  time   platforms {fb:{link,views,thumb},...}   thumb (optional custom thumbnail)
+function addFreePost_(p) {
+  const title = String(p.title || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+  if (!title) return { ok: false, error: 'missing title' };
+  if (p.date && !cleanDate_(p.date)) return { ok: false, error: 'invalid date' };
+  let raw = {};
+  try { raw = JSON.parse(p.platforms || '{}') || {}; } catch (err) {}
+  const now = nowStamp_();
+  Object.keys(raw).forEach(k => { const q = raw[k]; if (q && q.views !== undefined && q.views !== '') q.viewsAt = now; });
+  const plats = cleanPlatforms_(JSON.stringify(raw)), parsed = JSON.parse(plats);
+  if (!Object.keys(parsed).some(k => parsed[k].link)) return { ok: false, error: 'paste at least one link' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = creativesSheet_(true), id = newId_('pf'), row = blankCreative_(id, 'free', '');
+    row[3] = title; row[4] = cleanDate_(p.date) || todayStr_(); row[5] = 'posted'; row[6] = plats;
+    row[10] = p.media === 'video' ? 'video' : 'photo'; row[12] = todayStr_(); row[15] = cleanTime_(p.time); row[17] = cleanThumb_(p.thumb);
+    writeCreativeRow_(sh, 0, row);
+    return { ok: true, id };
+  } finally { lock.releaseLock(); }
+}
+
+// Merge other video tasks INTO one video task (id). The others are deleted afterwards.
+//   cards      all cards, in order (target first, then each merged task; a receipt task never edited falls back to its receipt's cards)
+//   notes / caption   joined, duplicates skipped
+//   channels   a channel the target does not have yet (link, views, thumbnail) is taken over from the merged task; where both have one, the target's wins
+//   status     to-do if any of them is still to do, else posted if any was posted, else done
+//   skits      a skit that pointed at a merged task now points at the target
+function mergeVideoTasks_(p) {
+  const id = String(p.id || '').trim();
+  if (!/^v_[0-9a-f]{4,16}$/.test(id)) return { ok: false, error: 'not a video task' };
+  const others = splitIds_(p.mergeIds).filter((x, i, a) => x !== id && /^v_[0-9a-f]{4,16}$/.test(x) && a.indexOf(x) === i);
+  if (!others.length) return { ok: false, error: 'pick a task to merge' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = creativesSheet_(false);
+    const target = sh && findRow_(sh, id);
+    if (!target || target.row[1] !== 'video') return { ok: false, error: 'not found' };
+    const found = others.map(x => findRow_(sh, x)).filter(f => f && f.row[1] === 'video');
+    if (found.length !== others.length) return { ok: false, error: 'a task to merge no longer exists' };
+
+    let cRows = null;
+    const cardsOf = r => {
+      if (String(r[13] || '') !== '' || !r[2]) return pipeIds_(r[13]).filter(x => x !== '-');
+      if (!cRows) { cRows = cardsSheet_().getDataRange().getValues(); cRows.shift(); }   // never edited: its receipt's cards
+      return cRows.filter(c => c[0] && c[4] && (fileKey_(c[21]) === r[2] || fileKey_(c[22]) === r[2])).map(c => String(c[0]));
+    };
+    const row = target.row.slice();
+    while (row.length < CREATIVE_HEADERS.length) row.push('');
+    const all = [target.row].concat(found.map(f => f.row));
+    const cards = [], notes = [], caps = [], pl = parsePlatforms_(row[6]);
+    let anyTodo = false, anyPosted = false, firstDone = '';
+    all.forEach((r, n) => {
+      cardsOf(r).forEach(x => { if (cards.indexOf(x) < 0) cards.push(x); });
+      const nt = String(r[7] || '').trim(), cp = String(r[8] || '').trim();
+      if (nt && notes.indexOf(nt) < 0) notes.push(nt);
+      if (cp && caps.indexOf(cp) < 0) caps.push(cp);
+      if (r[5] === 'todo' || !r[5]) anyTodo = true;
+      if (r[5] === 'posted') anyPosted = true;
+      const dd = fmtDateCell_(r[12]); if (dd && (!firstDone || dd < firstDone)) firstDone = dd;
+      if (n === 0) return;
+      const op = parsePlatforms_(r[6]);
+      Object.keys(op).forEach(k => {
+        const q = op[k]; if (!q || !(q.link || q.views !== undefined)) return;
+        if (!pl[k] || !(pl[k].link || pl[k].views !== undefined)) pl[k] = q;
+      });
+      if (!row[2] && r[2]) row[2] = r[2];
+    });
+    row[6] = cleanPlatforms_(JSON.stringify(pl));
+    row[7] = notes.join('\n\n').slice(0, 1000);
+    row[8] = caps.join('\n\n').slice(0, 1500);
+    row[13] = cards.length ? cards.join('|') : '-';
+    row[5] = anyTodo ? 'todo' : (anyPosted ? 'posted' : 'done');
+    row[12] = row[5] === 'todo' ? '' : (fmtDateCell_(row[12]) || firstDone || todayStr_());
+    writeCreativeRow_(sh, target.idx, row);
+
+    // skits that followed a merged task now follow the target
+    try {
+      const ks = skitsSheet_(false);
+      if (ks) {
+        const kd = ks.getDataRange().getValues();
+        for (let i = 1; i < kd.length; i++) if (others.indexOf(String(kd[i][7])) >= 0) ks.getRange(i + 1, 8).setNumberFormat('@').setValue(id);
+      }
+    } catch (err) {}
+
+    // delete the merged rows from the bottom up so the row numbers stay right
+    found.map(f => f.idx).sort((a, b) => b - a).forEach(ix => sh.deleteRow(ix));
+    return { ok: true, id, merged: found.length, cards: cards.length };
   } finally { lock.releaseLock(); }
 }
 
@@ -1880,7 +1993,7 @@ function savePostGroup_(p) {
       Object.keys(pl).forEach(k => {
         const q = pl[k]; if (!q || !q.on) return;
         const c = plats[k] || (plats[k] = { on: true, date: '', link: '' });
-        c.date = c.date || q.date || ''; c.link = c.link || q.link || '';
+        c.date = c.date || q.date || ''; c.link = c.link || q.link || ''; if (!c.thumb && q.thumb && c.link === q.link) c.thumb = q.thumb;
       });
       if (n === 0) { primaryDate = fmtDateCell_(found.row[4]); primaryDone = fmtDateCell_(found.row[12]); wasPosted = found.row[5] === 'posted'; }
       if (n === 0 && id && sid === id && sid.indexOf('pc_') === 0) target = found; else gone.push(found.idx);
@@ -1957,7 +2070,8 @@ function setPostViews_(p) {
 }
 
 const SOCIALS_SHEET = 'Socials';
-const SOCIALS_HEADERS = ['Date', 'Views', 'Engagement', 'Follows', 'Unfollows', 'Followers', 'Reach'];
+// Unfollows (E) and Followers (F) are no longer shown in the app but their old values are kept. Profile visits is column H.
+const SOCIALS_HEADERS = ['Date', 'Views', 'Engagement', 'Follows', 'Unfollows', 'Followers', 'Reach', 'ProfileVisits'];
 const SOCIALS_META = 'SocialsMeta';
 const SOCIALS_META_HEADERS = ['Key', 'Value', 'Updated'];
 const SOCIALS_IG_SHEET = 'SocialsIG';
@@ -1980,7 +2094,7 @@ function numOrBlank_(v) { return v === '' || v == null || !isFinite(Number(v)) ?
 function readSocialDaily_(sh) {
   const daily = sh ? sh.getDataRange().getValues().slice(1).filter(r => r[0]).map(r => ({
     d: fmtDateCell_(r[0]).slice(0, 10), views: Number(r[1]) || 0, eng: Number(r[2]) || 0, fol: Number(r[3]) || 0, unf: Number(r[4]) || 0,
-    tot: r[5] === '' || r[5] == null ? null : Number(r[5]), reach: Number(r[6]) || 0 })) : [];
+    tot: r[5] === '' || r[5] == null ? null : Number(r[5]), reach: Number(r[6]) || 0, pv: Number(r[7]) || 0 })) : [];
   daily.sort((a, b) => a.d < b.d ? -1 : 1);
   return daily;
 }
@@ -2006,18 +2120,19 @@ function saveSocialDay_(p) {
   try {
     const sh = socialsSheet_(true, socPlat_(p));
     const found = (() => { const data = sh.getDataRange().getValues(); for (let r = 1; r < data.length; r++) if (fmtDateCell_(data[r][0]).slice(0, 10) === d) return { idx: r + 1, row: data[r] }; return null; })();
-    const old = found ? found.row : ['', '', '', '', '', '', ''];
+    const old = found ? found.row : ['', '', '', '', '', '', '', ''];
     const row = [d, 'views' in p ? numOrBlank_(p.views) : old[1], 'eng' in p ? numOrBlank_(p.eng) : old[2], 'fol' in p ? numOrBlank_(p.fol) : old[3],
-      'unf' in p ? numOrBlank_(p.unf) : old[4], 'tot' in p ? numOrBlank_(p.tot) : old[5], 'reach' in p ? numOrBlank_(p.reach) : (old[6] == null ? '' : old[6])];
+      'unf' in p ? numOrBlank_(p.unf) : old[4], 'tot' in p ? numOrBlank_(p.tot) : old[5], 'reach' in p ? numOrBlank_(p.reach) : (old[6] == null ? '' : old[6]),
+      'pv' in p ? numOrBlank_(p.pv) : (old[7] == null ? '' : old[7])];
     sh.getRange(found ? found.idx : sh.getLastRow() + 1, 1, 1, SOCIALS_HEADERS.length).setNumberFormat('@').setValues([row]);
     return { ok: true };
   } finally { lock.releaseLock(); }
 }
 
 // Bulk import of ONE metric from a Meta Business Suite CSV. The app picks the metric; this only touches that column of the given days.
-//   metric  views | reach | eng | fol | unf | tot       data  'yyyy-mm-dd:value,yyyy-mm-dd:value,...' (sent in chunks)
+//   metric  views | reach | eng | fol | pv       data  'yyyy-mm-dd:value,yyyy-mm-dd:value,...' (sent in chunks)
 function importSocialMetric_(p) {
-  const col = { views: 1, eng: 2, fol: 3, unf: 4, tot: 5, reach: 6 }[String(p.metric || '')];
+  const col = { views: 1, eng: 2, fol: 3, unf: 4, tot: 5, reach: 6, pv: 7 }[String(p.metric || '')];
   if (col == null) return { ok: false, error: 'unknown metric' };
   const items = String(p.data || '').split(',').map(s => s.split(':')).map(a => ({ d: cleanDate_(a[0]), v: numOrBlank_(a[1]) })).filter(x => x.d && x.v !== '');
   if (!items.length) return { ok: false, error: 'no valid rows' };
@@ -2033,20 +2148,21 @@ function importSocialMetric_(p) {
     let added = 0, updated = 0;
     items.forEach(x => {
       if (x.d in at) { rows[at[x.d]][col] = x.v; updated++; }
-      else { const r = ['', '', '', '', '', '', '']; r[0] = x.d; r[col] = x.v; at[x.d] = rows.length; rows.push(r); added++; }
+      else { const r = ['', '', '', '', '', '', '', '']; r[0] = x.d; r[col] = x.v; at[x.d] = rows.length; rows.push(r); added++; }
     });
     sh.getRange(2, 1, rows.length, SOCIALS_HEADERS.length).setNumberFormat('@').setValues(rows);
     return { ok: true, added, updated };
   } finally { lock.releaseLock(); }
 }
 
-// The all-time panels. key: audience ({followers, nonFollowers}) | traffic ({items:[{label, value}]}).
+// The all-time panels and the Total followers scorecard. key: audience ({followers, nonFollowers}) | traffic ({items:[{label, value}]}) | followers ({total}).
 function saveSocialPanel_(p) {
   const key = String(p.key || '');
-  if (['audience', 'traffic'].indexOf(key) < 0) return { ok: false, error: 'unknown panel' };
+  if (['audience', 'traffic', 'followers'].indexOf(key) < 0) return { ok: false, error: 'unknown panel' };
   let v = {};
   try { v = JSON.parse(p.json || '{}') || {}; } catch (err) { return { ok: false, error: 'invalid data' }; }
   if (key === 'audience') v = { followers: Math.max(0, Number(v.followers) || 0), nonFollowers: Math.max(0, Number(v.nonFollowers) || 0) };
+  else if (key === 'followers') v = { total: Math.max(0, Math.round(Number(v.total) || 0)) };   // the Total followers scorecard: one number + the time it was saved
   else v = { items: (Array.isArray(v.items) ? v.items : []).slice(0, 20).map(i => ({ label: String(i.label || '').trim().slice(0, 40), value: Math.max(0, Number(i.value) || 0) })).filter(i => i.label) };
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -2067,7 +2183,7 @@ function syncSocials_(p) {
   if (!pageId || !token) return { ok: false, error: 'Facebook is not connected. Add FB_PAGE_ID and FB_PAGE_TOKEN in Apps Script > Project Settings > Script properties.' };
   const days = Math.min(90, Math.max(1, Number(p.days) || 30)), offset = Math.max(0, Number(p.offset) || 0);
   const until = Math.floor(Date.now() / 1000) - offset * 86400, since = until - days * 86400;
-  const METRICS = { views: 'page_media_view', eng: 'page_post_engagements', fol: 'page_daily_follows_unique', unf: 'page_daily_unfollows_unique', tot: 'page_follows' };
+  const METRICS = { views: 'page_media_view', eng: 'page_post_engagements', fol: 'page_daily_follows_unique', pv: 'page_views_total' };   // profile visits; if Meta does not serve it the others still sync
   const byDay = {}, problems = [];
   Object.keys(METRICS).forEach(k => {
     try {
@@ -2093,8 +2209,8 @@ function syncSocials_(p) {
     for (let r = 1; r < data.length; r++) at[fmtDateCell_(data[r][0]).slice(0, 10)] = r + 1;
     let added = 0, updated = 0;
     dates.sort().forEach(d => {
-      const v = byDay[d], i = at[d], old = i ? data[i - 1] : ['', '', '', '', '', '', ''];
-      const row = [d, 'views' in v ? v.views : old[1], 'eng' in v ? v.eng : old[2], 'fol' in v ? v.fol : old[3], 'unf' in v ? v.unf : old[4], 'tot' in v ? v.tot : old[5], old[6] == null ? '' : old[6]];
+      const v = byDay[d], i = at[d], old = i ? data[i - 1] : ['', '', '', '', '', '', '', ''];
+      const row = [d, 'views' in v ? v.views : old[1], 'eng' in v ? v.eng : old[2], 'fol' in v ? v.fol : old[3], old[4] == null ? '' : old[4], old[5] == null ? '' : old[5], old[6] == null ? '' : old[6], 'pv' in v ? v.pv : (old[7] == null ? '' : old[7])];
       sh.getRange(i || sh.getLastRow() + 1, 1, 1, SOCIALS_HEADERS.length).setNumberFormat('@').setValues([row]);
       if (i) updated++; else { added++; at[d] = sh.getLastRow(); }
     });
@@ -2121,7 +2237,8 @@ function setPostChannels_(p) {
     ['fb', 'ig', 'yt', 'tt'].forEach(k => {
       const q = inp[k]; if (!q) return;
       const c = pl[k] || { on: false, date: '', link: '' };
-      if ('link' in q) { const l = String(q.link || '').trim().slice(0, 500); c.link = /^https?:\/\//i.test(l) ? l : ''; }
+      if ('link' in q) { const l = String(q.link || '').trim().slice(0, 500), nl = /^https?:\/\//i.test(l) ? l : ''; if (nl !== c.link) delete c.thumb; c.link = nl; }
+      if ('thumb' in q) { const th = String(q.thumb || '').trim().slice(0, 500); if (/^https:\/\//i.test(th) && c.link) c.thumb = th; else delete c.thumb; }
       if ('views' in q) {
         if (q.views === '' || q.views == null) { delete c.views; delete c.viewsAt; }
         else { const v = Number(q.views); if (isFinite(v) && v >= 0) { const nv = Math.round(v); if (c.views !== nv) c.viewsAt = now; c.views = nv; } }
@@ -3253,4 +3370,55 @@ function listUsers_(p) {
   if (who.user !== ADMIN_USER) return { ok: false, error: 'Not allowed.' };
   const rows = usersSheet_().getDataRange().getValues().slice(1);
   return { ok: true, users: rows.filter(r => r[0] && String(r[0]).trim().toLowerCase() !== ADMIN_USER).map(r => ({ user: String(r[0]), password: String(r[1]), updatedAt: String(r[2] || '') })) };
+}
+
+/* ---------- Commercial offers: what you offered a card (or a whole lot) to each entity ----------
+   Own "Offers" tab, created on first save. Columns: ID | ItemKey | EntityID | Amount | Date | By.
+   ItemKey is a card ID, or a LotID when the offer is for the whole lot. The entity is stored by ID so a rename keeps its offers. */
+const OFFERS_SHEET = 'Offers';
+function offersSheet_(create) {
+  const ss = ss_();
+  let sh = ss.getSheetByName(OFFERS_SHEET);
+  if (!sh && create) {
+    sh = ss.insertSheet(OFFERS_SHEET);
+    sh.getRange(1, 1, 1, 6).setValues([['ID', 'ItemKey', 'EntityID', 'Amount', 'Date', 'By']]);
+    sh.getRange('A:C').setNumberFormat('@');
+  }
+  return sh;
+}
+function getOffers_() {
+  const sh = offersSheet_(false);
+  if (!sh) return { ok: true, offers: [] };
+  const rows = sh.getDataRange().getValues(); rows.shift();
+  return { ok: true, offers: rows.filter(r => r[0] && r[1] && r[2]).map(r => ({ id: String(r[0]), item: String(r[1]), entityId: String(r[2]), amount: Number(r[3]) || 0, date: fmtDateCell_(r[4]), by: String(r[5] || '') })) };
+}
+// Replaces the whole set of offers for one item. pairs = "entityId:amount,entityId:amount". An empty pairs clears the item.
+// An entity that already had an offer keeps its row (and date) unless the amount changed.
+function saveOffers_(p) {
+  const item = String(p.item || '').trim().slice(0, 60);
+  if (!item) return { ok: false, error: 'missing item' };
+  const want = {};
+  String(p.pairs || '').split(',').map(s => s.trim()).filter(Boolean).forEach(s => {
+    const part = s.split(':'), amt = Math.round((Number(part[1]) || 0) * 100) / 100;
+    if (part[0] && amt > 0) want[part[0]] = amt;
+  });
+  const by = String(p.by || '').trim().slice(0, 30);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = offersSheet_(true);
+    const rows = sh.getDataRange().getValues();
+    const drop = [];
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][1]) !== item) continue;
+      const eid = String(rows[i][2]);
+      if (want[eid] === undefined) { drop.push(i + 1); continue; }
+      if (Number(rows[i][3]) !== want[eid]) sh.getRange(i + 1, 4, 1, 3).setNumberFormat('@').setValues([[want[eid], todayStr_(), by]]);
+      delete want[eid];
+    }
+    drop.reverse().forEach(r => sh.deleteRow(r));
+    const add = Object.keys(want).map(eid => [newId_('of'), item, eid, want[eid], todayStr_(), by]);
+    if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, 6).setNumberFormat('@').setValues(add);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
 }

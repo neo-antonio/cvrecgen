@@ -158,6 +158,13 @@ function openVideo(id) {
   $c('vStatus').value = v && (v.status || 'todo') !== 'todo' ? 'done' : 'todo';
   vCardList = v ? (v.cards || []).map(c => Object.assign({}, c)) : [];
   renderVCards();
+  // any other video task (to do, done or posted) can be folded into this one
+  const others = v ? data.videos.filter(x => x.id !== v.id).sort((a, b) => (b.date || '').localeCompare(a.date || '')) : [];
+  $c('vMergeWrap').hidden = !others.length;
+  $c('vMerge').innerHTML = others.map(x => {
+    const st = (x.status || 'todo') === 'posted' ? 'Posted' : (x.status || 'todo') === 'done' ? 'Done' : 'To do';
+    return `<label class="port-chk"><input type="checkbox" data-merge="${escC(x.id)}"><span>${escC(x.title)} \u00b7 ${escC(st)}${x.date ? ' \u00b7 ' + escC(fmtDayC(x.date)) : ''}${x.cards && x.cards.length ? ' \u00b7 ' + nPlC(x.cards.length, 'card') : ''}</span></label>`;
+  }).join('');
   $c('vSheet').hidden = false;
   if (!v) $c('vTitle').focus();
 }
@@ -185,11 +192,14 @@ $c('vSave').onclick = async () => {
   const params = { id: existing ? existing.id : 'v_' + Math.random().toString(16).slice(2, 10), title, date, time: $c('vTime').value || '', notes, caption, cardIds: vCardList.map(c => c.id).join(',') };
   const was = existing ? ((existing.status || 'todo') !== 'todo' ? 'done' : 'todo') : 'todo';
   if (!existing || $c('vStatus').value !== was) params.status = $c('vStatus').value;   // an already posted task keeps its posted state unless changed
+  const mergeIds = existing ? [...document.querySelectorAll('#vMerge input[data-merge]:checked')].map(i => i.dataset.merge) : [];
+  if (mergeIds.length && !confirm(`Merge ${nPlC(mergeIds.length, 'task')} into \u201c${title}\u201d?\n\nTheir cards, notes and links are added to this task and the merged tasks are deleted. This can't be undone.`)) return;
   const btn = $c('vSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
-  const res = await save('saveCreative', params);
+  let res = await save('saveCreative', params);
+  if (res && mergeIds.length) { btn.textContent = 'Merging\u2026'; res = await save('mergeVideoTasks', { id: params.id, mergeIds: mergeIds.join(',') }); }
   btn.disabled = false; btn.textContent = 'Save';
   if (!res) return;
-  closeVideo(); toast(existing ? 'Task updated.' : 'Task added.');
+  closeVideo(); toast(mergeIds.length ? `Merged ${nPlC(mergeIds.length, 'task')}.` : existing ? 'Task updated.' : 'Task added.');
   await loadData();
 };
 

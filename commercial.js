@@ -42,6 +42,7 @@ const ICON = {
   target: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/>',   // price tag, same as the Commercial app icon
   pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  person: '<path d="M20 21v-1.5a4.5 4.5 0 00-4.5-4.5h-7A4.5 4.5 0 004 19.5V21"/><circle cx="12" cy="8" r="4"/>',
   unlink: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/><path d="M4 4l16 16"/>'
 };
 const icon = (name, cls, label, id) => `<button type="button" class="icon-btn ${cls}" data-id="${esc(id)}" title="${label}" aria-label="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</svg></button>`;
@@ -70,6 +71,16 @@ const chip = m => !m.have ? '<span class="cm-chip none">No target</span>'
     : `<span class="cm-chip ${m.profit >= 0 ? 'pos' : 'neg'}">${signed(m.profit)} \u00b7 ${pctTxt(m.pct)}</span>`;
 const statusChip = (s, range) => s === 'met' ? `<span class="cm-chip pos">${range ? 'In range' : 'Met target'}</span>` : s === 'above' ? '<span class="cm-chip pos">Above range</span>' : s === 'missed' ? '<span class="cm-chip neg">Below target</span>' : '<span class="cm-chip none">No target</span>';
 const tgtLine = m => m.priced ? (m.range ? 'Target ' + rangeTxt(m.tLo, m.tHi) : 'Target ' + php(m.tLo)) : 'No target';
+
+/* ---------- offers: what each entity (from Marketing) was offered a card or a lot for ---------- */
+let offers = [], entities = [];
+const entName = id => { const e = entities.find(x => x.id === id); return e ? e.name : ''; };
+const offersOf = key => offers.filter(o => o.item === String(key) && entName(o.entityId)).sort((a, b) => b.amount - a.amount);
+function offerLine(key) {
+  const list = offersOf(key); if (!list.length) return '';
+  const shown = list.slice(0, 2).map(o => `${esc(entName(o.entityId))} <b>${php(o.amount)}</b>`).join(' \u00b7 ');
+  return `<span class="of-line">Offered: ${shown}${list.length > 2 ? ' \u00b7 +' + (list.length - 2) + ' more' : ''}</span>`;
+}
 
 /* ---------- rendering ---------- */
 function unitsOf(list) {
@@ -103,11 +114,11 @@ function cardHtml(c, inLot) {
   const right = sold
     ? `<div class="port-cost">${php(c.soldPrice)}</div><span class="cm-tgt">${tgtLine(m)}</span>${m.priced ? statusChip(m.status, m.range) : ''}${chip(m)}`
     : `<div class="port-cost">${m.priced ? rangeTxt(m.tLo, m.tHi) : '<span class="cm-tgt">No target</span>'}</div>${m.priced ? '<span class="cm-tgt">Target</span>' : ''}${m.priced ? chip(m) : ''}`;
-  const acts = icon('target', 'cm-target', m.priced ? 'Edit target price' : 'Set target price', c.id) + (inLot && !sold && !pend ? icon('unlink', 'cm-unlot', 'Remove from lot', c.id) : '');
+  const acts = icon('target', 'cm-target', m.priced ? 'Edit target price' : 'Set target price', c.id) + icon('person', 'cm-offer', 'Offers to people', c.id) + (inLot && !sold && !pend ? icon('unlink', 'cm-unlot', 'Remove from lot', c.id) : '');
   return `<div class="port-card" data-id="${esc(c.id)}">
       <div class="port-card-main">
         <div class="port-thumb">${thumb(c, c.name)}</div>
-        <div class="port-info"><b>${esc(c.name)}</b>${info}</div>
+        <div class="port-info"><b>${esc(c.name)}</b>${info}${offerLine(c.id)}</div>
         <div class="port-right cm-right">${right}</div>
       </div>
       <div class="port-card-acts">${acts}</div>
@@ -119,12 +130,12 @@ function lotHtml(g) {
   const right = sold
     ? `<div class="port-cost">${php(m.sale)}</div><span class="cm-tgt">${tgtLine(m)}</span>${m.priced ? statusChip(m.status, m.range) : ''}${chip(m)}`
     : `<div class="port-cost">${m.priced ? rangeTxt(m.tLo, m.tHi) : '<span class="cm-tgt">No target</span>'}</div>${m.priced ? '<span class="cm-tgt">Target</span>' + chip(m) : ''}`;
-  const acts = icon('target', 'cm-lot-target', 'Set lot target price', g.id)
+  const acts = icon('target', 'cm-lot-target', 'Set lot target price', g.id) + icon('person', 'cm-lot-offer', 'Offers to people (whole lot)', g.id)
     + (sold ? '' : (pend ? '' : icon('pencil', 'cm-lot-rename', 'Rename lot', g.id)) + icon('plus', 'cm-lot-add', 'Add cards to lot', g.id) + (pend ? '' : icon('unlink', 'cm-lot-ungroup', 'Ungroup lot', g.id)));
   return `<div class="port-card lot-group" data-lot="${esc(g.id)}">
       <div class="port-card-main lot-head" data-lot="${esc(g.id)}">
         <div class="port-thumb">${first ? `<img src="${esc(first.photo)}" alt="" loading="lazy">` : '<div class="port-noimg">No photo</div>'}</div>
-        <div class="port-info"><b><span class="lot-pill">LOT</span>${esc(g.name)}</b><span>${g.cards.length} card${g.cards.length === 1 ? '' : 's'} \u00b7 Cost ${php(m.cost)}</span></div>
+        <div class="port-info"><b><span class="lot-pill">LOT</span>${esc(g.name)}</b><span>${g.cards.length} card${g.cards.length === 1 ? '' : 's'} \u00b7 Cost ${php(m.cost)}</span>${offerLine(g.id)}</div>
         <div class="port-right cm-right"><span class="lot-chev${open ? ' open' : ''}" aria-hidden="true"></span>${right}</div>
       </div>
       <div class="port-card-acts">${acts}</div>
@@ -172,11 +183,14 @@ async function load() {
   if (!CONFIG.portfolio.endpoint) { $('cmState').textContent = "Sync isn't set up yet."; $('cmState').hidden = false; $('cmList').hidden = true; return; }
   const cached = first ? cacheGet('portfolio') : null; first = false;
   if (cached) { data = normPort(cached); render(); }
+  const ce = cacheGet('entities'); if (ce && ce.entities) entities = ce.entities;
+  const co = cacheGet('offers'); if (co && co.offers) { offers = co.offers; if (cached) render(); }
   else { $('cmState').textContent = 'Loading\u2026'; $('cmState').hidden = false; $('cmList').hidden = true; }
   try {
     const d = await jsonp(CONFIG.portfolio.endpoint + '?action=portfolio&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
     if (!d.ok) throw new Error(d.error || 'Unknown error');
     data = normPort(d); cacheSet('portfolio', data); render();
+    loadOffers();
   } catch (err) {
     console.warn('Commercial load failed', err);
     if (cached) return toast('Could not refresh \u2014 showing your last saved data.');
@@ -338,6 +352,7 @@ $('cmList').addEventListener('click', async e => {
     return;
   }
   const t = e.target.closest('.cm-target'); if (t) return openTarget([t.dataset.id]);
+  const of = e.target.closest('.cm-offer, .cm-lot-offer'); if (of) return openOffers(of.dataset.id, of.classList.contains('cm-lot-offer'));
   const lt = e.target.closest('.cm-lot-target');
   if (lt) { const wanted = tab; return openTarget(allLotCards(lt.dataset.id).filter(c => c.tag === wanted).map(c => c.id)); }
   const add = e.target.closest('.cm-lot-add'); if (add) return openLotSheet(false, add.dataset.id);
@@ -366,6 +381,66 @@ $('cmList').addEventListener('click', async e => {
     catch (err) { un.disabled = false; toast('Could not remove: ' + backendErr(err)); }
   }
 });
+
+/* ---------- offers sheet: search and tick one or more entities, type what you offered each ---------- */
+async function loadOffers() {
+  try {
+    const d = await jsonp(CONFIG.portfolio.endpoint + '?action=offers&secret=' + encodeURIComponent(CONFIG.portfolio.secret));
+    if (!d.ok) throw new Error(d.error || 'Unknown error');
+    offers = d.offers || []; cacheSet('offers', { offers }); render();
+  } catch (err) { console.warn('Offers load failed', err); }
+}
+async function loadEntities() {
+  try {
+    const d = await jsonp(CONFIG.portfolio.endpoint + '?action=entities&secret=' + encodeURIComponent(CONFIG.portfolio.secret), 60000);
+    if (!d.ok) throw new Error(d.error || 'Unknown error');
+    entities = d.entities || []; const c = cacheGet('entities') || {}; cacheSet('entities', Object.assign({}, c, { entities, tx: d.tx || c.tx || [] }));
+    return true;
+  } catch (err) { console.warn('Entities load failed', err); return false; }
+}
+let ofItem = null, ofLot = false; const ofSel = new Map();   // entityId -> amount text
+function ofRender() {
+  const q = $('ofSearch').value.trim().toLowerCase();
+  const list = entities.filter(e => !q || [e.name, e.contact].concat(e.aliases || []).join(' ').toLowerCase().includes(q))
+    .sort((a, b) => (ofSel.has(b.id) - ofSel.has(a.id)) || a.name.localeCompare(b.name));   // ticked people stay on top
+  $('ofList').innerHTML = list.length ? list.map(e => {
+    const on = ofSel.has(e.id);
+    return `<div class="of-row" data-id="${esc(e.id)}"><label class="chk" style="margin:0"><input type="checkbox"${on ? ' checked' : ''}><span class="of-name">${esc(e.name)}${e.contact ? `<small>${esc(e.contact)}</small>` : ''}</span></label><div class="money"${on ? '' : ' hidden'}><em>PHP</em><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="Amount offered" value="${esc(ofSel.get(e.id) || '')}"></div></div>`;
+  }).join('') : `<p class="stub-note" style="margin:10px 0 4px">${entities.length ? 'No entities match your search.' : 'No entities yet. Add them in Marketing.'}</p>`;
+  const n = ofSel.size; $('ofSave').textContent = n ? `Save ${n} offer${n > 1 ? 's' : ''}` : 'Save offers';
+}
+async function openOffers(key, isLot) {
+  ofItem = String(key); ofLot = !!isLot; ofSel.clear();
+  const cards = ofLot ? allLotCards(key) : [findCard(key)].filter(Boolean);
+  if (!cards.length) return;
+  $('ofTitle').textContent = ofLot ? 'Offers for this lot' : 'Offers for this card';
+  $('ofHint').textContent = (ofLot ? (cards[0].lotName || 'Lot') + ' (' + cards.length + ' cards, one price for the whole lot). ' : cards[0].name + '. ') + 'Tick the people you offered it to and enter the amount for each.';
+  offers.filter(o => o.item === ofItem).forEach(o => ofSel.set(o.entityId, String(o.amount)));
+  $('ofSearch').value = ''; ofRender(); $('ofSheet').hidden = false;
+  if (await loadEntities()) { if ($('ofSheet').hidden || ofItem !== String(key)) return; ofRender(); }
+}
+const closeOffers = () => { $('ofSheet').hidden = true; ofItem = null; };
+$('ofSearch').addEventListener('input', ofRender);
+$('ofList').addEventListener('change', e => {
+  if (!e.target.matches('input[type=checkbox]')) return;
+  const row = e.target.closest('.of-row'), id = row.dataset.id;
+  if (e.target.checked) { ofSel.set(id, ''); const m = row.querySelector('.money'); m.hidden = false; m.querySelector('input').focus(); } else { ofSel.delete(id); ofRender(); return; }
+  const n = ofSel.size; $('ofSave').textContent = `Save ${n} offer${n > 1 ? 's' : ''}`;
+});
+$('ofList').addEventListener('input', e => { if (e.target.matches('.money input')) ofSel.set(e.target.closest('.of-row').dataset.id, e.target.value); });
+$('ofCancel').onclick = closeOffers;
+$('ofSheet').addEventListener('click', e => { if (e.target.id === 'ofSheet') closeOffers(); });
+$('ofSave').onclick = async () => {
+  const rows = [...ofSel].map(([id, v]) => [id, num(v)]);
+  const missing = rows.find(r => !(r[1] > 0));
+  if (missing) return toast('Enter the amount offered to ' + (entName(missing[0]) || 'each person') + ', or untick them.');
+  const btn = $('ofSave'); btn.disabled = true;
+  try {
+    await call('saveOffers', { by: (window.CVAuth && CVAuth.user()) || '', item: ofItem, pairs: rows.map(r => r[0] + ':' + r2(r[1])).join(',') });
+    closeOffers(); toast(rows.length ? 'Offers saved.' : 'Offers cleared.'); await loadOffers();
+  } catch (err) { toast('Could not save: ' + (err.message === 'unknown action' ? 'Code.gs needs the latest version deployed' : err.message)); }
+  btn.disabled = false;
+};
 
 $('imgViewClose').onclick = () => $('imgView').hidden = true;
 $('imgView').addEventListener('click', e => { if (e.target.id === 'imgView') $('imgView').hidden = true; });

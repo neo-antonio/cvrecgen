@@ -41,6 +41,17 @@
 .ch-row small{display:block;color:var(--mut);font-size:11px;margin-top:2px}
 .ch-row>span{flex:none;text-align:right;font-size:12px;white-space:nowrap}
 .ch-row .up{color:#1c6b2e}.ch-row .down{color:#a5281b}
+.of-line{display:block;font-size:11px;color:var(--mut)}
+.of-line b{color:var(--fg);font-weight:600}
+.of-list{max-height:48vh;overflow:auto;margin-bottom:6px}
+.of-row{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+.of-row:first-child{border-top:0}
+.of-row .of-name{min-width:0;overflow-wrap:anywhere}
+.of-row .of-name small{display:block;color:var(--mut);font-size:11px}
+.of-row .money{grid-column:2}
+.of-row .money input{min-width:0;width:100%}
+.of-row .money[hidden]{display:none}
+.of-bl{color:#a5281b}
 </style>
 <script src="shell.js"></script>
 </head>
@@ -120,6 +131,18 @@
     <div class="acts">
       <button type="button" class="go sm" id="lotAddSave">Add to lot</button>
       <button type="button" class="ghost" id="lotAddCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="ofSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="ofTitle">Offers</h3>
+    <p class="stub-note" id="ofHint" style="margin:-6px 0 14px;font-size:12px;text-align:center"></p>
+    <div class="field" style="margin-bottom:8px"><input type="search" id="ofSearch" placeholder="Search your entities" autocomplete="off"></div>
+    <div class="of-list" id="ofList"></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="ofSave">Save offers</button>
+      <button type="button" class="ghost" id="ofCancel">Cancel</button>
     </div>
   </div>
 </div>
