@@ -20,8 +20,6 @@ function stamp(s) {
   const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) + ' \u00b7 ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
-// each person gets the same note colour every time
-const colour = name => 'tp-c' + (String(name || '').split('').reduce((a, ch) => a + ch.charCodeAt(0), 0) % 5);
 /* ---------- links pasted into text ----------
    Every http(s) link in a topic, comment or conclusion becomes a button that opens it in a new tab. The icon shows what it is:
    video, image, Google Doc / Sheet / Slides, Drive file or folder, PDF, or a plain link when it can't be told. Nothing extra is stored. */
@@ -97,7 +95,7 @@ function put(t) {
 /* ---------- board ---------- */
 function noteHtml(t) {
   const n = t.comments.length;
-  return `<button type="button" class="tp-note ${colour(t.by)}" data-id="${esc(t.id)}">
+  return `<button type="button" class="tp-note" data-id="${esc(t.id)}">
       <b>${esc(t.title)}</b>
       ${t.body ? `<p class="tp-prev">${esc(plain(t.body))}</p>` : ''}
       ${t.status === 'resolved' ? `<div class="tp-done"><small>Conclusion</small>${esc(plain(t.conclusion))}</div>` : ''}
@@ -132,7 +130,7 @@ function renderDetail() {
   if (!t) { $('tpView').hidden = true; openId = null; return; }
   const keepComment = ($('tpCmText') || {}).value || '', keepConcl = ($('tpConcl') || {}).value || '', resolveOpen = !!$('tpResolveBox') && !$('tpResolveBox').hidden;
   const comments = t.comments.length
-    ? t.comments.map(c => `<div class="tp-cm ${colour(c.by)}"><div class="tp-cm-h"><b>${esc(cap(c.by))}</b><small>${esc(stamp(c.at))}</small></div><p>${rich(c.text)}</p></div>`).join('')
+    ? t.comments.map(c => `<div class="tp-cm"><div class="tp-cm-h"><b>${esc(cap(c.by))}</b><small>${esc(stamp(c.at))}</small></div><p>${rich(c.text)}</p></div>`).join('')
     : '<p class="tp-none">No comments yet.</p>';
   const isOpen = t.status === 'open';
   $('tpViewBody').innerHTML = `

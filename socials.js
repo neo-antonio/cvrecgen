@@ -456,7 +456,7 @@
   const fmtK = n => n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M' : n >= 1e3 ? (n / 1e3).toFixed(n >= 1e4 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(n);
   /* the Views button above the planner: shows or hides the view counts on the cards (on by default, remembered on this device) */
   let showViews = true; try { showViews = localStorage.getItem('cv_plViews') !== '0'; } catch (_) {}
-  const syncViewsBtn = () => { const b = $('plViewsBtn'); b.textContent = 'Views: ' + (showViews ? 'On' : 'Off'); b.setAttribute('aria-pressed', showViews ? 'true' : 'false'); };
+  const syncViewsBtn = () => { const b = $('plViewsBtn'); b.querySelector('.lbl').textContent = 'Views: ' + (showViews ? 'On' : 'Off'); b.setAttribute('aria-pressed', showViews ? 'true' : 'false'); b.setAttribute('aria-label', 'Views on cards: ' + (showViews ? 'on' : 'off')); };
   const kindLabel = t => t.kind === 'video' ? 'Video' : (t.free ? 'Photo' : 'Post');
   const canDelete = t => t.free || t.kind === 'video' || String(t.id).indexOf('pc_') === 0;   // receipt groups (pg_) can only be hidden
   const find = id => allTasks().find(t => t.id === id);
@@ -556,7 +556,7 @@
     renderHiddenBtn();
     if (!$('panelRanking').hidden) renderRanking();
   }
-  function renderHiddenBtn() { $('plHiddenBtn').textContent = `Hidden (${hiddenTasks().length})`; if (!$('hdSheet').hidden) renderHiddenList(); }
+  function renderHiddenBtn() { const n = hiddenTasks().length; $('plHiddenN').textContent = n > 99 ? '99+' : String(n); $('plHiddenN').hidden = !n; $('plHiddenBtn').setAttribute('aria-label', `Hidden tasks (${n})`); if (!$('hdSheet').hidden) renderHiddenList(); }
   const plRefreshBadge = () => { const pend = waiting(), b = $('plBadge'); b.hidden = !pend.length; b.textContent = String(pend.length); try { if (window.CVShell) CVShell.setBadge('social', pend.length); } catch (_) {} };
   function renderLists() { plRefreshBadge(); if (tab === 'planner') renderPlanner(); }
 
@@ -569,7 +569,7 @@
   function renderRanking() {
     $('rkChips').innerHTML = [{ k: 'all', n: 'All channels' }].concat(CH).map(x => `<button type="button" class="chip${x.k === rkCh ? ' active' : ''}" data-k="${x.k}">${x.n}</button>`).join('');
     const val = t => rkCh === 'all' ? (anyViews(t) ? totalViews(t) : null) : (hasViews(chOf(t, rkCh)) ? +chOf(t, rkCh).views : null);
-    const rows = allTasks().filter(isPosted).map(t => ({ t, v: val(t) }));
+    const rows = allTasks().filter(t => isPosted(t) && !t.hidden).map(t => ({ t, v: val(t) }));   // hidden tasks are not ranked
     const ranked = rows.filter(r => r.v != null).sort((a, b) => b.v - a.v), none = rows.filter(r => r.v == null);
     const max = ranked.length ? Math.max(1, ranked[0].v) : 1, sum = ranked.reduce((n, r) => n + r.v, 0);
     let rank = 0, prevV = null;
@@ -964,6 +964,7 @@
   setupChartDefaults();
   setPlatHeader(); syncViewsBtn();
   (async function init() {
+    if (location.hash === '#planner') { const pt = document.querySelector('.tab[data-stab=planner]'); if (pt) pt.click(); }   // Home widgets link straight to the Planner
     await loadSocials(false);
     loadCreatives();
   })();

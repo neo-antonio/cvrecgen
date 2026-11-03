@@ -44,7 +44,7 @@
  *   Socials columns: Date | Views | Engagement | Follows | Unfollows (old, not shown) | Followers (old daily total, only a fallback) | Reach | ProfileVisits.
  *   SocialsMeta key 'followers' = {total} with the time it was saved: the Total followers scorecard.
  *   SocialsIG (A-H) / SocialsMetaIG (A-C): the same two tabs for Instagram (created on first use). Every social action takes platform=fb|ig (default fb).
- *   Skits (A-L):    ID | Title | Link | Platform | Thumb | Notes | Status | VideoID | Created | Done | Updated | EmbedId   (Skits app, created automatically)
+ *   Skits (A-M):    ID | Title | Link | Platform | Thumb | Notes | Status | VideoID | Created | Done | Updated | EmbedId | By   (Skits app, created automatically; By = who suggested it; Thumb / EmbedId are no longer used by the app)
  *                   Status: todo | edit (moved to a Creatives video task, VideoID) | done. A skit in 'edit' reads as done once that video task is posted, and goes back to todo if the video task is deleted.
  *                   Link = YouTube / Instagram / Facebook / TikTok video (optional: an idea needs no link). Thumb = preview image (TikTok / Instagram / Facebook previews are copied to Drive because their links expire).
  *   SocialsMeta (A-C): Key | Value | Updated   (audience = followers vs non-followers views, traffic = traffic sources, sync = last Facebook sync; all-time panels)
@@ -2255,7 +2255,7 @@ function setPostChannels_(p) {
 
 /* ---------- Skits: video ideas (with or without a link), moved to Creatives > Video when it is time to edit ---------- */
 const SKITS_SHEET = 'Skits';
-const SKIT_HEADERS = ['ID', 'Title', 'Link', 'Platform', 'Thumb', 'Notes', 'Status', 'VideoID', 'Created', 'Done', 'Updated', 'EmbedId'];
+const SKIT_HEADERS = ['ID', 'Title', 'Link', 'Platform', 'Thumb', 'Notes', 'Status', 'VideoID', 'Created', 'Done', 'Updated', 'EmbedId', 'By'];
 const SKIT_PLAT_NAME = { yt: 'YouTube', ig: 'Instagram', fb: 'Facebook', tt: 'TikTok' };
 
 function skitsSheet_(create) { return textSheet_(SKITS_SHEET, SKIT_HEADERS, create); }
@@ -2292,7 +2292,7 @@ function skitOut_(r, vmap) {
     else { videoStatus = v.status; if (v.status === 'posted') { status = 'done'; doneAt = doneAt || v.doneDate; } }
   }
   return { id: String(r[0]), title: String(r[1] || ''), link: String(r[2] || ''), platform: String(r[3] || ''), thumb: toDisplayUrl_(r[4], 640),
-    notes: String(r[5] || ''), status, videoId: status === 'todo' ? '' : vid, videoStatus, createdAt: String(r[8] || ''), doneAt, updatedAt: String(r[10] || ''), embedId: String(r[11] || '') };
+    notes: String(r[5] || ''), status, videoId: status === 'todo' ? '' : vid, videoStatus, createdAt: String(r[8] || ''), doneAt, updatedAt: String(r[10] || ''), embedId: String(r[11] || ''), by: String(r[12] || '') };
 }
 function getSkits_() {
   const sh = skitsSheet_(false);
@@ -2312,7 +2312,8 @@ function saveSkit_(p) {
   try {
     const sh = skitsSheet_(true), found = id ? findRow_(sh, id) : null;
     if (id && !found) return { ok: false, error: 'not found' };
-    const row = found ? found.row.slice() : [newId_('sk'), '', '', '', '', '', 'todo', '', nowStamp_(), '', '', ''];
+    if (!String(sh.getRange(1, SKIT_HEADERS.length).getValue() || '').trim()) sh.getRange(1, SKIT_HEADERS.length).setValue('By');   // sheets made before the By column existed
+    const row = found ? found.row.slice() : [newId_('sk'), '', '', '', '', '', 'todo', '', nowStamp_(), '', '', '', knownUser_(p.by)];   // By is set once, when the skit is added
     while (row.length < SKIT_HEADERS.length) row.push('');
     if ('title' in p) row[1] = String(p.title || '').trim().slice(0, 120);
     if (link !== null) {

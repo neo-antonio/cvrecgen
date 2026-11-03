@@ -1,14 +1,16 @@
 /* ---------- Skits — video ideas to shoot ----------
-   Backend: Code.gs skits / saveSkit / skitToVideo / deleteSkit / linkPreview.
-   A skit is an idea (no link needed) or a pasted YouTube / Instagram / Facebook / TikTok video, shown with a thumbnail and played in an embed.
+   Backend: Code.gs skits / saveSkit / skitToVideo / deleteSkit.
+   A plain list, laid out like the Topic Board: each skit shows its title, notes, status, who suggested it and when.
+   Links in the notes (or the optional video link) turn into buttons. There are no thumbnails or embeds.
    To do -> "Move to video edit" creates a to-do video task in Creatives. When that video is posted (Socials > Planner > Publish) the skit moves to Done by itself. */
 (function () {
   'use strict';
   const $ = id => document.getElementById(id);
-  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const cap = n => { n = String(n || ''); return n.charAt(0).toUpperCase() + n.slice(1).toLowerCase(); };
   const pad = n => String(n).padStart(2, '0');
   const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-  const safeUrl = u => /^https?:\/\//i.test(String(u || '')) ? String(u) : '';
+  const me = () => String((window.CVAuth && CVAuth.user()) || '').trim().toLowerCase();
   const api = (action, params = {}) => CONFIG.portfolio.endpoint + '?action=' + action
     + Object.keys(params).map(k => '&' + k + '=' + encodeURIComponent(params[k])).join('')
     + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
@@ -20,68 +22,78 @@
     if (!res || !res.ok) throw new Error((res && res.error) || 'Request failed');
     return res;
   }
-  /* escape first, then turn http(s) links into tappable anchors */
-  function linkify(s) {
-    return esc(s).replace(/https?:\/\/(?:(?!&quot;|&lt;|&gt;)[^\s<])+/g, m => {
-      const url = m.replace(/[.,:!?)\]]+$/, ''), tail = m.slice(url.length);
-      return `<a href="${url}" target="_blank" rel="noopener">${url}</a>${tail}`;
-    });
+  /* "2026-10-17 15:42" (saved by the server) -> "Oct 17, 2026 · 3:42 PM" */
+  function stamp(s) {
+    const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/);
+    if (!m) return String(s || '');
+    const d = new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0));
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) + (m[4] == null ? '' : ' \u00b7 ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
   }
+  const safeUrl = u => /^https?:\/\//i.test(String(u || '')) ? String(u) : '';
+  const isVideoSite = u => /^https?:\/\/([\w-]+\.)*(youtube\.com|youtu\.be|instagram\.com|instagr\.am|facebook\.com|fb\.watch|fb\.com|fb\.me|tiktok\.com)(\/|$|\?)/i.test(String(u || '').trim());
 
-  const PL = { yt: { n: 'YouTube', s: 'YT' }, ig: { n: 'Instagram', s: 'IG' }, fb: { n: 'Facebook', s: 'FB' }, tt: { n: 'TikTok', s: 'TT' } };
-  function platOf(u) {
-    let h; try { h = new URL(String(u).trim()).hostname.toLowerCase(); } catch (_) { return ''; }
-    if (!/^https?:/i.test(String(u).trim())) return '';
-    h = h.replace(/^(www|m|mobile|web|vm|vt)\./, '');
-    if (/(^|\.)youtube\.com$|^youtu\.be$/.test(h)) return 'yt';
-    if (/(^|\.)instagram\.com$|^instagr\.am$/.test(h)) return 'ig';
-    if (/(^|\.)facebook\.com$|^fb\.watch$|^fb\.com$|^fb\.me$/.test(h)) return 'fb';
-    if (/(^|\.)tiktok\.com$/.test(h)) return 'tt';
-    return '';
+  /* ---------- links pasted into text (same buttons as the Topic Board) ---------- */
+const URL_RE = /https?:\/\/[^\s<>"'`]+/g;
+const LINK_ICON = {
+  video: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10.5 9.5l4 2.5-4 2.5z" fill="currentColor"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9.5" r="1.6"/><path d="M4 18l5.5-5.5 4 4 2.5-2.5L20 18"/>',
+  doc: '<path d="M6 2.8h8l4.2 4.2V21H6z"/><path d="M14 2.8V7h4.2M8.8 12h6.4M8.8 15.5h6.4"/>',
+  sheet: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M3.5 9.5h17M3.5 15h17M9.5 3.5v17"/>',
+  slides: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M12 16.5v4M8 20.5h8"/>',
+  folder: '<path d="M3 6.5a2 2 0 012-2h4.2l2 2.3H19a2 2 0 012 2v8.7a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>',
+  link: '<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>'
+};
+function classify(raw) {
+  let u; try { u = new URL(raw); } catch (_) { return null; }
+  if (!/^https?:$/.test(u.protocol)) return null;
+  const h = u.hostname.replace(/^(www|m)\./, ''), p = u.pathname;
+  const host = h.length > 28 ? h.slice(0, 27) + '\u2026' : h;
+  if (h === 'docs.google.com') {
+    if (/^\/spreadsheets/.test(p)) return { icon: 'sheet', label: 'Google Sheet' };
+    if (/^\/presentation/.test(p)) return { icon: 'slides', label: 'Google Slides' };
+    if (/^\/forms/.test(p)) return { icon: 'doc', label: 'Google Form' };
+    return { icon: 'doc', label: 'Google Doc' };
   }
-  const ytId = u => { const m = String(u).match(/(?:youtu\.be\/|\/shorts\/|\/live\/|\/embed\/|[?&]v=)([\w-]{11})/); return m ? m[1] : ''; };
-  const ytThumb = u => { const id = ytId(u); return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : ''; };
-  /* a Drive file link (what the server stores for copied thumbnails) -> an image address the page can show */
-  const driveThumb = u => { u = String(u || ''); if (/drive\.google\.com\/(?!thumbnail)/.test(u)) { const m = u.match(/[-\w]{25,}/); if (m) return 'https://drive.google.com/thumbnail?id=' + m[0] + '&sz=w640'; } return u; };
-  const thumbOf = k => driveThumb(k.thumb) || (k.platform === 'yt' ? ytThumb(k.link) : '');
-  const ICON_VIDEO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6.5" width="12" height="11" rx="2"/><path d="M15 10.5l6-3v9l-6-3"/></svg>';
-
-  /* the official player of each site */
-  function embed(k, link, embedId) {
-    let src = '', cls = '';
-    if (k === 'yt') { const id = ytId(link); if (id) { src = 'https://www.youtube-nocookie.com/embed/' + id; cls = /\/shorts\//.test(link) ? ' vid tall' : ' vid wide'; } }
-    else if (k === 'ig') { const m = link.match(/instagram\.com\/(?:[\w.]+\/)?(p|reels?|tv)\/([\w-]+)/i); if (m) { const t = m[1].toLowerCase(); src = 'https://www.instagram.com/' + (t === 'p' ? 'p' : t === 'tv' ? 'tv' : 'reel') + '/' + m[2] + '/embed/'; cls = ' ig'; } }
-    else if (k === 'tt') { const id = embedId || (link.match(/\/video\/(\d+)/) || [])[1]; if (id) { src = 'https://www.tiktok.com/embed/v2/' + id; cls = ' tall'; } }
-    else if (k === 'fb') {
-      const w = Math.max(280, Math.min(500, window.innerWidth - 80)), isVideo = /\/(videos?|reels?|watch)\b|fb\.watch/i.test(link), href = encodeURIComponent(link);
-      src = isVideo ? `https://www.facebook.com/plugins/video.php?href=${href}&show_text=false&width=${w}&height=${w}` : `https://www.facebook.com/plugins/post.php?href=${href}&show_text=true&width=${w}`;
-      cls = isVideo ? ' vid' : '';
-    }
-    if (!src) return '<p class="stub-note">This link can\u2019t be shown here. Use Open to watch it.</p>';
-    return `<div class="so-embed${cls}"><iframe src="${src}" title="${esc(PL[k].n)} video" loading="lazy" allowfullscreen="true" allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share" frameborder="0" scrolling="no"></iframe></div>`;
+  if (h === 'drive.google.com' || h === 'drive.usercontent.google.com') {
+    if (/\/folders\//.test(p)) return { icon: 'folder', label: 'Drive folder' };
+    return { icon: 'doc', label: 'Drive file' };
   }
+  if (/(^|\.)(youtube\.com|youtu\.be|vimeo\.com|loom\.com|tiktok\.com|streamable\.com|twitch\.tv|dailymotion\.com)$/.test(h)
+    || (/(^|\.)facebook\.com$|^fb\.watch$/.test(h) && /\/(watch|reel|videos?)\b/.test(p) || h === 'fb.watch')
+    || (h === 'instagram.com' && /^\/(reel|tv)\//.test(p)) || /\.(mp4|webm|mov|m4v|ogv|mkv)$/i.test(p)) return { icon: 'video', label: 'Video' };
+  if (/\.(jpe?g|png|gif|webp|avif|bmp|heic)$/i.test(p) || h === 'i.imgur.com') return { icon: 'image', label: 'Image' };
+  if (/\.pdf$/i.test(p)) return { icon: 'doc', label: 'PDF' };
+  return { icon: 'link', label: host };
+}
+// text with every link swapped for its button (all other text is escaped)
+function rich(src) {
+  const s = String(src == null ? '' : src); let out = '', last = 0, m;
+  URL_RE.lastIndex = 0;
+  while ((m = URL_RE.exec(s))) {
+    const trail = (m[0].match(/[.,;:!?)\]]+$/) || [''])[0], url = m[0].slice(0, m[0].length - trail.length), c = classify(url);
+    out += esc(s.slice(last, m.index));
+    out += c ? `<a class="tp-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer" title="${esc(url)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LINK_ICON[c.icon]}</svg><span>${esc(c.label)}</span></a>` : esc(url);
+    out += esc(trail); last = m.index + m[0].length;
+  }
+  return out + esc(s.slice(last));
+}
+// board notes stay plain text: each link is shortened to its address
+const plain = s => String(s || '').replace(URL_RE, u => { const c = u.replace(/[.,;:!?)\]]+$/, ''); try { return new URL(c).hostname.replace(/^www\./, ''); } catch (_) { return c; } });
 
   /* ---------------- list ---------------- */
   let list = [], filter = 'todo', loaded = false;
   const find = id => list.find(k => k.id === id);
-  const tagOf = k => k.status === 'done' ? { t: k.videoStatus === 'posted' ? 'Posted' : 'Done', c: 'done' }
-    : k.status === 'edit' ? { t: 'In video edit', c: 'edit' } : k.link ? { t: 'To do', c: 'todo' } : { t: 'Idea', c: 'idea' };
+  const tagOf = k => k.status === 'done' ? (k.videoStatus === 'posted' ? 'Posted' : 'Done')
+    : k.status === 'edit' ? 'In video edit' : k.link ? 'To do' : 'Idea';
+  const byLine = k => (k.by ? `<i>${esc(cap(k.by))}</i> \u00b7 ` : '') + esc(stamp(k.createdAt));
 
   function cardHtml(k) {
-    const th = thumbOf(k), tag = tagOf(k), p = PL[k.platform];
-    return `<div class="sk-card" data-id="${esc(k.id)}">
-      <button type="button" class="sk-thumb sk-open" aria-label="Open ${esc(k.title)}">${th ? `<img src="${esc(th)}" alt="" loading="lazy">` : ICON_VIDEO}${p ? `<i class="ch ${k.platform} sk-plat">${p.s}</i>` : ''}${k.link ? '<span class="sk-play" aria-hidden="true">&#9654;</span>' : ''}</button>
-      <div class="sk-body">
-        <b>${esc(k.title)}</b>
-        ${k.notes ? `<p>${esc(k.notes)}</p>` : ''}
-        <span class="sk-tag ${tag.c}">${tag.t}</span>
-        <div class="sk-acts">
-          ${k.status === 'todo' ? '<button type="button" class="go sm sk-move">Move to video edit</button>' : ''}
-          <button type="button" class="ghost sm sk-open">Open</button>
-          <button type="button" class="ghost sm sk-edit">Edit</button>
-        </div>
-      </div>
-    </div>`;
+    return `<button type="button" class="tp-note sk-note" data-id="${esc(k.id)}">
+      <b>${esc(k.title)}</b>
+      ${k.notes ? `<p class="tp-prev">${esc(plain(k.notes))}</p>` : ''}
+      <span class="sk-tag">${esc(tagOf(k))}</span>
+      <div class="tp-meta"><span>${byLine(k)}</span></div>
+    </button>`;
   }
   function render() {
     const todo = list.filter(k => k.status !== 'done').sort((a, b) => (a.status === 'edit') - (b.status === 'edit'));
@@ -91,7 +103,7 @@
     const rows = filter === 'todo' ? todo : done;
     $('kCount').textContent = rows.length ? `${rows.length} ${rows.length === 1 ? 'skit' : 'skits'}` : '';
     if (!rows.length) {
-      $('kState').textContent = loaded ? (filter === 'todo' ? 'No skits yet. Tap Add skit to save your first idea or paste a video link.' : 'Nothing done yet. A skit lands here once its video is posted.') : 'Loading\u2026';
+      $('kState').textContent = loaded ? (filter === 'todo' ? 'No skits yet. Tap Add skit to save your first idea.' : 'Nothing done yet. A skit lands here once its video is posted.') : 'Loading\u2026';
       $('kState').hidden = false; $('kList').hidden = true; return;
     }
     $('kState').hidden = true; $('kList').hidden = false;
@@ -117,58 +129,24 @@
   $('kRefresh').onclick = () => load(true);
 
   /* ---------------- add / edit ---------------- */
-  let editId = '', prev = null, prevTok = 0, prevP = null, prevTimer = 0, autoTitle = '', origLink = '';
-  function renderPrev() {
-    const box = $('kPrev');
-    if (!prev) { box.hidden = true; box.innerHTML = ''; return; }
-    const th = driveThumb(prev.thumb || '');
-    box.hidden = false; box.innerHTML = `${th ? `<img src="${esc(th)}" alt="">` : ''}<span>${esc(prev.msg || '')}</span>`;
-  }
-  async function fetchPreview() {
-    const link = $('kLink').value.trim();
-    if (!link) { prev = null; renderPrev(); return; }
-    const pf = platOf(link);
-    if (!pf) { prev = { thumb: '', embedId: '', msg: 'Paste a YouTube, Instagram, Facebook or TikTok link.', bad: true }; renderPrev(); return; }
-    const tok = ++prevTok;
-    prev = { platform: pf, thumb: pf === 'yt' ? ytThumb(link) : '', embedId: '', msg: PL[pf].n + ' link. Getting the preview\u2026' }; renderPrev();
-    try {
-      const r = await call('linkPreview', { url: link }, 40000);
-      if (tok !== prevTok) return;
-      prev.thumb = r.thumb || prev.thumb; prev.embedId = r.embedId || '';
-      prev.msg = prev.thumb ? PL[pf].n + ' video found.' : PL[pf].n + ' link saved. No thumbnail was available, but it still plays when you open it.';
-      const t = $('kTitle').value.trim();
-      if (r.title && (!t || t === autoTitle)) { autoTitle = String(r.title).replace(/\s+/g, ' ').trim().slice(0, 120); $('kTitle').value = autoTitle; }
-    } catch (err) { if (tok !== prevTok) return; prev.msg = PL[pf].n + ' link. Could not get a preview (' + backendErr(err) + ').'; }
-    renderPrev();
-  }
-  const schedulePreview = ms => { clearTimeout(prevTimer); prevTimer = setTimeout(() => { prevTimer = 0; prevP = fetchPreview(); }, ms); };
-  $('kLink').addEventListener('input', () => {
-    const link = $('kLink').value.trim();
-    if (link && link === origLink && editId) { const k = find(editId); prev = k ? { platform: k.platform, thumb: thumbOf(k), embedId: k.embedId, msg: (PL[k.platform] || { n: 'Video' }).n + ' video.' } : null; renderPrev(); return; }
-    schedulePreview(650);
-  });
-  $('kLink').addEventListener('paste', () => schedulePreview(60));
-
+  let editId = '';
   function openForm(k) {
-    editId = k ? k.id : ''; autoTitle = ''; origLink = k ? k.link : ''; prevTok++; clearTimeout(prevTimer); prevTimer = 0; prevP = null;
+    editId = k ? k.id : '';
     $('kHeading').textContent = k ? 'Edit skit' : 'Add skit';
     $('kLink').value = k ? k.link : ''; $('kTitle').value = k ? k.title : ''; $('kNotes').value = k ? k.notes : '';
-    prev = k && k.link ? { platform: k.platform, thumb: thumbOf(k), embedId: k.embedId, msg: (PL[k.platform] || { n: 'Video' }).n + ' video.' } : null; renderPrev();
-    $('kDel').hidden = !k; $('kView').hidden = true; $('kSheet').hidden = false; $('kLink').focus();
+    $('kDel').hidden = !k; $('kView').hidden = true; $('kSheet').hidden = false; $('kTitle').focus();
   }
-  const closeForm = () => { $('kSheet').hidden = true; editId = ''; prevTok++; clearTimeout(prevTimer); };
+  const closeForm = () => { $('kSheet').hidden = true; editId = ''; };
   $('kAdd').onclick = () => openForm(null);
   $('kCancel').onclick = closeForm;
   $('kSave').onclick = async () => {
     const link = $('kLink').value.trim(), title = $('kTitle').value.trim(), notes = $('kNotes').value.trim();
-    if (!title && !link) return toast('Add a title or paste a link.');
-    if (link && !platOf(link)) return toast('Paste a YouTube, Instagram, Facebook or TikTok link.');
+    if (!title && !link) return toast('Give the skit a title.');
+    if (link && !isVideoSite(link)) return toast('The video link must be YouTube, Instagram, Facebook or TikTok. Other links can go in the notes.');
     const b = $('kSave'); b.disabled = true; b.textContent = 'Saving\u2026';
     try {
-      if (prevTimer) { clearTimeout(prevTimer); prevTimer = 0; prevP = fetchPreview(); }   // saved before the preview started: get it now
-      if (prevP) { try { await prevP; } catch (_) {} }
-      const p = { title, link, notes, thumb: link ? ((prev && prev.thumb) || '') : '', embedId: link ? ((prev && prev.embedId) || '') : '' };
-      if (editId) p.id = editId;
+      const p = { title, link, notes };
+      if (editId) p.id = editId; else p.by = me();   // who suggested it is set once, when it is added
       await call('saveSkit', p);
       closeForm(); toast('Skit saved.'); await load();
     } catch (err) { toast('Could not save: ' + backendErr(err)); }
@@ -178,18 +156,19 @@
   /* ---------------- one skit ---------------- */
   let viewId = '';
   function openView(k) {
-    viewId = k.id; const tag = tagOf(k), p = PL[k.platform];
+    viewId = k.id;
     $('kvTitle').textContent = k.title;
-    $('kvSub').textContent = [p ? p.n : 'Idea', tag.t, k.status === 'edit' ? 'it moves to Done when the video is posted' : ''].filter(Boolean).join(' \u00b7 ');
-    $('kvEmbed').innerHTML = k.link ? embed(k.platform, k.link, k.embedId) : '<p class="stub-note" style="text-align:center">An idea for now. Tap Edit to add a video link later.</p>';
-    $('kvNotes').hidden = !k.notes; $('kvNotes').innerHTML = k.notes ? `<small>Notes</small>${linkify(k.notes)}` : '';
+    $('kvSub').innerHTML = `${k.by ? 'Suggested by <b>' + esc(cap(k.by)) + '</b> \u00b7 ' : 'Added '}${esc(stamp(k.createdAt))}<br>${esc(tagOf(k))}${k.status === 'edit' ? ' \u00b7 it moves to Done when the video is posted' : ''}`;
+    const parts = [];
+    if (safeUrl(k.link)) parts.push(`<p class="tp-body">${rich(k.link)}</p>`);
+    if (k.notes) parts.push(`<p class="tp-body">${rich(k.notes)}</p>`);
+    $('kvBody').innerHTML = parts.join('') || '<p class="tp-none">No notes yet. Tap Edit to add some.</p>';
     $('kvMove').hidden = k.status !== 'todo';
     $('kvDone').hidden = k.status === 'done';
     $('kvReopen').hidden = k.status !== 'done';
-    const o = $('kvOpen'); o.hidden = !safeUrl(k.link); if (safeUrl(k.link)) o.href = k.link;
     $('kView').hidden = false;
   }
-  const closeView = () => { $('kView').hidden = true; $('kvEmbed').innerHTML = ''; viewId = ''; };
+  const closeView = () => { $('kView').hidden = true; viewId = ''; };
   $('kvClose').onclick = closeView;
   $('kvEdit').onclick = () => { const k = find(viewId); if (k) openForm(k); };
 
@@ -217,12 +196,7 @@
   $('kvDel').onclick = () => { const k = find(viewId); if (k) remove(k); };
   $('kDel').onclick = () => { const k = find(editId); if (k) remove(k); };
 
-  $('kList').addEventListener('click', e => {
-    const card = e.target.closest('.sk-card'), k = card && find(card.dataset.id); if (!k) return;
-    if (e.target.closest('.sk-move')) return moveToVideo(k, e.target.closest('.sk-move'));
-    if (e.target.closest('.sk-edit')) return openForm(k);
-    if (e.target.closest('.sk-open')) openView(k);
-  });
+  $('kList').addEventListener('click', e => { const n = e.target.closest('.sk-note'), k = n && find(n.dataset.id); if (k) openView(k); });
   ['kSheet', 'kView'].forEach(id => $(id).addEventListener('click', e => { if (e.target.id === id) { if (id === 'kView') closeView(); else closeForm(); } }));
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('kView').hidden) closeView(); if (!$('kSheet').hidden) closeForm(); } });
 

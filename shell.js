@@ -143,7 +143,6 @@
     social: '<circle cx="18" cy="5.5" r="2.7"/><circle cx="6" cy="12" r="2.7"/><circle cx="18" cy="18.5" r="2.7"/><path d="M8.4 10.7l7.2-3.9M8.4 13.3l7.2 3.9"/>',
     topics: '<path d="M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/><path d="M7 8.5h5M7 12h10M7 15.5h7"/>',
     pin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3.5 3.5V15h-11v-2.5L10 9z"/>',
-    appdev: '<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>',
     settings: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/>'
   };
   var svg = function (k) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[k] + '</svg>'; };
@@ -154,8 +153,7 @@
     ['Operations', [['receipt', 'Receipt', 'receipt.html'], ['portfolio', 'Portfolio', 'portfolio.html'], ['commercial', 'Commercial', 'commercial.html'], ['shipping', 'Shipping', 'shipping.html']]],
     ['Money', [['finance', 'Finance', 'finance.html'], ['charts', 'Charts', '#charts']]],
     ['Marketing', [['marketing', 'Marketing', 'marketing.html'], ['creatives', 'Creatives', 'creatives.html'], ['social', 'Socials', 'socials.html'], ['skits', 'Skits', 'skits.html']]],
-    ['Team', [['topics', 'Topic Board', 'topics.html'], ['calendar', 'Calendar', 'calendar.html'], ['organization', 'Organization', 'organization.html'], ['legal', 'Legal', 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link']]],
-    ['Tech', [['appdev', 'App Dev', 'appdev.html']]]
+    ['Team', [['topics', 'Topic Board', 'topics.html'], ['calendar', 'Calendar', 'calendar.html'], ['organization', 'Organization', 'organization.html'], ['legal', 'Legal', 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link']]]
   ];
   var BACKEND_URL = 'https://docs.google.com/spreadsheets/d/1It4a7gEvyxr-gz4SL6gClC84o6mfxjr9Ooho_DxjL9o/edit?gid=1823529634#gid=1823529634';
   var ALIAS = { 'receipts.html': 'receipt.html', '': 'index.html' };
@@ -204,7 +202,7 @@
 
   var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   // sidebar number badges: page -> badge key (filled in by loadBadges below, or by other scripts through CVShell.setBadge)
-  var BADGE = { 'shipping.html': 'shipping', 'creatives.html': 'creatives', 'socials.html': 'social', 'finance.html': 'finance', 'appdev.html': 'appdev' };
+  var BADGE = { 'shipping.html': 'shipping', 'creatives.html': 'creatives', 'socials.html': 'social', 'finance.html': 'finance' };
   var link = function (it) {
     var on = it[2] === page, u = it[2], bk = BADGE[u];
     var tail = '<span>' + esc(it[1]) + '</span>' + (bk ? '<i class="sb-badge" data-badge="' + bk + '" hidden></i>' : '');
@@ -380,8 +378,8 @@
     var BKEY = 'cv:badges';
     var loadBadges = function () {
       if (!curUser()) return;
-      try { var c = JSON.parse(sessionStorage.getItem(BKEY)); if (c && c.day === todayIso()) { counts.shipping = c.shipping; counts.creatives = c.creatives; counts.social = c.social; if (curUser() === ADMIN) counts.appdev = c.appdev; paintBadges(); } } catch (e) {}
-      var save = function () { try { sessionStorage.setItem(BKEY, JSON.stringify({ day: todayIso(), shipping: counts.shipping || 0, creatives: counts.creatives || 0, social: counts.social || 0, appdev: counts.appdev || 0 })); } catch (e) {} };
+      try { var c = JSON.parse(sessionStorage.getItem(BKEY)); if (c && c.day === todayIso()) { counts.shipping = c.shipping; counts.creatives = c.creatives; counts.social = c.social; paintBadges(); } } catch (e) {}
+      var save = function () { try { sessionStorage.setItem(BKEY, JSON.stringify({ day: todayIso(), shipping: counts.shipping || 0, creatives: counts.creatives || 0, social: counts.social || 0 })); } catch (e) {} };
       call('shipping').then(check).then(function (d) {
         var t = todayIso(), groups = {};
         (d.toShip || []).forEach(function (i) { if (d10(i.scheduledDate) === t) groups[i.groupKey || ('c:' + i.id)] = 1; });
@@ -392,10 +390,6 @@
         // Socials (Planner): finished, visible tasks that are not posted yet
         counts.social = (d.videos || []).filter(function (x) { return x.status === 'done' && !x.hidden; }).length + (d.posts || []).filter(function (x) { return x.status === 'edited' && !x.hidden; }).length;
         paintBadges(); save();
-      }).catch(function () {});
-      // App Dev: the admin sees how many new requests are waiting to be accepted
-      if (curUser() === ADMIN) call('tickets').then(check).then(function (d) {
-        counts.appdev = (d.tickets || []).filter(function (t) { return t.status === 'pending'; }).length; paintBadges(); save();
       }).catch(function () {});
     };
     window.CVShell = {

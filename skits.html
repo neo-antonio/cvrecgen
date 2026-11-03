@@ -36,20 +36,23 @@
   <div class="rec-tools" style="margin-bottom:10px"><button type="button" class="ghost sm" id="kRefresh">Refresh</button></div>
   <p class="rec-count" id="kCount"></p>
   <p class="stub-note" id="kState">Loading&hellip;</p>
-  <div class="port-list sk-list" id="kList" hidden></div>
+  <div class="tp-board" id="kList" hidden></div>
 </main>
 
 <!-- add / edit a skit -->
 <div class="modal" id="kSheet" hidden>
   <div class="sheet small wide">
     <h3 id="kHeading">Add skit</h3>
+    <div class="field"><label for="kTitle">Title</label><input type="text" id="kTitle" maxlength="120" autocomplete="off" placeholder="Name this skit"></div>
+    <div class="field">
+      <label for="kNotes">Notes <small>(optional)</small></label>
+      <textarea id="kNotes" rows="4" maxlength="1000" placeholder="The idea, who is in it, props, lines&hellip;"></textarea>
+      <p class="tp-hint">Paste a link (video, image, Google Drive, any website) and it turns into a button.</p>
+    </div>
     <div class="field">
       <label for="kLink">Video link <small>(optional: YouTube, Instagram, Facebook or TikTok)</small></label>
-      <input type="url" id="kLink" inputmode="url" autocomplete="off" maxlength="500" placeholder="Paste a link to get the thumbnail">
-      <div class="sk-prev" id="kPrev" hidden></div>
+      <input type="url" id="kLink" inputmode="url" autocomplete="off" maxlength="500" placeholder="https://">
     </div>
-    <div class="field"><label for="kTitle">Title</label><input type="text" id="kTitle" maxlength="120" autocomplete="off" placeholder="Name this skit (filled from the link if you leave it empty)"></div>
-    <div class="field"><label for="kNotes">Notes <small>(optional)</small></label><textarea id="kNotes" rows="4" maxlength="1000" placeholder="The idea, who is in it, props, lines&hellip;"></textarea></div>
     <div class="acts">
       <button type="button" class="go sm" id="kSave">Save</button>
       <button type="button" class="ghost" id="kCancel">Cancel</button>
@@ -60,16 +63,14 @@
 
 <!-- one skit: embed, notes, actions -->
 <div class="modal" id="kView" hidden>
-  <div class="sheet small wide">
-    <h3 id="kvTitle"></h3>
-    <p class="stub-note" style="text-align:center;margin:-6px 0 14px;font-size:12px" id="kvSub"></p>
-    <div class="pd-embed" id="kvEmbed"></div>
-    <p class="cr-notes" id="kvNotes" hidden></p>
+  <div class="sheet small wide tp-sheet">
+    <h3 id="kvTitle" style="text-align:left;overflow-wrap:anywhere"></h3>
+    <p class="tp-by" id="kvSub"></p>
+    <div id="kvBody"></div>
     <div class="acts">
       <button type="button" class="go sm" id="kvMove">Move to video edit</button>
       <button type="button" class="ghost" id="kvDone">Mark done</button>
       <button type="button" class="ghost" id="kvReopen">Back to to do</button>
-      <a class="ghost" id="kvOpen" href="#" target="_blank" rel="noopener noreferrer">Open</a>
       <button type="button" class="ghost" id="kvEdit">Edit</button>
       <button type="button" class="ghost danger" id="kvDel">Delete</button>
       <button type="button" class="ghost" id="kvClose">Close</button>
