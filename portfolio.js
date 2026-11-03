@@ -27,6 +27,15 @@ const normPort = d => ({ cards: (Array.isArray(d.cards) ? d.cards : (d.owned || 
 // Auction is a manual flag, not a status: it is a subtype of onhand and stays on the card after it ships / sells / is traded.
 // Every status chip still matches on the real status; the Auction chip matches the flag whatever the status is now.
 const matchTag = (c, t) => t === 'all' || (t === 'auction' ? !!c.auction : c.tag === t);
+/* auction details (Code.gs: Cards AI-AK): start, end and link, saved from the sheet that opens when you tap an auction card */
+const aucHas = c => !!(c && (c.auctionStart || c.auctionEnd || c.auctionLink));
+const aucWhen = v => { const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/); if (!m) return ''; const d = new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + (m[4] == null ? '' : ', ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })); };
+const aucLine = c => {
+  if (!c.auction || !aucHas(c)) return '';
+  const s = aucWhen(c.auctionStart), e = aucWhen(c.auctionEnd), safe = /^https?:\/\//i.test(c.auctionLink || '');
+  const when = s && e ? s + ' \u2192 ' + e : s ? 'Starts ' + s : e ? 'Ends ' + e : '';
+  return `<span class="port-held auc-line">${when ? 'Auction \u00b7 ' + escHtml(when) : 'Auction'}${safe ? ` \u00b7 <a href="${escHtml(c.auctionLink)}" target="_blank" rel="noopener noreferrer">Open link</a>` : ''}</span>`;
+};
 const auctionPill = (label) => `<span class="port-tag tag-auction">${label || 'Auction'}</span>`;
 const TAG_LABEL = { onhand: 'Onhand', pending: 'Pending', shipping: 'Shipping', shipped: 'Shipped', sold: 'Sold', safekeep: 'Safekeep', traded: 'Traded' };
 
@@ -101,7 +110,7 @@ function cardHtml(it, inLot) {
   const auctionBtn = icon('gavel', 'port-auction' + (it.auction ? ' auc-on' : ''), it.auction ? 'Remove auction tag' : 'Tag as auction', it.id);   // any status (onhand, shipping, sold, safekeep, ...); the tag is kept when the status changes
   const unlotBtn = inLot ? icon('unlink', 'port-unlot', 'Remove from lot', it.id) : '';
   const deleteBtn = icon('trash', 'port-delete danger', 'Delete card', it.id);
-  return `<div class="port-card" data-id="${it.id}">
+  return `<div class="port-card${it.auction ? ' auc-card' : ''}" data-id="${it.id}">
       <div class="port-card-main">
         <div class="port-thumb">${img}</div>
         <div class="port-info">
@@ -110,6 +119,7 @@ function cardHtml(it, inLot) {
           ${pend ? `<span class="port-held">Awaiting payment${it.soldTo ? ' \u00b7 ' + escHtml(it.soldTo) : ''}</span>` : ''}
           ${safe ? `<span class="port-held">Paid by ${escHtml(it.soldTo || '\u2014')} \u00b7 ${portPhp(it.soldPrice)}</span>` : ''}
           ${held ? `<span class="port-held">${held}</span>` : ''}
+          ${aucLine(it)}
         </div>
         <div class="port-right">
           <span class="port-tag tag-${it.tag}">${TAG_LABEL[it.tag] || it.tag}</span>${it.auction ? auctionPill() : ''}
@@ -290,6 +300,8 @@ $portList.addEventListener('click', async e => {
   const aucBtn = e.target.closest('.port-auction');
   if (aucBtn) {
     const c = findCard(aucBtn.dataset.id), turnOn = !(c && c.auction);
+    if (turnOn) return openAuc(c);   // tag it from the details sheet (the details are optional)
+    if (aucHas(c) && !confirm(aucWarn(c))) return;
     aucBtn.disabled = true;
     try { await auctionCall([aucBtn.dataset.id], turnOn); toast(turnOn ? 'Tagged as auction.' : 'Auction tag removed.'); await loadPortfolio(); }
     catch (err) { aucBtn.disabled = false; toast('Could not update: ' + err.message); }
@@ -340,9 +352,53 @@ async function lotCall(action, params) {
 async function lotBatches(action, ids, extra) {   // keep each request URL short
   for (let i = 0; i < ids.length; i += 25) await lotCall(action, Object.assign({ cardIds: ids.slice(i, i + 25).join(',') }, extra || {}));
 }
-async function auctionCall(ids, on) {   // Code.gs setAuction: works on any status; the tag is kept when the status changes
-  for (let i = 0; i < ids.length; i += 25) await lotCall('setAuction', { cardIds: ids.slice(i, i + 25).join(','), on: on ? '1' : '0' });
+async function auctionCall(ids, on, extra) {   // Code.gs setAuction: works on any status; the tag is kept when the status changes. extra = { start, end, link }
+  for (let i = 0; i < ids.length; i += 25) await lotCall('setAuction', Object.assign({ cardIds: ids.slice(i, i + 25).join(','), on: on ? '1' : '0' }, on ? (extra || {}) : {}));
 }
+const aucWarn = c => `Remove the auction tag from "${c.name}"?\n\nIts auction details (${[c.auctionStart && 'start', c.auctionEnd && 'end', c.auctionLink && 'link'].filter(Boolean).join(', ')}) will be deleted.`;
+
+/* ---------- Auction details sheet: start, end and link of one card ---------- */
+let aucId = null;
+const $auc = id => document.getElementById(id);
+function openAuc(c) {
+  if (!c) return;
+  aucId = c.id;
+  $auc('aucTitle').textContent = c.auction ? 'Auction details' : 'Tag as auction';
+  $auc('aucSub').textContent = c.name || '';
+  $auc('aucStart').value = String(c.auctionStart || '').slice(0, 16); $auc('aucEnd').value = String(c.auctionEnd || '').slice(0, 16); $auc('aucLink').value = c.auctionLink || '';
+  $auc('aucRemove').hidden = !c.auction;
+  $auc('aucSave').textContent = c.auction ? 'Save' : 'Tag as auction';
+  $auc('aucSheet').hidden = false; $auc('aucStart').focus();
+}
+const closeAuc = () => { $auc('aucSheet').hidden = true; aucId = null; };
+$auc('aucCancel').onclick = closeAuc;
+$auc('aucSheet').addEventListener('click', e => { if (e.target.id === 'aucSheet') closeAuc(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$auc('aucSheet').hidden) closeAuc(); });
+$auc('aucSave').onclick = async () => {
+  const c = findCard(aucId); if (!c) return;
+  const start = $auc('aucStart').value, end = $auc('aucEnd').value, link = $auc('aucLink').value.trim();
+  if (start && end && end < start) return toast('The auction cannot end before it starts.');
+  if (link && !/^https?:\/\//i.test(link)) return toast('The link must start with http:// or https://');
+  const b = $auc('aucSave'), label = b.textContent; b.disabled = true; b.textContent = 'Saving\u2026';
+  try { await auctionCall([c.id], true, { start, end, link }); closeAuc(); toast(c.auction ? 'Auction details saved.' : 'Tagged as auction.'); await loadPortfolio(); }
+  catch (err) { toast('Could not save: ' + err.message); }
+  b.disabled = false; b.textContent = label;
+};
+$auc('aucRemove').onclick = async () => {
+  const c = findCard(aucId); if (!c) return;
+  if (aucHas(c) && !confirm(aucWarn(c))) return;   // details exist: ask before throwing them away
+  const b = $auc('aucRemove'); b.disabled = true;
+  try { await auctionCall([c.id], false); closeAuc(); toast('Auction tag removed.'); await loadPortfolio(); }
+  catch (err) { toast('Could not update: ' + err.message); }
+  b.disabled = false;
+};
+// tapping an auction-tagged card (not a button, link or photo) opens its details
+$portList.addEventListener('click', e => {
+  const main = e.target.closest('.port-card-main'); if (!main || main.classList.contains('lot-head')) return;
+  if (e.target.closest('button, a, .port-clickphoto')) return;
+  const card = main.closest('.port-card[data-id]'), c = card && findCard(card.dataset.id);
+  if (c && c.auction) openAuc(c);
+});
 let lotAddId = null, lotCreate = false; const lotAddSel = new Set();
 const LOT_OK = c => !!c.tag;   // any status can be grouped
 const LOT_TAGS = [['all', 'All'], ['onhand', 'Onhand'], ['pending', 'Pending'], ['shipping', 'Shipping'], ['sold', 'Sold'], ['safekeep', 'Safekeep'], ['traded', 'Traded'], ['auction', 'Auction']];   // status filter inside the lot sheet
@@ -417,6 +473,8 @@ $portList.addEventListener('click', async e => {
   if (lau) {
     const oh = allLotCards(lau.dataset.id), turnOn = !oh.every(c => c.auction);
     if (!oh.length) return;
+    const withD = oh.filter(aucHas);
+    if (!turnOn && withD.length && !confirm(`Remove the auction tag from every card in this lot?\n\n${withD.length} card${withD.length === 1 ? ' has' : 's have'} auction details (start, end or link) that will be deleted.`)) return;
     lau.disabled = true;
     try { await auctionCall(oh.map(c => c.id), turnOn); toast(turnOn ? 'Lot tagged as auction.' : 'Auction tag removed from the lot.'); await loadPortfolio(); }
     catch (err) { lau.disabled = false; toast('Could not update: ' + err.message); }

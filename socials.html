@@ -114,6 +114,7 @@
     <b>Ranking by views</b>
     <span style="width:36px" aria-hidden="true"></span>
   </div>
+  <div class="filter-chips rk-chips" id="rkTypes"></div>
   <div class="filter-chips rk-chips" id="rkChips"></div>
   <p class="rec-count" id="rkSum"></p>
   <p class="stub-note" id="rkEmpty" hidden></p>
@@ -164,8 +165,7 @@
       <input type="url" id="pubLinkYt" class="ch-in" inputmode="url" autocomplete="off" placeholder="YouTube link">
       <input type="url" id="pubLinkTt" class="ch-in" inputmode="url" autocomplete="off" placeholder="TikTok link">
     </div>
-    <div class="field"><label for="pubDate">Date posted</label><input type="date" id="pubDate"></div>
-    <div class="field" id="pubPlanWrap"><label>Planned date &amp; time <small>(when it should go up)</small></label><div class="so-plan"><input type="date" id="pubPlanDate" aria-label="Planned date"><input type="time" id="pubPlanTime" aria-label="Planned time"></div></div>
+    <div class="field" id="pubPlanWrap"><label>Date &amp; time posted <small>(this is where it sits in the Planner)</small></label><div class="so-plan"><input type="date" id="pubDate" aria-label="Date posted"><input type="time" id="pubTime" aria-label="Time posted"></div></div>
     <p class="stub-note" style="margin:-6px 0 14px;font-size:12px">Post it first, then paste the link of each channel you used (at least one). It shows up as an embed.</p>
     <div class="acts">
       <button type="button" class="go sm" id="pubSave">Publish</button>
@@ -191,7 +191,7 @@
       <input type="url" id="pdThumbUrl" inputmode="url" autocomplete="off" maxlength="600" placeholder="Paste image link (https://&hellip;)" hidden>
       <div class="pd-thumb-btns"><button type="button" class="ghost sm" id="pdThumbSave">Save thumbnail</button><button type="button" class="ghost sm" id="pdThumbRefresh">Refresh from embed</button></div>
     </div>
-    <div class="field" style="margin-top:12px"><label>Planned date &amp; time <small>(where it sits in the Planner)</small></label><div class="so-plan"><input type="date" id="pdPlanDate" aria-label="Planned date"><input type="time" id="pdPlanTime" aria-label="Planned time"></div></div>
+    <div class="field" style="margin-top:12px"><label>Date &amp; time posted <small>(where it sits in the Planner)</small></label><div class="so-plan"><input type="date" id="pdPlanDate" aria-label="Date posted"><input type="time" id="pdPlanTime" aria-label="Time posted"></div></div>
     <div class="acts">
       <button type="button" class="go sm" id="pdSched">Save schedule</button>
       <button type="button" class="ghost" id="pdEdit">Edit details</button>
@@ -305,7 +305,6 @@
 
 <footer class="site-footer">
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
-  <p>trackello <span class="ver">v1.2</span></p>
 </footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="boot.js"></script>

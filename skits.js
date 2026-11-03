@@ -1,7 +1,7 @@
 /* ---------- Skits — video ideas to shoot ----------
    Backend: Code.gs skits / saveSkit / skitToVideo / deleteSkit.
    A plain list, laid out like the Topic Board: each skit shows its title, notes, status, who suggested it and when.
-   Links in the notes (or the optional video link) turn into buttons. There are no thumbnails or embeds.
+   Links in the notes turn into buttons. The list has no thumbnails; opening a skit with a video link plays it in an embed.
    To do -> "Move to video edit" creates a to-do video task in Creatives. When that video is posted (Socials > Planner > Publish) the skit moves to Done by itself. */
 (function () {
   'use strict';
@@ -79,6 +79,34 @@ function rich(src) {
 }
 // board notes stay plain text: each link is shortened to its address
 const plain = s => String(s || '').replace(URL_RE, u => { const c = u.replace(/[.,;:!?)\]]+$/, ''); try { return new URL(c).hostname.replace(/^www\./, ''); } catch (_) { return c; } });
+
+  /* ---------- playable embed (shown only when a skit is opened, never in the list) ---------- */
+  const PL = { yt: { n: 'YouTube', s: 'YT' }, ig: { n: 'Instagram', s: 'IG' }, fb: { n: 'Facebook', s: 'FB' }, tt: { n: 'TikTok', s: 'TT' } };
+  function platOf(u) {
+    let h; try { h = new URL(String(u).trim()).hostname.toLowerCase(); } catch (_) { return ''; }
+    if (!/^https?:/i.test(String(u).trim())) return '';
+    h = h.replace(/^(www|m|mobile|web|vm|vt)\./, '');
+    if (/(^|\.)youtube\.com$|^youtu\.be$/.test(h)) return 'yt';
+    if (/(^|\.)instagram\.com$|^instagr\.am$/.test(h)) return 'ig';
+    if (/(^|\.)facebook\.com$|^fb\.watch$|^fb\.com$|^fb\.me$/.test(h)) return 'fb';
+    if (/(^|\.)tiktok\.com$/.test(h)) return 'tt';
+    return '';
+  }
+  const ytId = u => { const m = String(u).match(/(?:youtu\.be\/|\/shorts\/|\/live\/|\/embed\/|[?&]v=)([\w-]{11})/); return m ? m[1] : ''; };
+  /* the official player of each site */
+  function embed(k, link, embedId) {
+    let src = '', cls = '';
+    if (k === 'yt') { const id = ytId(link); if (id) { src = 'https://www.youtube-nocookie.com/embed/' + id; cls = /\/shorts\//.test(link) ? ' vid tall' : ' vid wide'; } }
+    else if (k === 'ig') { const m = link.match(/instagram\.com\/(?:[\w.]+\/)?(p|reels?|tv)\/([\w-]+)/i); if (m) { const t = m[1].toLowerCase(); src = 'https://www.instagram.com/' + (t === 'p' ? 'p' : t === 'tv' ? 'tv' : 'reel') + '/' + m[2] + '/embed/'; cls = ' ig'; } }
+    else if (k === 'tt') { const id = embedId || (link.match(/\/video\/(\d+)/) || [])[1]; if (id) { src = 'https://www.tiktok.com/embed/v2/' + id; cls = ' tall'; } }
+    else if (k === 'fb') {
+      const w = Math.max(280, Math.min(500, window.innerWidth - 80)), isVideo = /\/(videos?|reels?|watch)\b|fb\.watch/i.test(link), href = encodeURIComponent(link);
+      src = isVideo ? `https://www.facebook.com/plugins/video.php?href=${href}&show_text=false&width=${w}&height=${w}` : `https://www.facebook.com/plugins/post.php?href=${href}&show_text=true&width=${w}`;
+      cls = isVideo ? ' vid' : '';
+    }
+    if (!src) return '<p class="stub-note">This link can\u2019t be shown here. Use Open to watch it.</p>';
+    return `<div class="so-embed${cls}"><iframe src="${src}" title="${esc(PL[k].n)} video" loading="lazy" allowfullscreen="true" allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share" frameborder="0" scrolling="no"></iframe></div>`;
+  }
 
   /* ---------------- list ---------------- */
   let list = [], filter = 'todo', loaded = false;
@@ -159,8 +187,9 @@ const plain = s => String(s || '').replace(URL_RE, u => { const c = u.replace(/[
     viewId = k.id;
     $('kvTitle').textContent = k.title;
     $('kvSub').innerHTML = `${k.by ? 'Suggested by <b>' + esc(cap(k.by)) + '</b> \u00b7 ' : 'Added '}${esc(stamp(k.createdAt))}<br>${esc(tagOf(k))}${k.status === 'edit' ? ' \u00b7 it moves to Done when the video is posted' : ''}`;
+    $('kvEmbed').innerHTML = k.link ? embed(k.platform || platOf(k.link), k.link, k.embedId) : '';
+    const o = $('kvOpen'); o.hidden = !safeUrl(k.link); if (safeUrl(k.link)) o.href = k.link;
     const parts = [];
-    if (safeUrl(k.link)) parts.push(`<p class="tp-body">${rich(k.link)}</p>`);
     if (k.notes) parts.push(`<p class="tp-body">${rich(k.notes)}</p>`);
     $('kvBody').innerHTML = parts.join('') || '<p class="tp-none">No notes yet. Tap Edit to add some.</p>';
     $('kvMove').hidden = k.status !== 'todo';
@@ -168,7 +197,7 @@ const plain = s => String(s || '').replace(URL_RE, u => { const c = u.replace(/[
     $('kvReopen').hidden = k.status !== 'done';
     $('kView').hidden = false;
   }
-  const closeView = () => { $('kView').hidden = true; viewId = ''; };
+  const closeView = () => { $('kView').hidden = true; $('kvEmbed').innerHTML = ''; viewId = ''; };   // clearing the embed stops the video
   $('kvClose').onclick = closeView;
   $('kvEdit').onclick = () => { const k = find(viewId); if (k) openForm(k); };
 

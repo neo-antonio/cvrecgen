@@ -141,7 +141,7 @@
 
   const W = {
     goals(S) {
-      const goals = org.filter(i => i.kind === 'goal');
+      const goals = org.filter(i => i.kind === 'goal' && !i.archived);   // archived goals are not shown
       if (!goals.length) return shell('', 'organization.html', 'Goals', null, '', '<div class="wg-empty">No goals yet. Add them in Organization, Goals.</div>');
       const prog = g => {
         if (!S.port) return null;

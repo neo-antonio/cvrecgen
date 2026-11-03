@@ -1018,6 +1018,7 @@ html[data-theme=dark] .tag-safekeep{background:#0f2e2b;color:#6fd0c5}
 .gl-card.done .gl-bar u{background:#3fa66b}
 .gl-card.late .gl-bar u{background:#d9634a}
 .gl-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;color:var(--mut)}
+.gl-acts{display:flex;gap:6px;flex:none}
 .gl-note{margin:0;font-size:12px;line-height:1.5;color:var(--mut);white-space:pre-wrap;overflow-wrap:anywhere}
 .gl-card .ghost.sm{padding:0 14px;min-height:30px}
 .gl-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -1676,3 +1677,7 @@ i.ch.tt{background:#111;box-shadow:inset -1.5px -1.5px 0 #25f4ee,inset 1.5px 1.5
 .pd-thumb-prev svg{width:22px;height:22px}
 #pdThumbUrl{margin-top:8px}
 .pd-thumb-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+
+/* portfolio: an auction-tagged card opens its auction details when tapped */
+.port-card.auc-card>.port-card-main:not(.lot-head){cursor:pointer}
+.port-info .auc-line a{color:inherit;text-decoration:underline}

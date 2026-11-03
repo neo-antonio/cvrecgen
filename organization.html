@@ -42,6 +42,10 @@
 
   <div id="panelGoal" hidden>
     <button type="button" class="ghost add-task" id="addGoal">+ Add goal</button>
+    <div class="filter-chips" id="goalFilters" style="margin-bottom:10px">
+      <button type="button" class="chip active" data-g="active">Goals</button>
+      <button type="button" class="chip" data-g="archived">Archived</button>
+    </div>
     <div class="mk-list" id="goalList"></div>
   </div>
 
@@ -130,7 +134,6 @@
 
 <footer class="site-footer">
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
-  <p>trackello <span class="ver">v1.2</span></p>
 </footer>
 <script src="boot.js"></script>
 <script src="config.js"></script>

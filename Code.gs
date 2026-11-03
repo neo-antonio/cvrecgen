@@ -13,6 +13,7 @@
  *                   TargetPrice / TargetMax (AF-AG, Commercial app): target sale price; TargetMax is the top of a range (blank/0 = a single price). Created on first use.
  *                   Auction (AH): manual flag "Y" = the card was put up for auction. It is NOT a status: it is a subtype of onhand while the card is onhand,
  *                   it can be set or cleared on a card of ANY status (onhand, pending, shipping, sold, safekeep, traded), and it is kept when the card changes status. Created on first use.
+ *                   AuctionStart / AuctionEnd / AuctionLink (AI-AK): the auction's start and end ('yyyy-MM-ddTHH:mm') and its link; cleared when the Auction tag is removed.
  *                   Status is one of: onhand, shipping, shipped, safekeep, traded.
  *                   SAFEKEEP = sold and already paid, but we keep the card for the buyer. It keeps its sale details (buyer, price, sale receipt) and has no
  *                   shipping task, so it is not in the Shipping feed. A safekeep card can later get its own shipping task (createShippingTask with safekeep cards).
@@ -29,7 +30,7 @@
  *   Entities (A-K): ID | Name | Contact | Aliases | Created | Address | Email | Facebook | Payment | Notes | Profile   (sellers, buyers, trade partners; created automatically).
  *                   Profile (K) is a small JSON: gender, nickname, flags, blacklist and the profile photo link. Photos are saved in PROFILE_FOLDER_ID on Drive.
  *                   Payment is pipe-separated. Address is filled from a sale receipt's shipping address when the entity has none.
- *   Organization (A-I): ID | Kind | Title | Role | ParentID | Apps | Body | Created | Notifs   (created automatically)
+ *   Organization (A-N): ID | Kind | Title | Role | ParentID | Apps | Body | Created | Notifs | Metric | Target | Start | Deadline | Archived   (created automatically; Archived = '1' for a goal that was archived, it is then hidden from the Goals list and the Home widget)
  *                   Kind: person (Title = name, ParentID = who they report to, Apps = pipe-separated app ids, Notifs = pipe-separated Home alert keys), process, faq.
  *                   Aliases are other spellings (pipe-separated) that resolve to this entity.
  *   Creatives (A-Q): ID | Kind | ReceiptKey | Title | Date | Status | Platforms | Notes | Caption | Edited | Auto | Created | DoneDate | Cards | Previews | Time | Hidden
@@ -65,7 +66,7 @@
  * GET  actions: setLot, clearLot, setTargets, portfolio, onhandCards, finance, shipping, receipts, syncStatus, record, unrecord, balance, saveBalance, saveInterest,
  *               markShipped, updateShipped, unmarkShipped, revertToOnhand, deleteCard, deleteFinance, renameCard, linkFinanceReceipt,
  *               unlinkFinanceReceipt, clearPhoto, addFinance, receiptImpact, deleteReceipt, updateShipping, events, saveEvent, deleteEvent,
- *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
+ *               entities, entityCards, entityNames, saveEntity, mergeEntities, deleteEntity, organization, saveOrgItem, archiveOrgItem, deleteOrgItem, creatives, saveCreative, setCreativeCards,
  *               completeCreatives, deleteCreative, addFreePost, mergeVideoTasks, savePostGroup, allCards, setPostViews, socials, syncSocials, saveSocialDay, importSocialMetric, saveSocialPanel, login, changePassword, listUsers, createShippingTask, cancelShipping, setSafekeep, mergeShippingTasks, setAuction, titleCaseCards,
  *               setPostChannels, skits, saveSkit, skitToVideo, deleteSkit, linkPreview,
  *               topicUsers, topics, saveTopic, addTopicComment, resolveTopic, reopenTopic, deleteTopic,
@@ -149,6 +150,7 @@ function doGet(e) {
     if (action === 'entityCards') return jsonpOut_(getEntityCards_(e.parameter.entityId), cb);
     if (action === 'organization') return jsonpOut_(getOrg_(), cb);
     if (action === 'saveOrgItem') return jsonpOut_(saveOrgItem_(e.parameter), cb);
+    if (action === 'archiveOrgItem') return jsonpOut_(archiveOrgItem_(e.parameter.id, e.parameter.archived), cb);
     if (action === 'deleteOrgItem') return jsonpOut_(deleteOrgItem_(e.parameter.id), cb);
     if (action === 'saveEntity') return jsonpOut_(saveEntity_(e.parameter), cb);
     if (action === 'mergeEntities') return jsonpOut_(mergeEntities_(e.parameter), cb);
@@ -553,12 +555,18 @@ function setTargets_(p) {
 
 // Auction: a manual flag in Cards AH (34). It is a subtype of onhand while the card is onhand, can be switched on/off on a card of any status
 // (so sold / safekeep / shipping cards can be marked too), and stays on the card when its status changes (shipping, sold, safekeep, traded, revert to onhand).
-// p.cardIds = comma list, p.on = '1' to tag, '0' to untag.
+// p.cardIds = comma list, p.on = '1' to tag, '0' to untag (untagging also clears the auction details).
+// Auction details (AI-AK: AuctionStart, AuctionEnd, AuctionLink) are saved with p.start / p.end / p.link when any of them is sent with on=1; a blank value clears it.
 function ensureAuctionColumn_(cards) {
-  const need = 34;
+  const need = 37;
   if (cards.getMaxColumns() < need) cards.insertColumnsAfter(cards.getMaxColumns(), need - cards.getMaxColumns());
   if (!cards.getRange(1, 34).getValue()) cards.getRange(1, 34).setValue('Auction');
+  const h = cards.getRange(1, 35, 1, 3).getValues()[0];
+  ['AuctionStart', 'AuctionEnd', 'AuctionLink'].forEach((name, i) => { if (!h[i]) cards.getRange(1, 35 + i).setValue(name); });
 }
+// start / end 'yyyy-MM-ddTHH:mm' (time optional), link http(s) only
+function cleanAuctionWhen_(v) { v = String(v || '').trim().replace(' ', 'T'); return /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(v) ? v : ''; }
+function cleanAuctionLink_(v) { v = String(v || '').trim().slice(0, 500); return /^https?:\/\//i.test(v) ? v : ''; }
 function isAuction_(v) { return /^(y|yes|true|1)$/i.test(String(v == null ? '' : v).trim()); }
 function setAuction_(p) {
   const ids = splitIds_(p.cardIds), on = String(p.on) === '1';
@@ -573,6 +581,8 @@ function setAuction_(p) {
     const i = rowOf[id];
     if (i == null) return;
     cards.getRange(i + 1, 34).setNumberFormat('@').setValue(on ? 'Y' : '');
+    if (!on) cards.getRange(i + 1, 35, 1, 3).setNumberFormat('@').setValues([['', '', '']]);
+    else if ('start' in p || 'end' in p || 'link' in p) cards.getRange(i + 1, 35, 1, 3).setNumberFormat('@').setValues([[cleanAuctionWhen_(p.start), cleanAuctionWhen_(p.end), cleanAuctionLink_(p.link)]]);
     n++;
   });
   return { ok: true, updated: n };
@@ -1448,7 +1458,8 @@ function getPortfolio_() {
       receipts: receiptLinks_(r[21], r[22], rmap),
       lotId: String(r[28] || ''), lotName: String(r[29] || ''),
       targetPrice: Number(r[31]) || 0, targetMax: Number(r[32]) || 0,   // Commercial: target sale price (low end) and optional top of the range
-      auction: isAuction_(r[33])   // manual auction tag (Cards AH); kept after the card ships / sells
+      auction: isAuction_(r[33]),   // manual auction tag (Cards AH); kept after the card ships / sells
+      auctionStart: String(stampCell_(r[34])).replace(' ', 'T'), auctionEnd: String(stampCell_(r[35])).replace(' ', 'T'), auctionLink: String(r[36] || '')   // AI-AK
     };
     (status === 'onhand' || status === 'shipping' || status === 'safekeep' ? owned : sold).push(item);
     all.push(item);
@@ -2762,18 +2773,21 @@ function deleteEntity_(entityId) {
 /* ---------- organization: team chart, goals, FAQ ---------- */
 
 const ORG_SHEET = 'Organization';
-const ORG_HEADERS = ['ID', 'Kind', 'Title', 'Role', 'ParentID', 'Apps', 'Body', 'Created', 'Notifs', 'Metric', 'Target', 'Start', 'Deadline'];
+const ORG_HEADERS = ['ID', 'Kind', 'Title', 'Role', 'ParentID', 'Apps', 'Body', 'Created', 'Notifs', 'Metric', 'Target', 'Start', 'Deadline', 'Archived'];
 function orgSheet_(create) {
   const ss = ss_();
   let sh = ss.getSheetByName(ORG_SHEET);
   if (!sh && create) {
     sh = ss.insertSheet(ORG_SHEET);
-    sh.getRange(1, 1, 1, 13).setValues([ORG_HEADERS]);
-    sh.getRange('A:M').setNumberFormat('@');
+    sh.getRange(1, 1, 1, ORG_HEADERS.length).setValues([ORG_HEADERS]);
+    sh.getRange('A:N').setNumberFormat('@');
   }
   // goals (kind 'goal') use columns J-M: Metric (cards|profit|value), Target, Start and Deadline (yyyy-MM-dd)
   if (sh && sh.getMaxColumns() < 13) sh.insertColumnsAfter(sh.getMaxColumns(), 13 - sh.getMaxColumns());
   if (sh && !sh.getRange(1, 10).getValue()) { sh.getRange(1, 10, 1, 4).setValues([['Metric', 'Target', 'Start', 'Deadline']]); sh.getRange('J:M').setNumberFormat('@'); }
+  // Archived (col N): '1' = an archived goal
+  if (sh && sh.getMaxColumns() < 14) sh.insertColumnsAfter(sh.getMaxColumns(), 14 - sh.getMaxColumns());
+  if (sh && !sh.getRange(1, 14).getValue()) { sh.getRange(1, 14).setValue('Archived'); sh.getRange('N:N').setNumberFormat('@'); }
   // older sheets stop at column H: add Notifs (Home alerts assigned to a person, pipe-separated keys)
   if (sh && !sh.getRange(1, 9).getValue()) { sh.getRange(1, 9).setValue('Notifs'); sh.getRange('I:I').setNumberFormat('@'); }
   return sh;
@@ -2787,7 +2801,7 @@ function getOrg_() {
       if (!x[0] || !x[2]) continue;
       items.push({ id: String(x[0]), kind: String(x[1]), title: String(x[2]), role: String(x[3] || ''), parent: String(x[4] || ''),
         apps: String(x[5] || '').split('|').filter(Boolean), body: String(x[6] || ''), notifs: String(x[8] || '').split('|').filter(Boolean),
-        metric: String(x[9] || ''), target: Number(x[10]) || 0, start: fmtDateCell_(x[11]), deadline: fmtDateCell_(x[12]) });
+        metric: String(x[9] || ''), target: Number(x[10]) || 0, start: fmtDateCell_(x[11]), deadline: fmtDateCell_(x[12]), archived: String(x[13] || '') === '1' });
     }
   }
   return { ok: true, items };
@@ -2829,6 +2843,20 @@ function saveOrgItem_(p) {
     const nid = newId_('og');
     appendRows_(sh, [[nid, kind, title, role, parent, apps, body, todayStr_(), notifs, metric, kind === 'goal' ? String(target) : '', start, deadline]]);
     return { ok: true, id: nid };
+  } finally { lock.releaseLock(); }
+}
+// Archive (archived=1) or restore (archived=0) a goal. Archived goals leave the Goals list and the Home widget; nothing is deleted.
+function archiveOrgItem_(id, archived) {
+  id = String(id || '').trim();
+  if (!id) return { ok: false, error: 'missing id' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = orgSheet_(true), found = findRow_(sh, id);
+    if (!found) return { ok: false, error: 'not found' };
+    if (String(found.row[1]) !== 'goal') return { ok: false, error: 'only goals can be archived' };
+    sh.getRange(found.idx, 14).setNumberFormat('@').setValue(String(archived) === '1' ? '1' : '');
+    return { ok: true };
   } finally { lock.releaseLock(); }
 }
 // Deleting a person moves their direct reports up to whoever the deleted person reported to.

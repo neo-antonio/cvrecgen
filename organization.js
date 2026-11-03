@@ -9,6 +9,8 @@ const api = (action, params = {}) => CONFIG.portfolio.endpoint + '?action=' + ac
 
 /* The apps on the home screen, with the same icons. Add a line here when a new app is added to the launcher. */
 const APPS = [
+  { id: 'imageembed', label: 'Image Embed', href: 'https://postimages.org/', desc: 'Upload an image and get an embed link (opens postimages.org in a new tab).',
+    svg: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9.5" r="1.6"/><path d="M4 18l5.5-5.5 4 4 2.5-2.5L20 18"/>' },
   { id: 'receipt', label: 'Receipt', href: 'receipt.html', desc: 'Make purchase, sold, trade and transfer receipts.',
     svg: '<path d="M6 2.2h12v19.6l-2-1.1-2 1.1-2-1.1-2 1.1-2-1.1-2 1.1z"/><line x1="8.2" y1="7" x2="15.8" y2="7"/><line x1="8.2" y1="11" x2="15.8" y2="11"/><line x1="8.2" y1="15" x2="13" y2="15"/>' },
   { id: 'portfolio', label: 'Portfolio', href: 'portfolio.html', desc: 'Every card on hand, shipping, sold or traded.',
@@ -186,6 +188,7 @@ function goalState(g, cur) {
   if (left < 0) return { cls: 'late', badge: 'Missed', foot: 'Ended ' + (-left) + ' day' + (left === -1 ? '' : 's') + ' ago' };
   return { cls: '', badge: left === 0 ? 'Due today' : left + ' day' + (left === 1 ? '' : 's') + ' left', foot: goalNum(g, g.target - cur) + (g.metric === 'cards' ? ' to go' : ' to go') };
 }
+let goalView = 'active';   // active | archived
 function goalHtml(g) {
   const M = METRIC[g.metric] || METRIC.cards, cur = progressOf(g), st = goalState(g, cur);
   const pct = cur == null || !(g.target > 0) ? 0 : Math.max(0, Math.min(100, cur / g.target * 100));
@@ -195,14 +198,17 @@ function goalHtml(g) {
       <div class="gl-nums"><b>${cur == null ? 'Calculating\u2026' : goalNum(g, cur) + ' of ' + goalNum(g, g.target)}</b><span>${cur == null ? '' : Math.floor(pct) + '%'}</span></div>
       <span class="gl-bar"><u style="width:${pct}%"></u></span>
       ${g.body ? `<p class="gl-note">${escOrg(g.body)}</p>` : ''}
-      <div class="gl-foot"><span>${escOrg(st.foot)}</span><button type="button" class="ghost sm org-edit" data-id="${escOrg(g.id)}">Edit</button></div>
+      <div class="gl-foot"><span>${escOrg(st.foot)}</span><span class="gl-acts">${g.archived ? `<button type="button" class="ghost sm org-arch" data-id="${escOrg(g.id)}" data-on="0">Restore</button>` : st.cls === 'late' ? `<button type="button" class="ghost sm org-arch" data-id="${escOrg(g.id)}" data-on="1">Archive</button>` : ''}<button type="button" class="ghost sm org-edit" data-id="${escOrg(g.id)}">Edit</button></span></div>
     </div>`;
 }
 function renderGoals() {
-  const list = items.filter(i => i.kind === 'goal');
+  const all = items.filter(i => i.kind === 'goal'), nArch = all.filter(g => g.archived).length;
+  $o('goalFilters').querySelector('[data-g=active]').textContent = 'Goals (' + (all.length - nArch) + ')';
+  $o('goalFilters').querySelector('[data-g=archived]').textContent = 'Archived (' + nArch + ')';
+  const list = all.filter(g => goalView === 'archived' ? g.archived : !g.archived);
   const rank = g => { const c = progressOf(g); return c == null ? 0 : c >= g.target ? 1 : daysTo(g.deadline) < 0 ? 2 : 0; };
   list.sort((a, b) => rank(a) - rank(b) || String(a.deadline).localeCompare(String(b.deadline)));
-  $o('goalList').innerHTML = list.length ? list.map(goalHtml).join('') : '<p class="stub-note">No goals yet. Tap + Add goal to set a target, like cards sold or net profit by a date.</p>';
+  $o('goalList').innerHTML = list.length ? list.map(goalHtml).join('') : goalView === 'archived' ? '<p class="stub-note">No archived goals. A goal you missed can be archived to hide it from Goals and the Home widget.</p>' : `<p class="stub-note">${nArch ? 'No active goals.' : 'No goals yet. Tap + Add goal to set a target, like cards sold or net profit by a date.'}</p>`;
 }
 
 /* ---------- FAQ ---------- */
@@ -275,6 +281,13 @@ $o('orgViewClose').onclick = closeView;
 $o('orgView').addEventListener('click', e => { if (e.target.id === 'orgView') closeView(); });
 $o('orgViewEdit').onclick = () => { const id = viewId; closeView(); openEdit('person', id); };
 $o('orgChart').addEventListener('click', e => { const n = e.target.closest('.org-node'); if (n) openView(n.dataset.id); });
+$o('goalFilters').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; goalView = b.dataset.g; $o('goalFilters').querySelectorAll('.chip').forEach(x => x.classList.toggle('active', x === b)); renderGoals(); });
+$o('goalList').addEventListener('click', e => {
+  const b = e.target.closest('.org-arch'); if (!b) return;
+  const on = b.dataset.on === '1', g = findItem(b.dataset.id); if (!g) return;
+  if (on && !confirm(`Archive "${g.title}"?\n\nIt is hidden from Goals and the Home widget. You can restore it from Archived.`)) return;
+  send(b, on ? 'Archiving\u2026' : 'Restoring\u2026', 'archiveOrgItem', { id: g.id, archived: on ? 1 : 0 }, on ? 'Goal archived.' : 'Goal restored.', 'Could not save: ');
+});
 ['goalList', 'faqList'].forEach(l => $o(l).addEventListener('click', e => { const b = e.target.closest('.org-edit'); if (b) openEdit(findItem(b.dataset.id).kind, b.dataset.id); }));
 
 /* ---------- Add / edit ---------- */

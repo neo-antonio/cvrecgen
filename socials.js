@@ -462,6 +462,8 @@
   const find = id => allTasks().find(t => t.id === id);
   const shown = () => allTasks().filter(t => !t.hidden && (isReady(t) || isPosted(t)));
   const whenOf = t => t.date || (isPosted(t) ? (CH.map(x => chOf(t, x.k).date).filter(Boolean).sort()[0] || '') : '');   // every task sits on its planned date, posted or not, so it can be rescheduled either way
+  /* date and time posted = where the task sits in the Planner ('Oct 31, 2026, 3:45 PM'; just the date when no time is set) */
+  const postedAt = t => { const d = String(whenOf(t) || '').slice(0, 10); return d ? fmtStamp(d + (t.time ? ' ' + t.time : '')) : ''; };
   const waiting = () => shown().filter(isReady);
   const hiddenTasks = () => allTasks().filter(t => t.hidden && (isReady(t) || isPosted(t)));
   const ICON = {
@@ -565,28 +567,31 @@
   $('plToday').onclick = () => { weekStart = startOfWeek(new Date()); selDay = todayIso(); renderPlanner(); };
   $('plRefresh').onclick = () => loadCreatives(true);
   /* ---- ranking: every posted task from most to least views (all channels added up, or one channel) ---- */
-  let rkCh = 'all';
+  let rkCh = 'all', rkType = 'all';   // rkType: all | video | post
+  const RK_TYPES = [{ k: 'all', n: 'All types' }, { k: 'video', n: 'Videos' }, { k: 'post', n: 'Posts' }];
   function renderRanking() {
+    $('rkTypes').innerHTML = RK_TYPES.map(x => `<button type="button" class="chip${x.k === rkType ? ' active' : ''}" data-t="${x.k}">${x.n}</button>`).join('');
     $('rkChips').innerHTML = [{ k: 'all', n: 'All channels' }].concat(CH).map(x => `<button type="button" class="chip${x.k === rkCh ? ' active' : ''}" data-k="${x.k}">${x.n}</button>`).join('');
     const val = t => rkCh === 'all' ? (anyViews(t) ? totalViews(t) : null) : (hasViews(chOf(t, rkCh)) ? +chOf(t, rkCh).views : null);
-    const rows = allTasks().filter(t => isPosted(t) && !t.hidden).map(t => ({ t, v: val(t) }));   // hidden tasks are not ranked
+    const rows = allTasks().filter(t => isPosted(t) && !t.hidden && (rkType === 'all' || t.kind === rkType)).map(t => ({ t, v: val(t) }));   // hidden tasks are not ranked
     const ranked = rows.filter(r => r.v != null).sort((a, b) => b.v - a.v), none = rows.filter(r => r.v == null);
     const max = ranked.length ? Math.max(1, ranked[0].v) : 1, sum = ranked.reduce((n, r) => n + r.v, 0);
     let rank = 0, prevV = null;
     $('rkList').innerHTML = ranked.map((r, i) => {
       if (r.v !== prevV) { rank = i + 1; prevV = r.v; }
-      const t = r.t, th = thumbOf(t), d = parseIso(whenOf(t));
+      const t = r.t, th = thumbOf(t), at = postedAt(t);
       const chips = CH.filter(x => hasViews(chOf(t, x.k))).map(x => `<i class="ch ${x.k}" title="${x.n}">${x.s}<em>${fmtK(+chOf(t, x.k).views)}</em></i>`).join('');
       return `<button type="button" class="rk-item${rank <= 3 ? ' top' : ''}" data-id="${esc(t.id)}">
         <span class="rk-n">${rank}</span>
         <span class="rk-thumb">${th ? `<img src="${esc(th)}" alt="" loading="lazy">` : svgI(t.kind)}</span>
-        <span class="rk-main"><b>${esc(t.title)}</b><small>${kindLabel(t)}${d ? ' \u00b7 ' + esc(shortDay(d)) : ''}</small><span class="rk-bar"><i style="width:${Math.max(2, Math.round(r.v / max * 100))}%"></i></span>${chips ? `<span class="pl-chs">${chips}</span>` : ''}</span>
+        <span class="rk-main"><b>${esc(t.title)}</b><small>${kindLabel(t)}${at ? ' \u00b7 ' + esc(at) : ''}</small><span class="rk-bar"><i style="width:${Math.max(2, Math.round(r.v / max * 100))}%"></i></span>${chips ? `<span class="pl-chs">${chips}</span>` : ''}</span>
         <strong class="rk-v">${num(r.v)}</strong>
       </button>`;
     }).join('');
-    $('rkSum').textContent = ranked.length ? `${pl(ranked.length, 'post')} ranked \u00b7 ${num(sum)} views in total` : '';
+    $('rkSum').textContent = ranked.length ? `${pl(ranked.length, rkType === 'video' ? 'video' : rkType === 'post' ? 'post' : 'task')} ranked \u00b7 ${num(sum)} views in total` : '';
     $('rkEmpty').hidden = ranked.length > 0;
-    $('rkEmpty').textContent = rows.length ? 'No views entered yet' + (rkCh === 'all' ? '' : ' for ' + CH.find(x => x.k === rkCh).n) + '. Open a posted card and tap Edit details.' : 'Nothing is posted yet. Posted tasks are ranked here.';
+    const typeWord = rkType === 'video' ? 'videos' : rkType === 'post' ? 'posts' : 'tasks';
+    $('rkEmpty').textContent = rows.length ? 'No views entered yet' + (rkCh === 'all' ? '' : ' for ' + CH.find(x => x.k === rkCh).n) + '. Open a posted card and tap Edit details.' : 'No posted ' + typeWord + ' yet. Posted ' + typeWord + ' are ranked here.';
     $('rkNoneNote').hidden = !none.length || !ranked.length;
     $('rkNoneNote').textContent = ranked.length ? `Posted, no views entered yet (${none.length})` : '';
     $('rkNone').innerHTML = ranked.length ? none.map(r => `<button type="button" class="rk-item dim" data-id="${esc(r.t.id)}"><span class="rk-n">\u2013</span><span class="rk-main"><b>${esc(r.t.title)}</b><small>${kindLabel(r.t)}</small></span></button>`).join('') : '';
@@ -594,6 +599,7 @@
   const showRanking = on => { $('panelRanking').hidden = !on; $('panelPlanner').hidden = on; if (on) { renderRanking(); window.scrollTo(0, 0); } };
   $('plRankBtn').onclick = () => showRanking(true);
   $('rkBack').onclick = () => showRanking(false);
+  $('rkTypes').addEventListener('click', e => { const b = e.target.closest('button[data-t]'); if (b) { rkType = b.dataset.t; renderRanking(); } });
   $('rkChips').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b) { rkCh = b.dataset.k; renderRanking(); } });
   const rkOpen = e => { const b = e.target.closest('.rk-item'), t = b && find(b.dataset.id); if (t) openDetail(t); };
   $('rkList').addEventListener('click', rkOpen); $('rkNone').addEventListener('click', rkOpen);
@@ -679,11 +685,10 @@
     $('pubHeading').textContent = edit ? 'Edit channel links' : 'Publish';
     $('pubSub').textContent = t.title + (t.date ? ' \u00b7 planned ' + shortDay(parseIso(t.date) || new Date()) + (t.time ? ', ' + fmtClock(t.time) : '') : '');
     CH.forEach(x => { $(PUBIN[x.k]).value = chOf(t, x.k).link || ''; });
-    $('pubDate').value = CH.map(x => chOf(t, x.k).date).filter(Boolean).sort()[0] || todayIso();
+    $('pubDate').value = t.date || CH.map(x => chOf(t, x.k).date).filter(Boolean).sort()[0] || todayIso(); $('pubTime').value = t.time || '';   // the planner's date and time
     $('pubSave').textContent = edit ? 'Save' : 'Publish';
     // copy / hide / delete are for tasks that are not posted yet
-    $('pubPlanDate').value = t.date || ''; $('pubPlanTime').value = t.time || '';
-    $('pubPlanWrap').hidden = edit; $('pubSched').hidden = edit;
+    $('pubSched').hidden = edit;
     $('pubCopy').hidden = edit; $('pubHide').hidden = edit; $('pubDel').hidden = edit || !canDelete(t);
     $('pdSheet').hidden = true; $('pubSheet').hidden = false; $('pubLink').focus();
   }
@@ -711,7 +716,7 @@
         delete p.thumbD;
       }
       b.textContent = 'Saving\u2026';
-      await call('saveCreative', { id: t.id, status: 'posted', platforms: JSON.stringify(plats) });
+      await call('saveCreative', { id: t.id, status: 'posted', platforms: JSON.stringify(plats), date, time: $('pubTime').value || '' });   // date and time posted = its place in the Planner
       closePub(); toast(pubEdit ? 'Links saved.' : 'Published.');
       await loadCreatives();
     } catch (err) { toast('Could not save: ' + backendErr(err)); }
@@ -720,9 +725,9 @@
   /* set or change the planned date and time without posting */
   $('pubSched').onclick = async () => {
     const t = find(pubId); if (!t) return;
-    const date = $('pubPlanDate').value; if (!date) return toast('Pick a planned date.');
+    const date = $('pubDate').value; if (!date) return toast('Pick a date.');
     const b = $('pubSched'); b.disabled = true;
-    try { await call('saveCreative', { id: t.id, date, time: $('pubPlanTime').value || '' }); closePub(); toast('Schedule saved.'); await loadCreatives(); }
+    try { await call('saveCreative', { id: t.id, date, time: $('pubTime').value || '' }); closePub(); toast('Schedule saved.'); await loadCreatives(); }
     catch (err) { toast('Could not save: ' + backendErr(err)); }
     b.disabled = false;
   };
@@ -754,8 +759,8 @@
   function openDetail(t, ch) {
     pdId = t.id;
     const links = CH.filter(x => chOf(t, x.k).link), cur = (ch && links.find(x => x.k === ch)) || links[0];
-    const when = CH.map(x => chOf(t, x.k).date).filter(Boolean).sort()[0], d = parseIso(when);
-    $('pdSub').textContent = `${t.title} \u00b7 ${kindLabel(t)}${d ? ' \u00b7 posted ' + longDay(d) : ''}`;
+    const when = postedAt(t);
+    $('pdSub').textContent = `${t.title} \u00b7 ${kindLabel(t)}${when ? ' \u00b7 posted ' + when : ''}`;
     $('pdTabs').hidden = links.length < 2;
     $('pdTabs').innerHTML = links.length < 2 ? '' : links.map(x => `<button type="button" class="chip${x === cur ? ' active' : ''}" data-k="${x.k}">${x.n}</button>`).join('');
     $('pdEmbed').innerHTML = cur ? embedFor(cur.k, chOf(t, cur.k).link, Math.min(420, window.innerWidth - 80)) : '<p class="stub-note">No link saved.</p>';

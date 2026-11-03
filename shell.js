@@ -127,6 +127,7 @@
 
   var ICON = {
     home: '<path d="M4 10.5L12 4l8 6.5V20a1 1 0 01-1 1h-4.5v-6h-5v6H5a1 1 0 01-1-1z"/>',
+    imageembed: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9.5" r="1.6"/><path d="M4 18l5.5-5.5 4 4 2.5-2.5L20 18"/>',
     receipt: '<path d="M6 2.2h12v19.6l-2-1.1-2 1.1-2-1.1-2 1.1-2-1.1-2 1.1z"/><line x1="8.2" y1="7" x2="15.8" y2="7"/><line x1="8.2" y1="11" x2="15.8" y2="11"/><line x1="8.2" y1="15" x2="13" y2="15"/>',
     portfolio: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3v18M5.6 5.6c2.9 3 2.9 9.9 0 12.8M18.4 5.6c-2.9 3-2.9 9.9 0 12.8"/>',
     commercial: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/>',
@@ -149,7 +150,7 @@
 
   // [icon key, label, page]
   var GROUPS = [
-    ['Workspace', [['home', 'Home', 'index.html']]],
+    ['Workspace', [['home', 'Home', 'index.html'], ['imageembed', 'Image Embed', 'https://postimages.org/']]],
     ['Operations', [['receipt', 'Receipt', 'receipt.html'], ['portfolio', 'Portfolio', 'portfolio.html'], ['commercial', 'Commercial', 'commercial.html'], ['shipping', 'Shipping', 'shipping.html']]],
     ['Money', [['finance', 'Finance', 'finance.html'], ['charts', 'Charts', '#charts']]],
     ['Marketing', [['marketing', 'Marketing', 'marketing.html'], ['creatives', 'Creatives', 'creatives.html'], ['social', 'Socials', 'socials.html'], ['skits', 'Skits', 'skits.html']]],
