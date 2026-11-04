@@ -5,7 +5,7 @@
    CVWidgets.load()             fetch people + goals from Organization
    CVWidgets.keysFor(user)      widget keys for a login (a login is the person whose name is that login or starts with it)
    CVWidgets.render(el, S, user, keys, ctx)   draws the assigned widgets into el, returns how many were drawn
-   S is the data Home already holds: port (cards), cr (creatives), fin, freshFin, cm (commercial price log), acct (account totals) */
+   S is the data Home already holds: port (cards), cr (creatives), fin, freshFin, cm (commercial price log), acct (account totals), so (Socials data for the followers / views goals) */
 (function () {
   const CATALOG = [
     { group: 'Goals', items: [
@@ -139,11 +139,35 @@
     return shell(late ? 'wg-late' : today ? 'wg-warn' : '', href, title, rows.length, subs.join(' &middot; ') || (rows.length ? 'None due today' : ''), body);
   }
 
+  /* ---- Socials goals (Organization > Goals: Followers / Views for Facebook, Instagram or both) ----
+     so = { fb: { daily, meta }, ig: { daily, meta } } from the `socials` action, the same data the Socials app shows.
+     followers = the Total followers scorecard today (Combined adds both channels); views = the sum of the daily view counts from the goal's start date
+     (blank = all time) up to its deadline. */
+  const SO_CH = { fb: ['fb'], ig: ['ig'], all: ['fb', 'ig'] };
+  const CH_NAME = { fb: 'Facebook', ig: 'Instagram', all: 'Combined' };
+  const isSocial = g => g.metric === 'followers' || g.metric === 'views';
+  const isCount = m => m === 'cards' || m === 'followers' || m === 'views';
+  function socialProgress(so, g) {
+    if (!so) return null;
+    let sum = 0;
+    (SO_CH[g.channel] || SO_CH.all).forEach(k => {
+      const x = so[k] || { daily: [], meta: {} }, daily = x.daily || [];
+      if (g.metric === 'followers') {
+        const m = x.meta && x.meta.followers;
+        if (m && m.value && m.value.total != null && m.value.total !== '') sum += Number(m.value.total) || 0;
+        else { const last = daily.filter(d => d.tot != null).pop(); if (last) sum += Number(last.tot) || 0; }
+      } else daily.forEach(d => { if ((!g.start || d.d >= g.start) && (!g.deadline || d.d <= g.deadline)) sum += Number(d.views) || 0; });
+    });
+    return sum;
+  }
+  const needsSocials = () => org.some(i => i.kind === 'goal' && !i.archived && isSocial(i));
+
   const W = {
     goals(S) {
       const goals = org.filter(i => i.kind === 'goal' && !i.archived);   // archived goals are not shown
       if (!goals.length) return shell('', 'organization.html', 'Goals', null, '', '<div class="wg-empty">No goals yet. Add them in Organization, Goals.</div>');
       const prog = g => {
+        if (isSocial(g)) return socialProgress(S.so, g);
         if (!S.port) return null;
         const inWin = c => c.soldDate && (!g.start || c.soldDate >= g.start) && (!g.deadline || c.soldDate <= g.deadline);
         if (g.metric === 'cards') return S.port.filter(c => c.tag === 'sold' && inWin(c)).length;
@@ -158,12 +182,12 @@
         const cur = prog(g), left = away(g.deadline), done = cur != null && cur >= g.target;
         return { g, cur, left, done, late: !done && left < 0 };
       }).sort((a, b) => (a.done || a.late ? 1 : 0) - (b.done || b.late ? 1 : 0) || String(a.g.deadline).localeCompare(String(b.g.deadline)));
-      const fmt = (g, n) => g.metric === 'cards' ? Math.round(n).toLocaleString('en-PH') : php(n);
+      const fmt = (g, n) => isCount(g.metric) ? Math.round(n).toLocaleString('en-PH') : php(n);
       const body = rows.slice(0, 6).map(r => {
         const pct = r.cur == null || !(r.g.target > 0) ? 0 : Math.max(0, Math.min(100, r.cur / r.g.target * 100));
         const badge = r.cur == null ? '' : r.done ? '<span class="wg-badge ok">Reached</span>' : r.late ? '<span class="wg-badge bad">Missed</span>' : `<span class="wg-badge">${r.left === 0 ? 'Due today' : r.left + 'd left'}</span>`;
-        return `<div class="wg-goal ${r.done ? 'ok' : r.late ? 'bad' : ''}"><div class="wg-gh"><b>${esc(r.g.title)}</b>${badge}</div>
-          <div class="wg-gn"><span class="${r.g.metric === 'cards' ? '' : 'wg-money'}">${r.cur == null ? 'Calculating\u2026' : fmt(r.g, r.cur) + ' of ' + fmt(r.g, r.g.target)}</span><span>${r.cur == null ? '' : Math.floor(pct) + '%'}</span></div>
+        return `<div class="wg-goal ${r.done ? 'ok' : r.late ? 'bad' : ''}"><div class="wg-gh"><b>${esc(r.g.title)}${isSocial(r.g) ? ` <small style="font-weight:400;color:var(--mut)">\u00b7 ${CH_NAME[r.g.channel] || 'Combined'} ${r.g.metric}</small>` : ''}</b>${badge}</div>
+          <div class="wg-gn"><span class="${isCount(r.g.metric) ? '' : 'wg-money'}">${r.cur == null ? 'Calculating\u2026' : fmt(r.g, r.cur) + ' of ' + fmt(r.g, r.g.target)}</span><span>${r.cur == null ? '' : Math.floor(pct) + '%'}</span></div>
           <span class="wg-bar"><u style="width:${pct}%"></u></span></div>`;
       }).join('');
       return shell('wg-wide', 'organization.html', 'Goals', goals.length, '', body + (rows.length > 6 ? `<div class="wg-more">+${rows.length - 6} more in Organization</div>` : ''));
@@ -238,5 +262,5 @@
     return out.length;
   }
 
-  window.CVWidgets = { CATALOG, load, keysFor, render, netProfit, prTotals };
+  window.CVWidgets = { CATALOG, load, keysFor, render, netProfit, prTotals, socialProgress, needsSocials, CH_NAME };
 })();

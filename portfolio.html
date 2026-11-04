@@ -99,20 +99,6 @@
     </div>
   </div>
 </div>
-<div class="modal" id="aucSheet" hidden>
-  <div class="sheet small wide">
-    <h3 id="aucTitle">Auction details</h3>
-    <p class="stub-note" id="aucSub" style="margin:-6px 0 14px;font-size:12px;text-align:center"></p>
-    <div class="field"><label for="aucStart">Auction start <small>(optional)</small></label><input type="datetime-local" id="aucStart"></div>
-    <div class="field"><label for="aucEnd">Auction end <small>(optional)</small></label><input type="datetime-local" id="aucEnd"></div>
-    <div class="field"><label for="aucLink">Auction link <small>(optional)</small></label><input type="url" id="aucLink" inputmode="url" autocomplete="off" maxlength="500" placeholder="https://"></div>
-    <div class="acts">
-      <button type="button" class="go sm" id="aucSave">Save</button>
-      <button type="button" class="ghost danger" id="aucRemove" hidden>Remove auction tag</button>
-      <button type="button" class="ghost" id="aucCancel">Cancel</button>
-    </div>
-  </div>
-</div>
 <div class="toast" id="portToast" hidden></div>
 
 <footer class="site-footer">
@@ -121,6 +107,7 @@
 <script src="boot.js"></script>
 <script src="config.js"></script>
 <script src="net.js"></script>
+<script src="auction.js"></script>
 <script src="titlecase.js"></script>
 <script src="listsort.js"></script>
 <script src="portfolio.js"></script>

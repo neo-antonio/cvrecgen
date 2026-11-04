@@ -512,14 +512,18 @@
     if (!anyViews(t)) return '<span class="pl-views none">No views yet</span>';
     return `<span class="pl-views"><strong>${fmtK(totalViews(t))}</strong> views<span class="pl-chs">${CH.filter(x => hasViews(chOf(t, x.k))).map(x => `<i class="ch ${x.k}" title="${x.n}">${x.s}<em>${fmtK(+chOf(t, x.k).views)}</em></i>`).join('')}</span></span>`;
   }
-  function itemHtml(t) {
-    const posted = isPosted(t), th = thumbOf(t);
-    return `<button type="button" class="pl-item ${posted ? 'posted' : 'pending'}" data-id="${esc(t.id)}" aria-label="${esc(t.title)}${posted ? ', posted' : ', not posted yet, tap to post'}">
-      <span class="pl-meta">${svgI(t.kind)}<span>${t.time ? esc(fmtClock(t.time)) : 'No time set'} \u00b7 ${kindLabel(t)}</span></span>
+  function itemHtml(t, o) {
+    const posted = isPosted(t), ready = isReady(t), th = thumbOf(t), sl = o && o.slot, st = o && o.st;
+    const cls = posted ? 'posted' : ready ? 'pending' : 'todo', tm = sl && !posted ? sl.time : t.time;
+    const tagTxt = posted ? 'Posted' + (CH.filter(x => chOn(t, x.k)).length ? ' on ' + CH.filter(x => chOn(t, x.k)).map(x => x.s).join(' \u00b7 ') : '') : ready ? 'Tap to post' : 'To do';
+    return `<button type="button" class="pl-item ${cls}" data-id="${esc(t.id)}" data-slot="${sl ? esc(sl.id) : ''}" aria-label="${esc(t.title)}${posted ? ', posted' : ready ? ', not posted yet, tap to post' : ', to do'}${st ? ', ' + esc(st.label) : ''}">
+      <span class="pl-meta">${svgI(t.kind)}<span>${tm ? esc(fmtClock(tm)) : 'No time set'} \u00b7 ${kindLabel(t)}</span></span>
       <span class="pl-thumb">${th ? `<img src="${esc(th)}" alt="" loading="lazy">` : svgI(t.kind)}</span>
       <b>${esc(t.title)}</b>
+      ${sl ? `<span class="sl-note">Slot${sl.time ? ' ' + esc(fmtClock(sl.time)) : ''}${sl.title ? ' \u00b7 ' + esc(sl.title) : ''}</span>` : ''}
       ${posted && showViews ? viewsHtml(t) : ''}
-      <span class="pl-tag">${posted ? 'Posted' + (CH.filter(x => chOn(t, x.k)).length ? ' on ' + CH.filter(x => chOn(t, x.k)).map(x => x.s).join(' \u00b7 ') : '') : 'Tap to post'}</span>
+      <span class="pl-tag">${tagTxt}</span>
+      ${st ? `<span class="pl-tag sl-state ${st.k}">${esc(st.label)}</span>` : ''}
     </button>`;
   }
   /* one day: a group per hour (a task without a time goes first) */
@@ -530,7 +534,7 @@
     sorted.forEach(t => {
       const key = t.time ? t.time.slice(0, 2) : '';
       if (key !== last) { out += `<div class="pl-hr">${t.time ? hourLabel(t.time) : 'Any time'}</div>`; last = key; }
-      out += itemHtml(t);
+      out += t.html;
     });
     return out;
   }
@@ -538,11 +542,15 @@
     const list = shown(), pend = waiting(), today = todayIso();
     const end = addDays(weekStart, 6);
     $('plTitle').textContent = weekStart.getMonth() === end.getMonth() ? `${weekStart.toLocaleDateString('en-US', { month: 'long' })} ${weekStart.getDate()}\u2013${end.getDate()}, ${end.getFullYear()}` : `${shortDay(weekStart)} \u2013 ${longDay(end)}`;
-    const byDay = {};
-    list.forEach(t => { const d = String(whenOf(t) || '').slice(0, 10); if (d) (byDay[d] = byDay[d] || []).push(t); });
+    const byDay = {}, slotsByDay = {}, inSlot = {};
+    plan.slots.forEach(sl => { (slotsByDay[sl.date] = slotsByDay[sl.date] || []).push(sl); const lt = slotTask(sl); if (lt) inSlot[lt.id] = true; });
+    list.forEach(t => { if (inSlot[t.id]) return; const d = String(whenOf(t) || '').slice(0, 10); if (d) (byDay[d] = byDay[d] || []).push(t); });
     let days = '', cols = '';
     for (let i = 0; i < 7; i++) {
-      const d = addDays(weekStart, i), iso = isoOf(d), items = byDay[iso] || [], np = items.filter(isReady).length;
+      const d = addDays(weekStart, i), iso = isoOf(d);
+      const items = (byDay[iso] || []).map(t => ({ time: t.time, ready: isReady(t), html: itemHtml(t) }))
+        .concat((slotsByDay[iso] || []).map(sl => { const lt = slotTask(sl); return { time: sl.time, ready: !!lt && isReady(lt), html: slotHtml(sl) }; }));
+      const np = items.filter(x => x.ready).length;
       const cls = (iso === today ? ' today' : '') + (iso === selDay ? ' sel' : '');
       const wd = d.toLocaleDateString('en-US', { weekday: 'short' });
       days += `<button type="button" class="pl-day${cls}" data-d="${iso}" aria-label="${esc(longDay(d))}${np ? ', ' + pl(np, 'task') + ' to post' : ''}"><small>${wd}</small><b>${d.getDate()}</b>${np ? `<i>${np}</i>` : (items.length ? '<em>.</em>' : '')}</button>`;
@@ -555,7 +563,7 @@
     const al = $('plAlert'); al.hidden = !pend.length;
     if (pend.length) al.innerHTML = `<i>${pend.length}</i> ${pend.length === 1 ? 'task is' : 'tasks are'} waiting to be posted. Tap to jump to the first.`;
     $('plState').hidden = true;
-    renderHiddenBtn();
+    renderHiddenBtn(); renderSched();
     if (!$('panelRanking').hidden) renderRanking();
   }
   function renderHiddenBtn() { const n = hiddenTasks().length; $('plHiddenN').textContent = n > 99 ? '99+' : String(n); $('plHiddenN').hidden = !n; $('plHiddenBtn').setAttribute('aria-label', `Hidden tasks (${n})`); if (!$('hdSheet').hidden) renderHiddenList(); }
@@ -565,15 +573,16 @@
   $('plPrev').onclick = () => { weekStart = addDays(weekStart, -7); selDay = isoOf(weekStart); renderPlanner(); };
   $('plNext').onclick = () => { weekStart = addDays(weekStart, 7); selDay = isoOf(weekStart); renderPlanner(); };
   $('plToday').onclick = () => { weekStart = startOfWeek(new Date()); selDay = todayIso(); renderPlanner(); };
-  $('plRefresh').onclick = () => loadCreatives(true);
+  $('plRefresh').onclick = () => { loadPlan(); loadCreatives(true); };
   /* ---- ranking: every posted task from most to least views (all channels added up, or one channel) ---- */
-  let rkCh = 'all', rkType = 'all';   // rkType: all | video | post
+  let rkCh = 'all', rkType = 'all', rkQ = '';   // rkType: all | video | post
   const RK_TYPES = [{ k: 'all', n: 'All types' }, { k: 'video', n: 'Videos' }, { k: 'post', n: 'Posts' }];
   function renderRanking() {
     $('rkTypes').innerHTML = RK_TYPES.map(x => `<button type="button" class="chip${x.k === rkType ? ' active' : ''}" data-t="${x.k}">${x.n}</button>`).join('');
     $('rkChips').innerHTML = [{ k: 'all', n: 'All channels' }].concat(CH).map(x => `<button type="button" class="chip${x.k === rkCh ? ' active' : ''}" data-k="${x.k}">${x.n}</button>`).join('');
+    const nF = (rkCh !== 'all' ? 1 : 0) + (rkType !== 'all' ? 1 : 0); $('rkFilterN').textContent = nF; $('rkFilterN').hidden = !nF;
     const val = t => rkCh === 'all' ? (anyViews(t) ? totalViews(t) : null) : (hasViews(chOf(t, rkCh)) ? +chOf(t, rkCh).views : null);
-    const rows = allTasks().filter(t => isPosted(t) && !t.hidden && (rkType === 'all' || t.kind === rkType)).map(t => ({ t, v: val(t) }));   // hidden tasks are not ranked
+    const rows = allTasks().filter(t => isPosted(t) && !t.hidden && (rkType === 'all' || t.kind === rkType) && (!rkQ || String(t.title || '').toLowerCase().includes(rkQ))).map(t => ({ t, v: val(t) }));   // hidden tasks are not ranked
     const ranked = rows.filter(r => r.v != null).sort((a, b) => b.v - a.v), none = rows.filter(r => r.v == null);
     const max = ranked.length ? Math.max(1, ranked[0].v) : 1, sum = ranked.reduce((n, r) => n + r.v, 0);
     let rank = 0, prevV = null;
@@ -591,14 +600,20 @@
     $('rkSum').textContent = ranked.length ? `${pl(ranked.length, rkType === 'video' ? 'video' : rkType === 'post' ? 'post' : 'task')} ranked \u00b7 ${num(sum)} views in total` : '';
     $('rkEmpty').hidden = ranked.length > 0;
     const typeWord = rkType === 'video' ? 'videos' : rkType === 'post' ? 'posts' : 'tasks';
-    $('rkEmpty').textContent = rows.length ? 'No views entered yet' + (rkCh === 'all' ? '' : ' for ' + CH.find(x => x.k === rkCh).n) + '. Open a posted card and tap Edit details.' : 'No posted ' + typeWord + ' yet. Posted ' + typeWord + ' are ranked here.';
+    $('rkEmpty').textContent = rkQ && !rows.length ? 'Nothing matches your search and filters.' : rows.length ? 'No views entered yet' + (rkCh === 'all' ? '' : ' for ' + CH.find(x => x.k === rkCh).n) + '. Open a posted card and tap Edit details.' : 'No posted ' + typeWord + ' yet. Posted ' + typeWord + ' are ranked here.';
     $('rkNoneNote').hidden = !none.length || !ranked.length;
     $('rkNoneNote').textContent = ranked.length ? `Posted, no views entered yet (${none.length})` : '';
     $('rkNone').innerHTML = ranked.length ? none.map(r => `<button type="button" class="rk-item dim" data-id="${esc(r.t.id)}"><span class="rk-n">\u2013</span><span class="rk-main"><b>${esc(r.t.title)}</b><small>${kindLabel(r.t)}</small></span></button>`).join('') : '';
   }
-  const showRanking = on => { $('panelRanking').hidden = !on; $('panelPlanner').hidden = on; if (on) { renderRanking(); window.scrollTo(0, 0); } };
+  const showRanking = on => { rkPop(false); $('panelRanking').hidden = !on; $('panelPlanner').hidden = on; if (on) { renderRanking(); window.scrollTo(0, 0); } };
   $('plRankBtn').onclick = () => showRanking(true);
   $('rkBack').onclick = () => showRanking(false);
+  $('rkSearch').addEventListener('input', () => { rkQ = $('rkSearch').value.trim().toLowerCase(); renderRanking(); });
+  const rkPop = open => { $('rkPop').hidden = !open; $('rkFilterBtn').setAttribute('aria-expanded', open ? 'true' : 'false'); };
+  $('rkFilterBtn').onclick = e => { e.stopPropagation(); rkPop($('rkPop').hidden); };
+  $('rkReset').onclick = () => { rkCh = 'all'; rkType = 'all'; renderRanking(); };
+  document.addEventListener('click', e => { if (!$('rkPop').hidden && !e.target.closest('#rkPop, #rkFilterBtn')) rkPop(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('rkPop').hidden) rkPop(false); });
   $('rkTypes').addEventListener('click', e => { const b = e.target.closest('button[data-t]'); if (b) { rkType = b.dataset.t; renderRanking(); } });
   $('rkChips').addEventListener('click', e => { const b = e.target.closest('button[data-k]'); if (b) { rkCh = b.dataset.k; renderRanking(); } });
   const rkOpen = e => { const b = e.target.closest('.rk-item'), t = b && find(b.dataset.id); if (t) openDetail(t); };
@@ -637,8 +652,10 @@
   };
   $('plDays').addEventListener('click', e => { const b = e.target.closest('.pl-day'); if (!b) return; selDay = b.dataset.d; renderPlanner(); });
   $('plWeek').addEventListener('click', e => {
-    const el = e.target.closest('.pl-item'); const t = el && find(el.dataset.id); if (!t) return;
-    if (isPosted(t)) openDetail(t); else openPub(t, false);
+    const el = e.target.closest('.pl-item'); if (!el) return;
+    const t = el.dataset.id ? find(el.dataset.id) : null;
+    if (!t) { if (el.dataset.slot) openSlot(el.dataset.slot); return; }   // an empty reserved slot
+    if (isPosted(t)) openDetail(t); else if (isReady(t)) openPub(t, false); else if (el.dataset.slot) openSlot(el.dataset.slot);   // linked but still to do: manage the slot
   });
 
   async function loadCreatives(manual) {
@@ -683,7 +700,9 @@
   function openPub(t, edit) {
     pubId = t.id; pubEdit = !!edit;
     $('pubHeading').textContent = edit ? 'Edit channel links' : 'Publish';
-    $('pubSub').textContent = t.title + (t.date ? ' \u00b7 planned ' + shortDay(parseIso(t.date) || new Date()) + (t.time ? ', ' + fmtClock(t.time) : '') : '');
+    const psl = plan.slots.find(x => x.taskId === t.id);
+    $('pubSub').textContent = t.title + (t.date ? ' \u00b7 planned ' + shortDay(parseIso(t.date) || new Date()) + (t.time ? ', ' + fmtClock(t.time) : '') : '') + (psl && psl.channels.length ? ' \u00b7 slot channels: ' + psl.channels.map(chShort).join(', ') : '');
+    $('pubSlot').hidden = !psl || edit;
     CH.forEach(x => { $(PUBIN[x.k]).value = chOf(t, x.k).link || ''; });
     $('pubDate').value = t.date || CH.map(x => chOf(t, x.k).date).filter(Boolean).sort()[0] || todayIso(); $('pubTime').value = t.time || '';   // the planner's date and time
     $('pubSave').textContent = edit ? 'Save' : 'Publish';
@@ -771,6 +790,7 @@
     $('pdViews').innerHTML = `<div class="so-ch-total"><small>Total views, all channels</small><strong>${anyViews(t) ? num(totalViews(t)) : '\u2013'}</strong></div>${rows}`;
     $('pdPlanDate').value = t.date || ''; $('pdPlanTime').value = t.time || '';
     $('pdUnpub').hidden = !!t.free; $('pdDel').hidden = !t.free;
+    $('pdSlot').hidden = !plan.slots.some(x => x.taskId === t.id);
     fillThumbUI(t, links);
     $('pdSheet').hidden = false;
   }
@@ -953,6 +973,258 @@
     b.disabled = false; b.textContent = 'Save';
   };
 
+  /* ================= Reserved slots & weekly templates =================
+     TEMPLATE  = your weekly outline (day, type, channels, time, title, note). Applying it to a week COPIES it into slots.
+     SLOT      = an empty reserved place in the Planner (dashed outline). Editing or deleting a slot never touches the template.
+     LINKING   = by hand: a to-do, to-publish or posted task is put in a slot. The slot then turns into the task's card and
+                 tells you whether the schedule was met (posted on time, late, a channel missing, overdue, missed). */
+  let plan = { templates: [], slots: [] };
+  const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const DEF_CH = { post: ['fb', 'ig'], video: ['fb', 'ig', 'yt', 'tt'] };
+  const chName = k => (CH.find(x => x.k === k) || {}).n || k;
+  const chShort = k => (CH.find(x => x.k === k) || {}).s || k;
+  const chipsOf = list => (list || []).map(k => `<i title="${esc(chName(k))}">${esc(chShort(k))}</i>`).join('');
+  const stampOf = (iso, tm) => { const d = parseIso(iso); if (!d) return null; const m = String(tm || '').match(/^(\d{1,2}):(\d{2})/); d.setHours(m ? +m[1] : 0, m ? +m[2] : 0, 0, 0); return d.getTime(); };
+  const timeCmp = (a, b) => String(a.time || '').localeCompare(String(b.time || ''));
+  const weekLabel = w => { const e = addDays(w, 6); return w.getMonth() === e.getMonth() ? `${shortDay(w)}\u2013${e.getDate()}` : `${shortDay(w)} \u2013 ${shortDay(e)}`; };
+  const slotTask = sl => { const t = sl.taskId ? find(sl.taskId) : null; return t && !t.hidden ? t : null; };   // a hidden or deleted task leaves its slot looking empty
+  const weekSlots = (ws) => { const a = isoOf(ws), b = isoOf(addDays(ws, 6)); return plan.slots.filter(x => x.date >= a && x.date <= b); };
+
+  /* did the schedule work out? k: open | ready | todo | met | late | part | miss */
+  function slotState(sl) {
+    const t = slotTask(sl), now = Date.now(), due = stampOf(sl.date, sl.time || '23:59');   // a slot without a time is due at the end of its day
+    if (!t) return due != null && due < now ? { k: 'miss', label: 'Missed' } : { k: 'open', label: 'Open slot' };
+    if (isPosted(t)) {
+      const pd = String(whenOf(t) || '').slice(0, 10);
+      // minutes after (+) or before (-) the slot; times are only compared when both have one, otherwise the days are
+      const diff = sl.time && t.time ? (stampOf(pd, t.time) - stampOf(sl.date, sl.time)) / 60000 : (stampOf(pd, '') - stampOf(sl.date, '')) / 60000;
+      const miss = (sl.channels || []).filter(k => !chOn(t, k));
+      let k = 'met', label = 'On schedule';
+      if (diff > 60) { k = 'late'; label = 'Late \u00b7 ' + (diff >= 1440 ? pl(Math.round(diff / 1440), 'day') : pl(Math.max(1, Math.round(diff / 60)), 'hour')); }
+      else if (diff < -60) label = 'On schedule \u00b7 early';
+      if (miss.length) { label = (k === 'late' ? label + ' \u00b7 ' : '') + 'Missing ' + miss.map(chShort).join(' \u00b7 '); if (k !== 'late') k = 'part'; }
+      return { k, label };
+    }
+    const over = due != null && due < now;
+    if (isReady(t)) return { k: over ? 'miss' : 'ready', label: over ? 'Overdue \u00b7 not posted' : 'Ready to post' };
+    return { k: over ? 'miss' : 'todo', label: over ? 'Overdue \u00b7 still to do' : 'To do' };
+  }
+  /* the dashed outline card of an empty slot, or the task's own card when one is linked */
+  function slotHtml(sl) {
+    const t = slotTask(sl), st = slotState(sl);
+    if (t) return itemHtml(t, { slot: sl, st });
+    return `<button type="button" class="pl-item pl-slot ${st.k}" data-slot="${esc(sl.id)}" aria-label="${esc(sl.title || 'Open slot')}, ${esc(st.label)}">
+      <span class="pl-meta">${svgI(sl.kind)}<span>${sl.time ? esc(fmtClock(sl.time)) : 'No time set'} \u00b7 ${sl.kind === 'video' ? 'Video' : 'Post'} slot</span></span>
+      <b>${esc(sl.title || 'Open slot')}</b>
+      ${sl.note ? `<span class="sl-note">${esc(sl.note)}</span>` : ''}
+      ${sl.channels.length ? `<span class="sl-chs">${chipsOf(sl.channels)}</span>` : ''}
+      <span class="pl-tag sl-state ${st.k}">${esc(st.label)}</span>
+    </button>`;
+  }
+  /* one line above the week: how the schedule is going */
+  function renderSched() {
+    const list = weekSlots(weekStart), el = $('plSched'); el.hidden = !list.length; if (!list.length) return;
+    const c = { met: 0, off: 0, miss: 0, left: 0 };
+    list.forEach(x => { const k = slotState(x).k; c[k === 'met' ? 'met' : (k === 'late' || k === 'part') ? 'off' : k === 'miss' ? 'miss' : 'left']++; });
+    el.innerHTML = `<b>${c.met} of ${pl(list.length, 'slot')} on schedule</b>`
+      + (c.off ? `<span class="off"><i></i>${c.off} late or incomplete</span>` : '') + (c.miss ? `<span class="miss"><i></i>${c.miss} missed</span>` : '') + (c.left ? `<span class="left"><i></i>${c.left} to go</span>` : '');
+  }
+
+  async function loadPlan() {
+    if (!CONFIG.portfolio.endpoint) return;
+    const c = cacheGet('plan');
+    if (c && Array.isArray(c.slots)) { plan = { templates: c.templates || [], slots: c.slots }; renderLists(); }
+    try {
+      const r = await call('plan');
+      plan = { templates: r.templates || [], slots: r.slots || [] };
+      cacheSet('plan', plan); renderLists();
+      if (!$('tmSheet').hidden) renderTemplates();
+    } catch (err) { if (!c) toast('Could not load slots: ' + backendErr(err)); }
+  }
+  const refreshAll = () => Promise.all([loadPlan(), loadCreatives()]);
+  const goWeek = iso => { const d = parseIso(iso); if (d) { weekStart = startOfWeek(d); selDay = iso; } };
+
+  /* ---- channel chips (shared by the slot and template sheets) ---- */
+  const slChs = [], tiChs = [];
+  const chPick = (id, arr) => { $(id).innerHTML = CH.map(x => `<button type="button" class="chip${arr.indexOf(x.k) >= 0 ? ' active' : ''}" data-k="${x.k}" aria-pressed="${arr.indexOf(x.k) >= 0}">${x.n}</button>`).join(''); };
+  const chSet = (arr, list) => { arr.length = 0; list.forEach(k => arr.push(k)); };
+  [['slChs', slChs], ['tiChs', tiChs]].forEach(p => $(p[0]).addEventListener('click', e => {
+    const b = e.target.closest('button[data-k]'); if (!b) return;
+    const i = p[1].indexOf(b.dataset.k); if (i < 0) p[1].push(b.dataset.k); else p[1].splice(i, 1); chPick(p[0], p[1]);
+  }));
+
+  /* ---- a reserved slot ---- */
+  let slId = '';
+  function openSlot(id, date) {
+    const sl = id ? plan.slots.find(x => x.id === id) : null; if (id && !sl) return;
+    slId = sl ? sl.id : '';
+    $('slHeading').textContent = sl ? 'Reserved slot' : 'Add slot';
+    $('slKind').value = sl ? sl.kind : 'post';
+    chSet(slChs, sl ? sl.channels : DEF_CH[$('slKind').value]); chPick('slChs', slChs);
+    const a = isoOf(weekStart), b = isoOf(addDays(weekStart, 6));
+    $('slDate').value = sl ? sl.date : (date || (selDay >= a && selDay <= b ? selDay : a));
+    $('slTime').value = sl ? sl.time : ''; $('slTitle').value = sl ? sl.title : ''; $('slNote').value = sl ? sl.note : '';
+    $('slDel').hidden = !sl; $('slSearch').value = '';
+    renderSlLink();
+    $('pubSheet').hidden = true; $('pdSheet').hidden = true; $('slSheet').hidden = false;
+  }
+  const closeSlot = () => { $('slSheet').hidden = true; slId = ''; };
+  function renderSlLink() {
+    const sl = slId ? plan.slots.find(x => x.id === slId) : null, cur = sl && sl.taskId ? find(sl.taskId) : null, kind = $('slKind').value;
+    $('slKind').disabled = !!cur;   // the type is fixed while a task is in the slot
+    $('slCur').hidden = !cur; $('slPickWrap').hidden = !!cur;
+    if (cur) {
+      const th = thumbOf(cur);
+      $('slCurThumb').innerHTML = th ? `<img src="${esc(th)}" alt="">` : svgI(cur.kind);
+      $('slCurTitle').textContent = cur.title;
+      $('slCurSub').textContent = `${kindLabel(cur)} \u00b7 ${isPosted(cur) ? 'Posted' : isReady(cur) ? 'Done, not posted yet' : 'To do'}${cur.hidden ? ' \u00b7 hidden' : ''}`;
+      return;
+    }
+    const q = $('slSearch').value.trim().toLowerCase();
+    const taken = {}; plan.slots.forEach(x => { if (x.taskId && x.id !== slId) taken[x.taskId] = true; });
+    const cands = allTasks().filter(t => !t.free && t.kind === kind && !t.hidden && !taken[t.id] && (!q || String(t.title || '').toLowerCase().includes(q)));
+    const groups = [['To do', cands.filter(t => !isReady(t) && !isPosted(t)).sort((a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999')))],
+      ['Done, to publish', cands.filter(t => isReady(t)).sort((a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999')))],
+      ['Posted', cands.filter(t => isPosted(t)).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))]];
+    const rows = groups.filter(g => g[1].length).map(g => `<div class="sl-gh">${g[0]}</div>` + g[1].slice(0, 25).map(t => {
+      const th = thumbOf(t);
+      return `<button type="button" class="sl-pick" data-task="${esc(t.id)}"><span class="pl-thumb">${th ? `<img src="${esc(th)}" alt="" loading="lazy">` : svgI(t.kind)}</span><span class="sl-cur-info"><b>${esc(t.title)}</b><small>${t.date ? esc(shortDay(parseIso(t.date) || new Date())) : 'No date'}${t.time ? ', ' + esc(fmtClock(t.time)) : ''}</small></span><span class="sl-go">Link</span></button>`;
+    }).join('')).join('');
+    $('slPick').innerHTML = rows || `<p class="stub-note" style="margin:6px 0">No ${kind === 'video' ? 'video' : 'post'} tasks to link${q ? ' match your search' : ' yet'}.</p>`;
+  }
+  $('slKind').addEventListener('change', () => { if (!slId) { chSet(slChs, DEF_CH[$('slKind').value]); chPick('slChs', slChs); } renderSlLink(); });
+  $('slSearch').addEventListener('input', renderSlLink);
+  /* save what is typed in the sheet; returns the slot id (a new slot is created here) or '' */
+  async function slotFormSave() {
+    const date = $('slDate').value; if (!date) { toast('Pick a date.'); return ''; }
+    if (!slChs.length) { toast('Pick at least one channel.'); return ''; }
+    const p = { kind: $('slKind').value, channels: slChs.join(','), date, time: $('slTime').value || '', title: $('slTitle').value.trim(), note: $('slNote').value.trim() };
+    if (slId) p.id = slId;
+    try { const r = await call('saveSlot', p); slId = r.id; return r.id; }
+    catch (err) { toast('Could not save: ' + backendErr(err)); return ''; }
+  }
+  $('slSave').onclick = async () => {
+    const b = $('slSave'); b.disabled = true; b.textContent = 'Saving\u2026';
+    const id = await slotFormSave();
+    b.disabled = false; b.textContent = 'Save';
+    if (!id) return;
+    const d = $('slDate').value; closeSlot(); toast('Slot saved.'); goWeek(d); await refreshAll();
+  };
+  $('slCancel').onclick = closeSlot;
+  $('slDel').onclick = async () => {
+    const sl = plan.slots.find(x => x.id === slId); if (!sl) return;
+    if (!confirm(`Delete this slot?${sl.taskId ? '\n\nThe task in it is not deleted.' : ''}\n\nThe template is not changed.`)) return;
+    try { await call('deleteSlot', { id: sl.id }); closeSlot(); toast('Slot deleted.'); await refreshAll(); }
+    catch (err) { toast('Could not delete: ' + backendErr(err)); }
+  };
+  $('slUnlink').onclick = async () => {
+    const sl = plan.slots.find(x => x.id === slId); if (!sl) return;
+    try { await call('linkSlot', { slotId: sl.id, taskId: '' }); toast('Unlinked. The slot is open again.'); await refreshAll(); renderSlLink(); }
+    catch (err) { toast('Could not unlink: ' + backendErr(err)); }
+  };
+  $('slPick').addEventListener('click', async e => {
+    const btn = e.target.closest('[data-task]'); if (!btn) return;
+    const t = find(btn.dataset.task); if (!t) return;
+    btn.disabled = true;
+    const id = await slotFormSave(); if (!id) { btn.disabled = false; return; }
+    const date = $('slDate').value, time = $('slTime').value || '';
+    try {
+      await call('linkSlot', { slotId: id, taskId: t.id });
+      // a task that is not posted yet takes the slot's planned date (and time); a posted one keeps the date it really went up
+      if (!isPosted(t)) await call('saveCreative', Object.assign({ id: t.id, date }, time ? { time } : {}));
+      closeSlot(); toast('Linked to the slot.'); goWeek(date); await refreshAll();
+    } catch (err) { toast('Could not link: ' + backendErr(err)); btn.disabled = false; }
+  });
+  $('pubSlot').onclick = () => { const sl = plan.slots.find(x => x.taskId === pubId); if (!sl) return; closePub(); openSlot(sl.id); };
+  $('pdSlot').onclick = () => { const sl = plan.slots.find(x => x.taskId === pdId); if (!sl) return; closeDetail(); openSlot(sl.id); };
+
+  /* ---- templates ---- */
+  const weekOpts = sel => {
+    const base = startOfWeek(new Date()), list = [];
+    for (let i = -2; i <= 8; i++) list.push(addDays(base, i * 7));
+    if (!list.some(w => isoOf(w) === sel) && parseIso(sel)) { list.push(parseIso(sel)); list.sort((a, b) => a - b); }
+    return list.map(w => `<option value="${isoOf(w)}"${isoOf(w) === sel ? ' selected' : ''}>${esc(weekLabel(w))}${isoOf(w) === isoOf(base) ? ' (this week)' : ''}</option>`).join('');
+  };
+  function renderTemplates() {
+    const byD = [[], [], [], [], [], [], []]; plan.templates.forEach(t => byD[t.weekday].push(t));
+    $('tmDays').innerHTML = byD.map((list, d) => `<div class="tm-day"><div class="tm-h"><b>${DOW[d]}</b><button type="button" class="ghost sm" data-add="${d}">+ Add</button></div>`
+      + (list.length ? list.sort(timeCmp).map(t => `<button type="button" class="tm-item" data-tp="${esc(t.id)}">${svgI(t.kind)}<span class="tm-main"><b>${esc(t.title || (t.kind === 'video' ? 'Video' : 'Post'))}</b><small>${t.time ? esc(fmtClock(t.time)) : 'Any time'}${t.note ? ' \u00b7 ' + esc(t.note) : ''}</small></span><span class="sl-chs">${chipsOf(t.channels)}</span></button>`).join('') : '<p class="tm-none">Nothing planned</p>') + '</div>').join('');
+    weekInfo();
+  }
+  function weekInfo() {
+    const ws = parseIso($('tmWeek').value); if (!ws) return;
+    const list = weekSlots(ws), open = list.filter(x => !slotTask(x)).length;
+    $('tmWeekInfo').textContent = list.length ? `${pl(list.length, 'slot')} in this week: ${open} empty, ${list.length - open} with a task.` : 'No slots in this week yet.';
+  }
+  $('plTplBtn').onclick = () => { $('tmWeek').innerHTML = weekOpts(isoOf(weekStart)); renderTemplates(); $('tmSheet').hidden = false; };
+  $('tmClose').onclick = () => { $('tmSheet').hidden = true; };
+  $('tmWeek').addEventListener('change', weekInfo);
+  $('tmApply').onclick = async () => {
+    if (!plan.templates.length) return toast('The template is empty. Tap + Add on a day first.');
+    const w = $('tmWeek').value, b = $('tmApply'); b.disabled = true;
+    try {
+      const r = await call('applyTemplates', { weekStart: w });
+      $('tmSheet').hidden = true; goWeek(w);
+      toast(r.added ? `Added ${pl(r.added, 'slot')}${r.skipped ? ` (${r.skipped} already there)` : ''}.` : 'Every template item already has a slot that week.');
+      await loadPlan();
+    } catch (err) { toast('Could not apply: ' + backendErr(err)); }
+    b.disabled = false;
+  };
+  /* save the slots of the selected week as the weekly template, to re-apply to other weeks */
+  $('tmSaveWeek').onclick = async () => {
+    const w = $('tmWeek').value, ws = parseIso(w); if (!ws) return;
+    const n = weekSlots(ws).length;
+    if (!n) return toast('That week has no slots to save.');
+    if (!confirm(`Save the ${pl(n, 'slot')} of ${weekLabel(ws)} as the template?${plan.templates.length ? '\n\nThis replaces the current template (' + pl(plan.templates.length, 'item') + '). Slots already in the Planner are not changed.' : ''}`)) return;
+    const b = $('tmSaveWeek'); b.disabled = true;
+    try { const r = await call('saveWeekAsTemplate', { weekStart: w }); toast(`Template saved from ${weekLabel(ws)} (${pl(r.saved, 'item')}). Pick another week and apply it.`); await loadPlan(); renderTemplates(); }
+    catch (err) { toast('Could not save: ' + backendErr(err)); }
+    b.disabled = false;
+  };
+  $('tmAddSlot').onclick = () => { const w = $('tmWeek').value; $('tmSheet').hidden = true; goWeek(w); renderPlanner(); openSlot('', w); };
+  $('tmClear').onclick = async () => {
+    const w = $('tmWeek').value, ws = parseIso(w); if (!ws) return;
+    const n = weekSlots(ws).filter(x => !slotTask(x)).length;
+    if (!n) return toast('There are no empty slots in that week.');
+    if (!confirm(`Clear ${pl(n, 'empty slot')} in ${weekLabel(ws)}?\n\nSlots that hold a task are kept. The template is not changed.`)) return;
+    const b = $('tmClear'); b.disabled = true;
+    try { const r = await call('clearSlots', { weekStart: w }); toast(`Cleared ${pl(r.cleared, 'empty slot')}.`); goWeek(w); await loadPlan(); }
+    catch (err) { toast('Could not clear: ' + backendErr(err)); }
+    b.disabled = false;
+  };
+  $('tmDays').addEventListener('click', e => {
+    const add = e.target.closest('[data-add]'), it = e.target.closest('[data-tp]');
+    if (add) openTpl('', +add.dataset.add); else if (it) openTpl(it.dataset.tp);
+  });
+  let tiId = '';
+  function openTpl(id, day) {
+    const t = id ? plan.templates.find(x => x.id === id) : null; if (id && !t) return;
+    tiId = t ? t.id : '';
+    $('tiHeading').textContent = t ? 'Edit template item' : 'Add to template';
+    $('tiDay').innerHTML = DOW.map((n, i) => `<option value="${i}">${n}</option>`).join(''); $('tiDay').value = t ? t.weekday : (day || 0);
+    $('tiKind').value = t ? t.kind : 'post';
+    chSet(tiChs, t ? t.channels : DEF_CH.post); chPick('tiChs', tiChs);
+    $('tiTime').value = t ? t.time : ''; $('tiTitle').value = t ? t.title : ''; $('tiNote').value = t ? t.note : '';
+    $('tiDel').hidden = !t; $('tiSheet').hidden = false;
+  }
+  $('tiKind').addEventListener('change', () => { if (!tiId) { chSet(tiChs, DEF_CH[$('tiKind').value]); chPick('tiChs', tiChs); } });
+  $('tiCancel').onclick = () => { $('tiSheet').hidden = true; tiId = ''; };
+  $('tiSave').onclick = async () => {
+    if (!tiChs.length) return toast('Pick at least one channel.');
+    const title = $('tiTitle').value.trim(); if (!title && !$('tiNote').value.trim()) return toast('Give it a title or a note.');
+    const p = { kind: $('tiKind').value, channels: tiChs.join(','), weekday: $('tiDay').value, time: $('tiTime').value || '', title, note: $('tiNote').value.trim() };
+    if (tiId) p.id = tiId;
+    const b = $('tiSave'); b.disabled = true; b.textContent = 'Saving\u2026';
+    try { await call('saveTemplate', p); $('tiSheet').hidden = true; tiId = ''; toast('Template saved. Apply it to a week to see it in the Planner.'); await loadPlan(); renderTemplates(); }
+    catch (err) { toast('Could not save: ' + backendErr(err)); }
+    b.disabled = false; b.textContent = 'Save';
+  };
+  $('tiDel').onclick = async () => {
+    if (!tiId || !confirm('Delete this template item?\n\nSlots already made from it stay in the Planner.')) return;
+    try { await call('deleteTemplate', { id: tiId }); $('tiSheet').hidden = true; tiId = ''; toast('Deleted.'); await loadPlan(); renderTemplates(); }
+    catch (err) { toast('Could not delete: ' + backendErr(err)); }
+  };
+
   /* ================= tabs, shared ================= */
   document.querySelectorAll('.tab[data-stab]').forEach(t => t.onclick = () => {
     document.querySelectorAll('.tab[data-stab]').forEach(x => x.classList.toggle('active', x === t));
@@ -963,14 +1235,15 @@
   });
   $('imgViewClose').onclick = () => { $('imgView').hidden = true; };
   $('imgView').addEventListener('click', e => { if (e.target.id === 'imgView') $('imgView').hidden = true; });
-  ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'auSheet', 'trSheet', 'hdSheet', 'flSheet', 'fpSheet'].forEach(id => $(id).addEventListener('click', e => { if (e.target.id === id) $(id).hidden = true; }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'auSheet', 'trSheet', 'hdSheet', 'flSheet', 'fpSheet', 'imgView'].forEach(id => { $(id).hidden = true; }); });
+  ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'auSheet', 'trSheet', 'hdSheet', 'flSheet', 'fpSheet', 'tmSheet', 'tiSheet', 'slSheet'].forEach(id => $(id).addEventListener('click', e => { if (e.target.id === id) $(id).hidden = true; }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'auSheet', 'trSheet', 'hdSheet', 'flSheet', 'fpSheet', 'tmSheet', 'tiSheet', 'slSheet', 'imgView'].forEach(id => { $(id).hidden = true; }); });
 
   setupChartDefaults();
   setPlatHeader(); syncViewsBtn();
   (async function init() {
     if (location.hash === '#planner') { const pt = document.querySelector('.tab[data-stab=planner]'); if (pt) pt.click(); }   // Home widgets link straight to the Planner
     await loadSocials(false);
+    loadPlan();
     loadCreatives();
   })();
 

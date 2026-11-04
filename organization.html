@@ -96,6 +96,23 @@
           <option value="cards">Cards sold</option>
           <option value="profit">Net profit</option>
           <option value="value">Business value</option>
+          <option value="followers">Social followers</option>
+          <option value="views">Social views</option>
+        </select>
+      </div>
+      <div class="field" id="orgChWrap" hidden>
+        <label for="orgChannel">Channel</label>
+        <select id="orgChannel">
+          <option value="fb">Facebook</option>
+          <option value="ig">Instagram</option>
+          <option value="all">Combined (Facebook + Instagram)</option>
+        </select>
+      </div>
+      <div class="field" id="orgPeriodWrap" hidden>
+        <label for="orgPeriod">Views counted</label>
+        <select id="orgPeriod">
+          <option value="all">All time</option>
+          <option value="range">Specific date range</option>
         </select>
       </div>
       <div class="field">
@@ -103,7 +120,7 @@
         <input type="number" id="orgTarget" inputmode="decimal" min="0" step="any" placeholder="e.g. 50">
       </div>
       <div class="gl-two">
-        <div class="field">
+        <div class="field" id="orgStartWrap">
           <label for="orgStart">Count from</label>
           <input type="date" id="orgStart">
         </div>

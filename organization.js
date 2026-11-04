@@ -84,28 +84,34 @@ function renderTeam() {
 const METRIC = {
   cards:  { label: 'Cards sold', unit: 'cards', field: 'Target (number of cards)', ph: 'e.g. 50', hint: 'Counts cards sold from the start date up to the deadline.' },
   profit: { label: 'Net profit', unit: '', field: 'Target (PHP)', ph: 'e.g. 100000', hint: 'Sale price minus purchase cost of the cards sold, plus packaging and shipping received from buyers, minus shipping you paid, from the start date up to the deadline. Same as the cash reserves calculator. Money a customer still owes never reduces it.' },
+  followers: { label: 'Followers', unit: 'followers', field: 'Target (total followers)', ph: 'e.g. 10000', hint: 'The total followers on the Socials scorecard (Combined adds Facebook and Instagram), measured today. The start date is not used.' },
+  views: { label: 'Views', unit: 'views', field: 'Target (views)', ph: 'e.g. 1000000', hint: 'Adds up the daily view counts saved in Socials. Choose All time to count every day recorded up to the deadline, or a date range to count only those days.' },
   value:  { label: 'Business value', unit: '', field: 'Target (PHP)', ph: 'e.g. 1000000', hint: 'The total on the Finance balance card: every account plus cards on hand and pending at cost, plus receivables, less payables, measured today. The start date is not used.' }
 };
 const phpG = n => (n < 0 ? '-' : '') + 'PHP ' + Math.abs(Math.round(n)).toLocaleString('en-PH');
 const dayFmt = d => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
 const todayIso = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const daysTo = iso => { const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/), t = new Date(); return m ? Math.round((new Date(+m[1], +m[2] - 1, +m[3]) - new Date(t.getFullYear(), t.getMonth(), t.getDate())) / 864e5) : 0; };
-const goalNum = (g, n) => g.metric === 'cards' ? n.toLocaleString('en-PH') : phpG(n);
+const isSocialG = g => g.metric === 'followers' || g.metric === 'views';
+const goalNum = (g, n) => (g.metric === 'cards' || isSocialG(g)) ? Math.round(n).toLocaleString('en-PH') : phpG(n);
+const CHN = { fb: 'Facebook', ig: 'Instagram', all: 'Combined' };
 
 /* Progress is worked out here from the same data the other pages use (Portfolio, Balance, Finance tasks). */
 let stats = null, statsAt = 0, statsBusy = null;
 const needFin = () => items.some(i => i.kind === 'goal' && (i.metric === 'value' || i.metric === 'profit'));
+const needSo = () => items.some(i => i.kind === 'goal' && !i.archived && isSocialG(i));   // followers / views goals read the Socials data
 function loadStats() {
   if (!CONFIG.portfolio.endpoint) return Promise.resolve();
   if (statsBusy) return statsBusy;
-  if (stats && Date.now() - statsAt < 60000 && (!needFin() || stats.fin)) return Promise.resolve();
+  if (stats && Date.now() - statsAt < 60000 && (!needFin() || stats.fin) && (!needSo() || stats.so)) return Promise.resolve();
   statsBusy = (async () => {
     try {
-      const fin = needFin();
-      const [p, b, f] = await Promise.all([jsonp(api('portfolio'), 60000), fin ? jsonp(api('balance'), 60000) : null, fin ? jsonp(api('finance'), 60000) : null]);
+      const fin = needFin(), so = needSo();
+      const [p, b, f, s] = await Promise.all([jsonp(api('portfolio'), 60000), fin ? jsonp(api('balance'), 60000) : null, fin ? jsonp(api('finance'), 60000) : null, so ? jsonp(api('socials'), 60000) : null]);
+      if (so && !s.ok) throw new Error(s.error || 'Unknown error');
       if (!p.ok) throw new Error(p.error || 'Unknown error');
       if (fin && (!b.ok || !f.ok)) throw new Error((b.ok ? f : b).error || 'Unknown error');
-      stats = { cards: p.cards || [], fin: fin ? { balance: b.balance, interest: b.interest, tasks: (f.toRecord || []).concat(f.recorded || []) } : null }; statsAt = Date.now();
+      stats = { cards: p.cards || [], so: so ? { fb: { daily: s.daily || [], meta: s.meta || {} }, ig: s.ig || { daily: [], meta: {} } } : null, fin: fin ? { balance: b.balance, interest: b.interest, tasks: (f.toRecord || []).concat(f.recorded || []) } : null }; statsAt = Date.now();
     } catch (err) { console.warn('Goal progress failed', err); toast('Could not load progress: ' + backendErr(err)); }
     statsBusy = null;
   })();
@@ -171,6 +177,7 @@ function accountsNow(fin) {
 }
 function progressOf(g) {
   if (!stats) return null;
+  if (isSocialG(g)) return CVWidgets.socialProgress(stats.so, g);   // same sums as the Home widget
   const inWin = c => c.soldDate && (!g.start || c.soldDate >= g.start) && (!g.deadline || c.soldDate <= g.deadline);
   if (g.metric === 'cards') return stats.cards.filter(c => c.tag === 'sold' && inWin(c)).length;
   if (!stats.fin) return null;
@@ -192,9 +199,10 @@ let goalView = 'active';   // active | archived
 function goalHtml(g) {
   const M = METRIC[g.metric] || METRIC.cards, cur = progressOf(g), st = goalState(g, cur);
   const pct = cur == null || !(g.target > 0) ? 0 : Math.max(0, Math.min(100, cur / g.target * 100));
-  const range = g.metric === 'value' ? 'Before ' + dayFmt(g.deadline) : (g.start ? dayFmt(g.start) + ' to ' : 'Until ') + dayFmt(g.deadline);
+  const range = g.metric === 'value' || g.metric === 'followers' ? 'Before ' + dayFmt(g.deadline) : g.metric === 'views' && !g.start ? 'All time, until ' + dayFmt(g.deadline) : (g.start ? dayFmt(g.start) + ' to ' : 'Until ') + dayFmt(g.deadline);
+  const kindTxt = isSocialG(g) ? (CHN[g.channel] || 'Combined') + ' ' + M.label.toLowerCase() : M.label;
   return `<div class="gl-card ${st.cls}">
-      <div class="gl-head"><div><b>${escOrg(g.title)}</b><span class="gl-kind">${escOrg(M.label)}, ${escOrg(range)}</span></div>${st.badge ? `<span class="gl-badge ${st.cls}">${escOrg(st.badge)}</span>` : ''}</div>
+      <div class="gl-head"><div><b>${escOrg(g.title)}</b><span class="gl-kind">${escOrg(kindTxt)}, ${escOrg(range)}</span></div>${st.badge ? `<span class="gl-badge ${st.cls}">${escOrg(st.badge)}</span>` : ''}</div>
       <div class="gl-nums"><b>${cur == null ? 'Calculating\u2026' : goalNum(g, cur) + ' of ' + goalNum(g, g.target)}</b><span>${cur == null ? '' : Math.floor(pct) + '%'}</span></div>
       <span class="gl-bar"><u style="width:${pct}%"></u></span>
       ${g.body ? `<p class="gl-note">${escOrg(g.body)}</p>` : ''}
@@ -335,6 +343,8 @@ function openEdit(kind, id) {
     $o('orgTarget').value = it && it.target ? it.target : '';
     $o('orgStart').value = it ? it.start : todayIso();
     $o('orgDeadline').value = it ? it.deadline : '';
+    $o('orgChannel').value = it && CHN[it.channel] ? it.channel : 'all';
+    $o('orgPeriod').value = it && it.metric === 'views' && it.start ? 'range' : 'all';
     metricHint();
   }
   $o('orgParentWrap').hidden = !F.parent;
@@ -350,8 +360,12 @@ function openEdit(kind, id) {
 function metricHint() {
   const M = METRIC[$o('orgMetric').value];
   $o('orgLTarget').textContent = M.field; $o('orgTarget').placeholder = M.ph; $o('orgGoalHint').textContent = M.hint;
+  const m = $o('orgMetric').value, social = m === 'followers' || m === 'views';
+  $o('orgChWrap').hidden = !social; $o('orgPeriodWrap').hidden = m !== 'views';
+  $o('orgStartWrap').hidden = m === 'followers' || (m === 'views' && $o('orgPeriod').value === 'all');   // all-time views and follower totals have no start date
 }
 $o('orgMetric').addEventListener('change', metricHint);
+$o('orgPeriod').addEventListener('change', () => { if ($o('orgPeriod').value === 'range' && !$o('orgStart').value) $o('orgStart').value = todayIso(); metricHint(); });
 const closeEdit = () => { $o('orgSheet').hidden = true; editId = ''; };
 $o('addPerson').onclick = () => openEdit('person', '');
 $o('addGoal').onclick = () => openEdit('goal', '');
@@ -377,8 +391,11 @@ $o('orgSave').onclick = () => {
     const target = parseFloat($o('orgTarget').value), start = $o('orgStart').value, deadline = $o('orgDeadline').value;
     if (!(target > 0)) return toast('Enter a target above zero.');
     if (!deadline) return toast('Pick the date to reach it by.');
-    if (start && start > deadline) return toast('"Count from" must be before the deadline.');
-    Object.assign(goal, { metric: $o('orgMetric').value, target, start, deadline });
+    const mm = $o('orgMetric').value, usesStart = !(mm === 'followers' || (mm === 'views' && $o('orgPeriod').value === 'all'));
+    if (usesStart && start && start > deadline) return toast('"Count from" must be before the deadline.');
+    const metric = $o('orgMetric').value, social = metric === 'followers' || metric === 'views';
+    if (metric === 'views' && $o('orgPeriod').value === 'range' && !start) return toast('Pick the date to count views from.');
+    Object.assign(goal, { metric, target, start: metric === 'followers' || (metric === 'views' && $o('orgPeriod').value === 'all') ? '' : start, deadline, channel: social ? $o('orgChannel').value : '' });
   }
   send($o('orgSave'), 'Saving\u2026', 'saveOrgItem', Object.assign({
     id: editId, kind: editKind, title,

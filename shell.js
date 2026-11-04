@@ -43,7 +43,12 @@
     + '#cvLogin{left:0!important;right:0;z-index:2000}'
     + '.cv-pw{position:relative}.cv-pw input{padding-right:44px}'
     + '.cv-eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:36px;height:36px;border:0;background:none;color:var(--mut,#737373);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}'
-    + '.cv-eye svg{width:20px;height:20px}.cv-err{color:#c0392b;font-size:13px;margin:0 0 12px}';
+    + '.cv-eye svg{width:20px;height:20px}.cv-err{color:#c0392b;font-size:13px;margin:0 0 12px}'
+    + '.sb-tools{width:100%;box-sizing:border-box;border:0;background:none;cursor:pointer;text-align:left}'
+    + '.sb-tools .sb-chev{margin-left:auto;width:14px;height:14px;transition:transform .15s}'
+    + '.sb-tools[aria-expanded=true] .sb-chev{transform:rotate(180deg)}'
+    + '.sb-sub{margin:2px 0 0 14px;padding-left:6px;border-left:1px solid var(--line,#e5e5e5)}.sb-sub[hidden]{display:none}'
+    + 'html.sb-rail .sb-tools .sb-chev{display:none}html.sb-rail .sb-sub{margin-left:0;padding-left:0;border-left:0}';
   document.head.appendChild(css);
 
   // JSONP call to the Apps Script backend (net.js is not loaded on every page, so this file carries its own)
@@ -144,18 +149,30 @@
     social: '<circle cx="18" cy="5.5" r="2.7"/><circle cx="6" cy="12" r="2.7"/><circle cx="18" cy="18.5" r="2.7"/><path d="M8.4 10.7l7.2-3.9M8.4 13.3l7.2 3.9"/>',
     topics: '<path d="M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/><path d="M7 8.5h5M7 12h10M7 15.5h7"/>',
     pin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3.5 3.5V15h-11v-2.5L10 9z"/>',
+    tools: '<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M9 8V6a2 2 0 012-2h2a2 2 0 012 2v2M3 13h18M11 12v3h2v-3"/>',
+    chevron: '<path d="M6 9l6 6 6-6"/>',
+    metaplanner: '<rect x="3" y="4.5" width="18" height="16.5" rx="3"/><path d="M3 9.5h18M8 2.8v3.4M16 2.8v3.4M9 15.2l2 2 4-4.2"/>',
+    metaanalytics: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
     settings: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/>'
   };
   var svg = function (k) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[k] + '</svg>'; };
 
   // [icon key, label, page]
   var GROUPS = [
-    ['Workspace', [['home', 'Home', 'index.html'], ['imageembed', 'Image Embed', 'https://postimages.org/']]],
+    ['Workspace', [['home', 'Home', 'index.html']]],
     ['Operations', [['receipt', 'Receipt', 'receipt.html'], ['portfolio', 'Portfolio', 'portfolio.html'], ['commercial', 'Commercial', 'commercial.html'], ['shipping', 'Shipping', 'shipping.html']]],
     ['Money', [['finance', 'Finance', 'finance.html'], ['charts', 'Charts', '#charts']]],
     ['Marketing', [['marketing', 'Marketing', 'marketing.html'], ['creatives', 'Creatives', 'creatives.html'], ['social', 'Socials', 'socials.html'], ['skits', 'Skits', 'skits.html']]],
     ['Team', [['topics', 'Topic Board', 'topics.html'], ['calendar', 'Calendar', 'calendar.html'], ['organization', 'Organization', 'organization.html'], ['legal', 'Legal', 'https://drive.google.com/drive/folders/1C8jRzBRNWcl3kvyP19aX8w4y_-8lRhvE?usp=drive_link']]]
   ];
+  // Tools: a collapsible group at the bottom of Team. Opens in a new tab.
+  var META_BIZ = 'business_id=2012057512771004&asset_id=811642605370988';
+  var TOOLS = [
+    ['imageembed', 'Image Embed', 'https://postimages.org/'],
+    ['metaplanner', 'Meta Planner', 'https://business.facebook.com/latest/content_calendar?' + META_BIZ],
+    ['metaanalytics', 'Meta Analytics', 'https://business.facebook.com/latest/insights/results?' + META_BIZ]
+  ];
+  var TOOLS_KEY = 'cv:sbTools';
   var BACKEND_URL = 'https://docs.google.com/spreadsheets/d/1It4a7gEvyxr-gz4SL6gClC84o6mfxjr9Ooho_DxjL9o/edit?gid=1823529634#gid=1823529634';
   var ALIAS = { 'receipts.html': 'receipt.html', '': 'index.html' };
   var page = (location.pathname.split('/').pop() || '').toLowerCase();
@@ -211,6 +228,11 @@
     if (/^https?:/.test(u)) return '<a class="sb-link" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + svg(it[0]) + '<span>' + esc(it[1]) + '</span></a>';
     return '<a class="sb-link' + (on ? ' on' : '') + '" href="' + BASE + u + '"' + (on ? ' aria-current="page"' : '') + '>' + svg(it[0]) + tail + '</a>';
   };
+  var toolsHtml = function () {
+    var open = getPref(TOOLS_KEY) === '1';
+    return '<button type="button" class="sb-link sb-tools" id="sbTools" aria-expanded="' + open + '" aria-controls="sbToolsList">' + svg('tools') + '<span>Tools</span>' + svg('chevron').replace('<svg ', '<svg class="sb-chev" ') + '</button>'
+      + '<div class="sb-sub" id="sbToolsList"' + (open ? '' : ' hidden') + '>' + TOOLS.map(link).join('') + '</div>';
+  };
   var logo = '<span class="sb-logo" aria-hidden="true">t</span>';
 
   function build() {
@@ -228,7 +250,7 @@
     aside.innerHTML = '<div class="sb-head"><a class="sb-brand" href="' + BASE + 'index.html">' + logo + '<b>trackello</b></a>'
       + '<button type="button" class="sb-pin" id="sbPin" aria-pressed="true" aria-label="Unpin sidebar" title="Unpin sidebar">' + svg('pin') + '</button></div>'
       + '<div class="sb-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input type="search" id="sbFind" placeholder="Search menu" autocomplete="off" aria-label="Search menu"></div>'
-      + '<nav class="sb-nav">' + GROUPS.map(function (g) { return '<div class="sb-group"><p class="sb-lbl">' + esc(g[0]) + '</p>' + g[1].map(link).join('') + '</div>'; }).join('') + '</nav>'
+      + '<nav class="sb-nav">' + GROUPS.map(function (g) { return '<div class="sb-group"><p class="sb-lbl">' + esc(g[0]) + '</p>' + g[1].map(link).join('') + (g[0] === 'Team' ? toolsHtml() : '') + '</div>'; }).join('') + '</nav>'
       + '<div class="sb-foot">' + link(['backend', 'Backend', BACKEND_URL]) + '<a class="sb-link' + (page === 'settings.html' ? ' on' : '') + '" href="' + BASE + 'settings.html">' + svg('settings') + '<span>Settings</span></a>'
       + '<p>&copy;2026 Court Vision</p></div>';
 
@@ -250,9 +272,15 @@
       var q = e.target.value.trim().toLowerCase();
       aside.querySelectorAll('.sb-group').forEach(function (g) {
         var any = false;
-        g.querySelectorAll('.sb-link').forEach(function (a) { var hit = !q || a.textContent.toLowerCase().indexOf(q) >= 0; a.hidden = !hit; if (hit) any = true; });
+        g.querySelectorAll('.sb-link:not(.sb-tools)').forEach(function (a) { var hit = !q || a.textContent.toLowerCase().indexOf(q) >= 0; a.hidden = !hit; if (hit) any = true; });
         g.hidden = !any;
       });
+      var tg = aside.querySelector('#sbTools'), tl = aside.querySelector('#sbToolsList');
+      if (tg && tl) {
+        var toolHit = !!tl.querySelector('.sb-link:not([hidden])');
+        tg.hidden = !!q && !toolHit;
+        tl.hidden = q ? !toolHit : getPref(TOOLS_KEY) !== '1';   // a search shows matching tools, clearing it restores the saved open / closed state
+      }
     });
 
     // Charts opens the link from config.js in a new tab (same behaviour as the home tile)
@@ -263,6 +291,13 @@
       var t = document.createElement('div');
       t.className = 'toast'; t.textContent = 'Charts link is not set yet. Add chartsUrl in config.js.';
       document.body.appendChild(t); setTimeout(function () { t.remove(); }, 3200); setOpen(false);
+    });
+
+    // Tools: tap to open or close the group (remembered on this device)
+    var toolsBtn = aside.querySelector('#sbTools'), toolsList = aside.querySelector('#sbToolsList');
+    toolsBtn.addEventListener('click', function () {
+      var open = toolsList.hidden;
+      toolsList.hidden = !open; toolsBtn.setAttribute('aria-expanded', open ? 'true' : 'false'); setPref(TOOLS_KEY, open ? '1' : '0');
     });
 
     // icon-only (unpinned) mode needs a tooltip on every link

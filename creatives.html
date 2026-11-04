@@ -64,6 +64,11 @@
     <h3 id="vHeading">Add video task</h3>
     <div class="field"><label for="vTitle">Title</label><input type="text" id="vTitle" autocomplete="off" placeholder="e.g. Vlog: Unboxing 20 packs"></div>
     <div class="field"><label for="vDate">Planned post date &amp; time <small>(time optional)</small></label><div class="row"><input type="date" id="vDate"><input type="time" id="vTime" aria-label="Planned post time"></div></div>
+    <div class="field" id="vSlotWrap">
+      <label>Planner slot <small>(optional: put this task in a reserved slot of the Socials planner)</small></label>
+      <div class="sl-weekbar"><button type="button" class="back" id="vSlotPrev" aria-label="Previous week">&lsaquo;</button><b id="vSlotWeek"></b><button type="button" class="back" id="vSlotNext" aria-label="Next week">&rsaquo;</button></div>
+      <div class="sl-opts" id="vSlotList"></div>
+    </div>
     <div class="field"><label for="vStatus">Status</label>
       <select id="vStatus"><option value="todo">To do</option><option value="done">Done</option></select>
     </div>
@@ -132,6 +137,11 @@
     <h3 id="mHeading">New post task</h3>
     <div class="field"><label for="mTitle">Title</label><input type="text" id="mTitle" autocomplete="off" placeholder="e.g. Weekend pickups"></div>
     <div class="field"><label for="mDate">Planned post date &amp; time <small>(time optional)</small></label><div class="row"><input type="date" id="mDate"><input type="time" id="mTime" aria-label="Planned post time"></div></div>
+    <div class="field" id="mSlotWrap">
+      <label>Planner slot <small>(optional: put this task in a reserved slot of the Socials planner)</small></label>
+      <div class="sl-weekbar"><button type="button" class="back" id="mSlotPrev" aria-label="Previous week">&lsaquo;</button><b id="mSlotWeek"></b><button type="button" class="back" id="mSlotNext" aria-label="Next week">&rsaquo;</button></div>
+      <div class="sl-opts" id="mSlotList"></div>
+    </div>
     <div class="field" id="mMergeWrap" hidden>
       <label>Merge with other tasks <small>(adds all their cards)</small></label>
       <div id="mMerge" class="m-merge"></div>

@@ -77,6 +77,56 @@ async function save(action, params) {
   }
 }
 
+/* ---------- planner slots: reserve a spot in the Socials planner while adding or editing a task ----------
+   p = 'v' (video task sheet) or 'm' (post task sheet). The week bar filters the empty slots of the matching type;
+   picking one fills the planned date and time. The link is saved together with the task. */
+let spSlots = [];
+const spState = { v: null, m: null };
+const spParse = s => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+const spIso = d => { const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+const spAdd = (d, n) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + n); return x; };
+const spWk = d => spAdd(d, -d.getDay());   // weeks start on Sunday, like the planner
+async function spLoad() { try { const r = await jsonp(api('plan'), 45000); if (r && r.ok) spSlots = r.slots || []; } catch (_) {} }
+function spRender(p) {
+  const st = spState[p]; if (!st) return;
+  const kind = p === 'v' ? 'video' : 'post', a = spIso(st.ws), b = spIso(spAdd(st.ws, 6)), e = spAdd(st.ws, 6);
+  $c(p + 'SlotWeek').textContent = st.ws.getMonth() === e.getMonth() ? `${fmtDayC(a)}\u2013${e.getDate()}` : `${fmtDayC(a)} \u2013 ${fmtDayC(b)}`;
+  // empty slots of that week, plus the slot this task is in (or has just picked) wherever it is
+  const list = spSlots.filter(s => s.kind === kind && ((s.date >= a && s.date <= b && !s.taskId) || s.id === st.sel || s.id === st.was))
+    .sort((x, y) => (x.date + (x.time || '')).localeCompare(y.date + (y.time || '')));
+  const row = (id, title, sub) => `<label class="sl-opt${st.sel === id ? ' on' : ''}"><input type="radio" name="${p}Slot" value="${escC(id)}" ${st.sel === id ? 'checked' : ''}><span><b>${title}</b>${sub ? `<small>${sub}</small>` : ''}</span></label>`;
+  $c(p + 'SlotList').innerHTML = row('', 'No slot', '') + (list.length ? list.map(s => {
+    const d = spParse(s.date), when = (d ? d.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }) : s.date) + (s.time ? ', ' + fmtClockC(s.time) : '');
+    const sub = [s.title, s.channels.map(k => ({ fb: 'FB', ig: 'IG', yt: 'YT', tt: 'TT' })[k]).join(' '), s.id === st.was ? 'current slot' : ''].filter(Boolean).join(' \u00b7 ');
+    return row(s.id, escC(when), escC(sub));
+  }).join('') : '<p class="stub-note" style="margin:4px 0 0;font-size:12px">No open ' + kind + ' slots this week. Add slots from Socials &gt; Planner &gt; Templates.</p>');
+}
+async function spOpen(p, taskId, dateStr) {
+  const st = spState[p] = { ws: spWk(spParse(dateStr) || new Date()), sel: '', was: '', touched: false };
+  const adopt = () => { if (st.touched) return; const l = taskId && spSlots.find(s => s.taskId === taskId); st.was = st.sel = l ? l.id : ''; if (l && spParse(l.date)) st.ws = spWk(spParse(l.date)); };
+  adopt(); spRender(p);
+  await spLoad();
+  if (spState[p] !== st) return;   // the sheet was closed or reopened meanwhile
+  adopt(); spRender(p);
+}
+const spClose = p => { spState[p] = null; };
+// after the task is saved: link it to the picked slot, or free the slot it left
+async function spApply(p, taskId) {
+  const st = spState[p]; if (!st || !taskId || st.sel === st.was) return true;
+  return !!(await save('linkSlot', st.sel ? { slotId: st.sel, taskId } : { slotId: st.was, taskId: '' }));
+}
+['v', 'm'].forEach(p => {
+  $c(p + 'SlotPrev').onclick = () => { const st = spState[p]; if (st) { st.ws = spAdd(st.ws, -7); spRender(p); } };
+  $c(p + 'SlotNext').onclick = () => { const st = spState[p]; if (st) { st.ws = spAdd(st.ws, 7); spRender(p); } };
+  $c(p + 'SlotList').addEventListener('change', e => {
+    const st = spState[p], r = e.target.closest('input[type=radio]'); if (!st || !r) return;
+    st.sel = r.value; st.touched = true;
+    const sl = spSlots.find(s => s.id === st.sel);
+    if (sl) { $c(p + 'Date').value = sl.date; $c(p + 'Time').value = sl.time || ''; }   // the task takes the slot's planned date and time
+    spRender(p);
+  });
+});
+
 /* ---------- Video ---------- */
 const ICON_C = {
   pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>',
@@ -166,9 +216,10 @@ function openVideo(id) {
     return `<label class="port-chk"><input type="checkbox" data-merge="${escC(x.id)}"><span>${escC(x.title)} \u00b7 ${escC(st)}${x.date ? ' \u00b7 ' + escC(fmtDayC(x.date)) : ''}${x.cards && x.cards.length ? ' \u00b7 ' + nPlC(x.cards.length, 'card') : ''}</span></label>`;
   }).join('');
   $c('vSheet').hidden = false;
+  spOpen('v', v ? v.id : '', v ? v.date : todayC());
   if (!v) $c('vTitle').focus();
 }
-const closeVideo = () => { $c('vSheet').hidden = true; editVideoId = ''; };
+const closeVideo = () => { $c('vSheet').hidden = true; editVideoId = ''; spClose('v'); };
 $c('vAdd').onclick = () => openVideo('');
 $c('vCancel').onclick = closeVideo;
 $c('vCopy').onclick = () => copyText($c('vCaption').value);
@@ -197,6 +248,7 @@ $c('vSave').onclick = async () => {
   const btn = $c('vSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
   let res = await save('saveCreative', params);
   if (res && mergeIds.length) { btn.textContent = 'Merging\u2026'; res = await save('mergeVideoTasks', { id: params.id, mergeIds: mergeIds.join(',') }); }
+  if (res) await spApply('v', params.id);   // link the task to the slot picked in the sheet (or free the one it left)
   btn.disabled = false; btn.textContent = 'Save';
   if (!res) return;
   closeVideo(); toast(mergeIds.length ? `Merged ${nPlC(mergeIds.length, 'task')}.` : existing ? 'Task updated.' : 'Task added.');
@@ -506,6 +558,7 @@ async function openPicker(id) {
   syncPickerTitle();
   renderPicker();
   $c('mSheet').hidden = false;
+  spOpen('m', g ? g.id : '', g ? (g.scheduled || todayC()) : todayC());
   try {
     const res = await jsonp(api('onhandCards'), 45000);
     if (!res.ok) throw new Error(res.error || 'Request failed');
@@ -515,7 +568,7 @@ async function openPicker(id) {
   if (!mState) return;
   mState.loading = false; renderPicker();
 }
-const closePicker = () => { $c('mSheet').hidden = true; mState = null; };
+const closePicker = () => { $c('mSheet').hidden = true; mState = null; spClose('m'); };
 $c('pAdd').onclick = () => openPicker('');
 $c('mCancel').onclick = closePicker;
 $c('mSheet').addEventListener('click', e => { if (e.target.id === 'mSheet') closePicker(); });
@@ -546,6 +599,7 @@ $c('mSave').onclick = async () => {
   const title = typed || ('Post: ' + (first ? first.name : 'cards') + (cardIds.length > 1 ? ` +${cardIds.length - 1}` : ''));
   const btn = $c('mSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
   const res = await save('savePostGroup', { id: mState.id, title, date: $c('mDate').value || todayC(), time: $c('mTime').value || '', cardIds: cardIds.join(','), mergeIds: [...mState.merge].join(',') });
+  if (res) await spApply('m', res.id || mState.id);   // res.id: a new or rebuilt task gets its id from the server
   btn.disabled = false; btn.textContent = 'Save';
   if (!res) return;
   const merged = mState.merge.size;

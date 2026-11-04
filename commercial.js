@@ -13,6 +13,7 @@ const pctTxt = n => (n > 0 ? '+' : n < 0 ? '\u2212' : '') + Math.abs(n).toFixed(
 let tab = 'onhand', sub = 'all', query = '';
 let data = { cards: [] };
 const openLots = new Set();
+const aucCtx = { toast: m => toast(m), reload: () => load() };   // auction.js
 
 // shipped and safekeep (sold and paid, held for the buyer) both count as sold here
 const normPort = d => ({ cards: (Array.isArray(d.cards) ? d.cards : (d.owned || []).concat(d.sold || [])).map(c => c.tag === 'shipped' || c.tag === 'safekeep' ? Object.assign({}, c, { tag: 'sold' }) : c) });
@@ -39,6 +40,7 @@ const fmtDay = v => {
 };
 
 const ICON = {
+  gavel: '<g transform="rotate(45 14 8)"><rect x="8.5" y="5" width="11" height="6" rx="1.5"/><path d="M14 11v11"/></g><path d="M3 21.5h18"/>',
   target: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8z"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none"/>',   // price tag, same as the Commercial app icon
   pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -114,12 +116,13 @@ function cardHtml(c, inLot) {
   const right = sold
     ? `<div class="port-cost">${php(c.soldPrice)}</div><span class="cm-tgt">${tgtLine(m)}</span>${m.priced ? statusChip(m.status, m.range) : ''}${chip(m)}`
     : `<div class="port-cost">${m.priced ? rangeTxt(m.tLo, m.tHi) : '<span class="cm-tgt">No target</span>'}</div>${m.priced ? '<span class="cm-tgt">Target</span>' : ''}${m.priced ? chip(m) : ''}`;
-  const acts = icon('target', 'cm-target', m.priced ? 'Edit target price' : 'Set target price', c.id) + icon('person', 'cm-offer', 'Offers to people', c.id) + (inLot && !sold && !pend ? icon('unlink', 'cm-unlot', 'Remove from lot', c.id) : '');
-  return `<div class="port-card" data-id="${esc(c.id)}">
+  const aucBtn = icon('gavel', 'cm-auction' + (c.auction ? ' auc-on' : ''), c.auction ? 'Remove auction tag' : 'Tag as auction', c.id);
+  const acts = icon('target', 'cm-target', m.priced ? 'Edit target price' : 'Set target price', c.id) + icon('person', 'cm-offer', 'Offers to people', c.id) + aucBtn + (inLot && !sold && !pend ? icon('unlink', 'cm-unlot', 'Remove from lot', c.id) : '');
+  return `<div class="port-card${c.auction ? ' auc-card' : ''}" data-id="${esc(c.id)}">
       <div class="port-card-main">
         <div class="port-thumb">${thumb(c, c.name)}</div>
-        <div class="port-info"><b>${esc(c.name)}</b>${info}${offerLine(c.id)}</div>
-        <div class="port-right cm-right">${right}</div>
+        <div class="port-info"><b>${esc(c.name)}</b>${info}${CVAuction.line(c)}${offerLine(c.id)}</div>
+        <div class="port-right cm-right">${c.auction ? '<span class="port-tag tag-auction">Auction</span>' : ''}${right}</div>
       </div>
       <div class="port-card-acts">${acts}</div>
     </div>`;
@@ -350,6 +353,22 @@ $('cmList').addEventListener('click', async e => {
     head.nextElementSibling.nextElementSibling.hidden = !openLots.has(id);
     head.querySelector('.lot-chev').classList.toggle('open', openLots.has(id));
     return;
+  }
+  const ab = e.target.closest('.cm-auction');
+  if (ab) {
+    const ac = findCard(ab.dataset.id); if (!ac) return;
+    if (!ac.auction) return CVAuction.edit(ac, aucCtx);   // tag it from the details sheet (the details are optional)
+    if (CVAuction.has(ac) && !confirm(CVAuction.warn(ac))) return;
+    ab.disabled = true;
+    try { await CVAuction.save([ac.id], false); toast('Auction tag removed.'); await load(); }
+    catch (err) { ab.disabled = false; toast('Could not update: ' + backendErr(err)); }
+    return;
+  }
+  // tapping an auction card (not a button or photo) shows its details; the link only opens from the View link button there
+  const am = e.target.closest('.port-card-main');
+  if (am && !am.classList.contains('lot-head') && !e.target.closest('button, a')) {
+    const acard = am.closest('.port-card[data-id]'), ac = acard && findCard(acard.dataset.id);
+    if (ac && ac.auction) return CVAuction.open(ac, aucCtx);
   }
   const t = e.target.closest('.cm-target'); if (t) return openTarget([t.dataset.id]);
   const of = e.target.closest('.cm-offer, .cm-lot-offer'); if (of) return openOffers(of.dataset.id, of.classList.contains('cm-lot-offer'));

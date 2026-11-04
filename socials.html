@@ -96,17 +96,17 @@
       <button type="button" class="ghost sm ic" id="plRefresh" aria-label="Refresh" title="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 00-14.9-3M4 5v4h4"/><path d="M4 13a8 8 0 0014.9 3M20 19v-4h-4"/></svg><span class="lbl">Refresh</span></button>
       <button type="button" class="ghost sm ic" id="plAddBtn" aria-label="Add posted photo or video" title="Add posted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="lbl">Add posted</span></button>
       <button type="button" class="ghost sm ic" id="plViewsBtn" aria-pressed="true" aria-label="Views on cards" title="Show or hide views on the cards"><span class="i-on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="i-off"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0112 5c6.4 0 10 7 10 7a17 17 0 01-3.2 4M6.5 6.6A17 17 0 002 12s3.6 7 10 7c1.6 0 3-.4 4.3-1"/><path d="M9.9 9.9a3 3 0 004.2 4.2"/></svg></span><span class="lbl">Views: On</span></button>
+      <button type="button" class="ghost sm ic" id="plTplBtn" aria-label="Templates and reserved slots" title="Templates"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" stroke-dasharray="3 2.5"/><path d="M3 9h18M9 9v11"/></svg><span class="lbl">Templates</span></button>
       <button type="button" class="ghost sm ic" id="plRankBtn" aria-label="Ranking" title="Ranking"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v5a4 4 0 01-8 0z"/><path d="M8 6H5a3 3 0 003 4M16 6h3a3 3 0 01-3 4M12 13v4M8.5 20h7"/></svg><span class="lbl">Ranking</span></button>
       <button type="button" class="ghost sm ic" id="plHiddenBtn" aria-label="Hidden tasks" title="Hidden tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 002 2h10a2 2 0 002-2V9M10 13h4"/></svg><span class="lbl">Hidden</span><i class="ic-n" id="plHiddenN" hidden>0</i></button>
     </div>
     <button type="button" class="pl-alert" id="plAlert" hidden></button>
+    <div class="sl-sum" id="plSched" hidden></div>
     <p class="stub-note" id="plState" hidden></p>
     <div class="pl-days" id="plDays"></div>
     <div class="pl-week" id="plWeek"></div>
-    <p class="pl-note">Faded items are done but not posted yet. Tap one to post it.</p>
+    <p class="pl-note">Faded items are done but not posted yet. Tap one to post it. Dashed outlines are reserved slots: tap one to link a task.</p>
   </div>
-</main>
-
 <!-- ranking: posted tasks from most to least views -->
 <div id="panelRanking" class="rk-wrap" hidden>
   <div class="pl-nav">
@@ -114,13 +114,93 @@
     <b>Ranking by views</b>
     <span style="width:36px" aria-hidden="true"></span>
   </div>
-  <div class="filter-chips rk-chips" id="rkTypes"></div>
-  <div class="filter-chips rk-chips" id="rkChips"></div>
+  <div class="rk-tools">
+    <div class="field rk-search"><input type="search" id="rkSearch" placeholder="Search posts and videos" autocomplete="off" aria-label="Search the ranking"></div>
+    <button type="button" class="ghost sm rk-fbtn" id="rkFilterBtn" aria-label="Filter by channel and type" aria-expanded="false" title="Filter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg><i class="ic-n" id="rkFilterN" hidden>0</i></button>
+    <div class="rk-pop" id="rkPop" hidden>
+      <p class="rk-pl">Channel</p>
+      <div class="filter-chips" id="rkChips"></div>
+      <p class="rk-pl">Type</p>
+      <div class="filter-chips" id="rkTypes"></div>
+      <button type="button" class="ghost sm" id="rkReset">Reset filters</button>
+    </div>
+  </div>
   <p class="rec-count" id="rkSum"></p>
   <p class="stub-note" id="rkEmpty" hidden></p>
   <div class="rk-list" id="rkList"></div>
   <p class="pl-note" id="rkNoneNote" hidden></p>
   <div class="rk-list rk-none" id="rkNone"></div>
+</div>
+</main>
+
+
+<!-- templates: the weekly outline, apply it to a week, clear empty slots -->
+<div class="modal" id="tmSheet" hidden>
+  <div class="sheet small wide">
+    <h3>Templates</h3>
+    <p class="stub-note" style="text-align:center;margin:-6px 0 14px;font-size:12px">Your weekly outline of what to post. Applying it to a week puts empty slots in the Planner. Those slots are copies: change or delete them freely, the template stays as it is. Arranged a week you like? Pick it below and save it as the template, then apply it to other weeks.</p>
+    <div id="tmDays"></div>
+    <div class="field tm-apply">
+      <label for="tmWeek">Week</label>
+      <select id="tmWeek" class="so-field-select"></select>
+      <p class="stub-note" id="tmWeekInfo" style="margin:8px 0 0;font-size:12px"></p>
+      <div class="tm-btns">
+        <button type="button" class="go sm" id="tmApply">Apply template to this week</button>
+        <button type="button" class="ghost sm" id="tmAddSlot">+ Add one slot</button>
+        <button type="button" class="ghost sm" id="tmSaveWeek">Save this week as template</button>
+        <button type="button" class="ghost sm danger" id="tmClear">Clear empty slots</button>
+      </div>
+    </div>
+    <div class="acts"><button type="button" class="ghost" id="tmClose">Close</button></div>
+  </div>
+</div>
+
+<!-- one template item (a weekday, type, channels, time, title, note) -->
+<div class="modal" id="tiSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="tiHeading">Add to template</h3>
+    <div class="field"><label for="tiDay">Day</label><select id="tiDay" class="so-field-select"></select></div>
+    <div class="field"><label for="tiKind">Type</label><select id="tiKind" class="so-field-select"><option value="post">Post</option><option value="video">Video</option></select></div>
+    <div class="field"><label>Channels</label><div class="filter-chips" id="tiChs"></div></div>
+    <div class="field"><label for="tiTime">Time <small>(optional)</small></label><input type="time" id="tiTime"></div>
+    <div class="field"><label for="tiTitle">Title</label><input type="text" id="tiTitle" maxlength="200" autocomplete="off" placeholder="e.g. Pull of the day"></div>
+    <div class="field"><label for="tiNote">Note <small>(optional)</small></label><textarea id="tiNote" rows="3" maxlength="1000" placeholder="What goes in this slot&hellip;"></textarea></div>
+    <div class="acts">
+      <button type="button" class="go sm" id="tiSave">Save</button>
+      <button type="button" class="ghost danger" id="tiDel" hidden>Delete</button>
+      <button type="button" class="ghost" id="tiCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- one reserved slot: details, and the task linked to it -->
+<div class="modal" id="slSheet" hidden>
+  <div class="sheet small wide">
+    <h3 id="slHeading">Reserved slot</h3>
+    <div class="field"><label for="slKind">Type</label><select id="slKind" class="so-field-select"><option value="post">Post</option><option value="video">Video</option></select></div>
+    <div class="field"><label>Channels</label><div class="filter-chips" id="slChs"></div></div>
+    <div class="field"><label>Date &amp; time <small>(time optional)</small></label><div class="so-plan"><input type="date" id="slDate" aria-label="Slot date"><input type="time" id="slTime" aria-label="Slot time"></div></div>
+    <div class="field"><label for="slTitle">Title</label><input type="text" id="slTitle" maxlength="200" autocomplete="off" placeholder="e.g. Pull of the day"></div>
+    <div class="field"><label for="slNote">Note <small>(optional)</small></label><textarea id="slNote" rows="3" maxlength="1000"></textarea></div>
+    <div class="field">
+      <label>Task in this slot</label>
+      <div class="sl-cur" id="slCur" hidden>
+        <span class="pl-thumb" id="slCurThumb"></span>
+        <span class="sl-cur-info"><b id="slCurTitle"></b><small id="slCurSub"></small></span>
+        <button type="button" class="ghost sm" id="slUnlink">Unlink</button>
+      </div>
+      <div id="slPickWrap">
+        <input type="search" id="slSearch" placeholder="Search tasks to link" autocomplete="off">
+        <div class="sl-list" id="slPick"></div>
+      </div>
+      <p class="stub-note" style="margin:8px 0 0;font-size:12px">Linking is manual. A task you link takes this slot&rsquo;s date and time (unless it is already posted), and the Planner checks it against the schedule.</p>
+    </div>
+    <div class="acts">
+      <button type="button" class="go sm" id="slSave">Save</button>
+      <button type="button" class="ghost danger" id="slDel" hidden>Delete slot</button>
+      <button type="button" class="ghost" id="slCancel">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <!-- hidden planner tasks: view and unhide -->
@@ -171,6 +251,7 @@
       <button type="button" class="go sm" id="pubSave">Publish</button>
       <button type="button" class="ghost" id="pubSched">Save schedule</button>
       <button type="button" class="ghost" id="pubCopy">Copy caption</button>
+      <button type="button" class="ghost" id="pubSlot" hidden>Slot</button>
       <button type="button" class="ghost" id="pubHide">Hide</button>
       <button type="button" class="ghost danger" id="pubDel">Delete task</button>
       <button type="button" class="ghost" id="pubCancel">Cancel</button>
@@ -195,6 +276,7 @@
     <div class="acts">
       <button type="button" class="go sm" id="pdSched">Save schedule</button>
       <button type="button" class="ghost" id="pdEdit">Edit details</button>
+      <button type="button" class="ghost" id="pdSlot" hidden>Slot</button>
       <button type="button" class="ghost" id="pdHide">Hide</button>
       <button type="button" class="ghost danger" id="pdUnpub">Unpublish</button>
       <button type="button" class="ghost danger" id="pdDel" hidden>Delete</button>
