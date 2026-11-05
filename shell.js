@@ -149,6 +149,7 @@
     social: '<circle cx="18" cy="5.5" r="2.7"/><circle cx="6" cy="12" r="2.7"/><circle cx="18" cy="18.5" r="2.7"/><path d="M8.4 10.7l7.2-3.9M8.4 13.3l7.2 3.9"/>',
     topics: '<path d="M3 5.5A1.5 1.5 0 014.5 4h15A1.5 1.5 0 0121 5.5v13a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z"/><path d="M7 8.5h5M7 12h10M7 15.5h7"/>',
     pin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3.5 3.5V15h-11v-2.5L10 9z"/>',
+    receiptfix: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/>',
     tools: '<rect x="3" y="8" width="18" height="12" rx="2"/><path d="M9 8V6a2 2 0 012-2h2a2 2 0 012 2v2M3 13h18M11 12v3h2v-3"/>',
     chevron: '<path d="M6 9l6 6 6-6"/>',
     metaplanner: '<rect x="3" y="4.5" width="18" height="16.5" rx="3"/><path d="M3 9.5h18M8 2.8v3.4M16 2.8v3.4M9 15.2l2 2 4-4.2"/>',
@@ -169,6 +170,7 @@
   var META_BIZ = 'business_id=2012057512771004&asset_id=811642605370988';
   var TOOLS = [
     ['imageembed', 'Image Embed', 'https://postimages.org/'],
+    ['receiptfix', 'Receipt Fix', 'fixreceipts.html'],
     ['metaplanner', 'Meta Planner', 'https://business.facebook.com/latest/content_calendar?' + META_BIZ],
     ['metaanalytics', 'Meta Analytics', 'https://business.facebook.com/latest/insights/results?' + META_BIZ]
   ];
@@ -228,8 +230,9 @@
     if (/^https?:/.test(u)) return '<a class="sb-link" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' + svg(it[0]) + '<span>' + esc(it[1]) + '</span></a>';
     return '<a class="sb-link' + (on ? ' on' : '') + '" href="' + BASE + u + '"' + (on ? ' aria-current="page"' : '') + '>' + svg(it[0]) + tail + '</a>';
   };
+  var toolsOpen = function () { return getPref(TOOLS_KEY) === '1' || TOOLS.some(function (t) { return t[2] === page; }); };   // stays open on a Tools page
   var toolsHtml = function () {
-    var open = getPref(TOOLS_KEY) === '1';
+    var open = toolsOpen();
     return '<button type="button" class="sb-link sb-tools" id="sbTools" aria-expanded="' + open + '" aria-controls="sbToolsList">' + svg('tools') + '<span>Tools</span>' + svg('chevron').replace('<svg ', '<svg class="sb-chev" ') + '</button>'
       + '<div class="sb-sub" id="sbToolsList"' + (open ? '' : ' hidden') + '>' + TOOLS.map(link).join('') + '</div>';
   };
@@ -279,7 +282,7 @@
       if (tg && tl) {
         var toolHit = !!tl.querySelector('.sb-link:not([hidden])');
         tg.hidden = !!q && !toolHit;
-        tl.hidden = q ? !toolHit : getPref(TOOLS_KEY) !== '1';   // a search shows matching tools, clearing it restores the saved open / closed state
+        tl.hidden = q ? !toolHit : !toolsOpen();   // a search shows matching tools, clearing it restores the saved open / closed state
       }
     });
 

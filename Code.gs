@@ -1471,6 +1471,7 @@ function getPortfolio_() {
       purchaseDate: fmtDateCell_(r[1]), purchaseCost: Number(r[5]) || 0,
       tag, soldDate: fmtDateCell_(r[10]), soldPrice: Number(r[12]) || 0, soldTo: String(r[11] || ''),
       purchaseReceipt: r[21] || '', saleReceipt: r[22] || '',
+      seller: String(r[2] || ''), boughtBy: String(r[3] || ''), purchaseNotes: String(r[8] || ''),   // Receipt Fix (rebuilds a purchase receipt image)
       receipts: receiptLinks_(r[21], r[22], rmap),
       lotId: String(r[28] || ''), lotName: String(r[29] || ''),
       targetPrice: Number(r[31]) || 0, targetMax: Number(r[32]) || 0,   // Commercial: target sale price (low end) and optional top of the range

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>trackello &ndash; Receipt Fix</title>
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+.fr-item{display:grid;grid-template-columns:minmax(0,1fr) 150px auto;gap:8px;align-items:center;margin-bottom:8px}
+.fr-item input[type=text]{min-width:0}
+.fr-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fr-orig{display:block;width:100%;max-width:260px;margin:0 auto 14px;border:1px solid var(--line);border-radius:var(--r)}
+.fr-img{display:block;width:100%;max-width:540px;margin:0 auto 12px;border-radius:var(--r);border:1px solid var(--line)}
+.fr-found{font-size:12px;color:var(--mut);margin:0 0 14px}
+.fr-sale[hidden],.fr-buy[hidden]{display:none}
+.fr-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+@media(max-width:480px){.fr-item{grid-template-columns:minmax(0,1fr) 120px auto}}
+</style>
+<script src="shell.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="hbar">
+    <a href="receipts.html" class="back" aria-label="Back to receipts">&lsaquo;</a>
+    <h2>Receipt Fix</h2>
+    <span class="hbar-spacer" aria-hidden="true"></span>
+  </div>
+</header>
+
+<main class="port-wrap">
+  <p class="stub-note" id="frState">Loading&hellip;</p>
+  <div id="frBody" hidden>
+    <div class="filter-chips" id="frKind" style="margin-bottom:12px"><button type="button" class="chip active" data-k="sale">Sales</button><button type="button" class="chip" data-k="purchase">Purchases</button></div>
+    <p class="stub-note" style="margin:0 0 14px;font-size:12px">Pick a receipt. The details are read from Cards and Finance (as corrected in the backend); check them, generate the image, download it, then upload it in Drive with <b>Manage versions &rsaquo; Upload new version</b> on the old file so every link keeps working. Nothing is saved here.</p>
+    <div class="field"><label for="frSel">Receipt</label><select id="frSel"></select></div>
+    <img class="fr-orig" id="frOrig" alt="Current receipt image" hidden>
+    <p class="fr-found" id="frFound"></p>
+
+    <div class="fr-two">
+      <div class="field"><label for="frDate">Date</label><input type="date" id="frDate"></div>
+      <div class="field"><label for="frTime">Time</label><input type="time" id="frTime"></div>
+    </div>
+    <div class="field"><label for="frBuyer" id="frLBuyer">Buyer</label><input type="text" id="frBuyer" autocomplete="off"></div>
+    <div class="field">
+      <label for="frPeople" id="frLPeople">Sold by <small>(tap the names)</small></label>
+      <div class="fr-chips" id="frChips"></div>
+      <input type="text" id="frPeople" autocomplete="off" placeholder="Names, separated by commas">
+    </div>
+    <div class="field"><label for="frPay" id="frLPay">Received in</label><input type="text" id="frPay" autocomplete="off"></div>
+
+    <div class="field">
+      <label id="frLItems">Cards sold</label>
+      <div id="frItems"></div>
+      <button type="button" class="ghost sm" id="frAdd">+ Add card</button>
+    </div>
+
+    <div class="fr-two">
+      <div class="field fr-sale"><label for="frType">Shipping</label>
+        <select id="frType"><option value="buyer">Care of buyer</option><option value="us">Care of us</option><option value="none">No shipping</option></select>
+      </div>
+      <div class="field"><label for="frMethod">Shipping method</label><input type="text" id="frMethod" autocomplete="off" placeholder="LBC, Lalamove&hellip;"></div>
+    </div>
+    <div class="fr-two">
+      <div class="field"><label for="frShip">Shipping fee</label><div class="money"><em>PHP</em><input type="number" id="frShip" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div></div>
+      <div class="field fr-sale"><label for="frPack">Packaging paid</label><div class="money"><em>PHP</em><input type="number" id="frPack" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div></div>
+    </div>
+    <div class="fr-two" id="frAcctRow">
+      <div class="field"><label for="frAcct" id="frLAcct">Shipping received in <small>(blank = same as above)</small></label><input type="text" id="frAcct" autocomplete="off" placeholder="Cash / Maribank"></div>
+      <div class="field fr-sale"><label for="frDeduct">Deducted from <small>(care of us only)</small></label><input type="text" id="frDeduct" autocomplete="off"></div>
+    </div>
+    <label class="port-chk fr-sale" style="margin-bottom:14px"><input type="checkbox" id="frKeep"><span>Held for safekeep</span></label>
+    <div class="field"><label for="frNotes">Notes</label><textarea id="frNotes" rows="3"></textarea></div>
+
+    <div class="sum total"><span id="frLTotal">Total received</span><b id="frTotal">PHP 0.00</b></div>
+    <button type="button" class="go" id="frGen">Generate image</button>
+
+    <div id="frOut" hidden style="margin-top:18px">
+      <img class="fr-img" id="frImg" alt="Rebuilt receipt">
+      <div class="acts"><a class="go" id="frDl" download>Download JPG</a></div>
+    </div>
+  </div>
+</main>
+<div class="toast" id="frToast" hidden></div>
+
+<footer class="site-footer">
+  <p>&copy;2026 Court Vision<br>All rights reserved.</p>
+</footer>
+<script src="boot.js"></script>
+<script src="config.js"></script>
+<script src="net.js"></script>
+<script src="fixreceipts.js"></script>
+</body>
+</html>
