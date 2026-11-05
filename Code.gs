@@ -167,6 +167,15 @@ function doGet(e) {
     if (action === 'mergeVideoTasks') return jsonpOut_(mergeVideoTasks_(e.parameter), cb);
     if (action === 'savePostGroup') return jsonpOut_(savePostGroup_(e.parameter), cb);
     if (action === 'allCards') return jsonpOut_(getAllCards_(), cb);
+    if (action === 'plan') return jsonpOut_(getPlan_(), cb);
+    if (action === 'saveSlot') return jsonpOut_(saveSlot_(e.parameter), cb);
+    if (action === 'deleteSlot') return jsonpOut_(deleteSlot_(e.parameter.id), cb);
+    if (action === 'linkSlot') return jsonpOut_(linkSlot_(e.parameter), cb);
+    if (action === 'clearSlots') return jsonpOut_(clearSlots_(e.parameter), cb);
+    if (action === 'saveTemplate') return jsonpOut_(saveTemplate_(e.parameter), cb);
+    if (action === 'deleteTemplate') return jsonpOut_(deleteTemplate_(e.parameter.id), cb);
+    if (action === 'applyTemplates') return jsonpOut_(applyTemplates_(e.parameter), cb);
+    if (action === 'saveWeekAsTemplate') return jsonpOut_(saveWeekAsTemplate_(e.parameter), cb);
     if (action === 'setPostViews') return jsonpOut_(setPostViews_(e.parameter), cb);
     if (action === 'socials') return jsonpOut_(getSocials_(), cb);
     if (action === 'syncSocials') return jsonpOut_(syncSocials_(e.parameter), cb);
@@ -1926,6 +1935,7 @@ function mergeVideoTasks_(p) {
 
     // delete the merged rows from the bottom up so the row numbers stay right
     found.map(f => f.idx).sort((a, b) => b - a).forEach(ix => sh.deleteRow(ix));
+    try { relinkSlots_(others, id); } catch (err) {}   // slots of the merged tasks follow the target (or empty if it already has a slot)
     return { ok: true, id, merged: found.length, cards: cards.length };
   } finally { lock.releaseLock(); }
 }
@@ -1977,6 +1987,7 @@ function deleteCreative_(id) {
     const found = sh && findRow_(sh, id);
     if (!found) return { ok: false, error: 'not found' };
     sh.deleteRow(found.idx);
+    try { relinkSlots_([id], ''); } catch (err) {}   // a reserved slot that held this task becomes empty again
     return { ok: true };
   } finally { lock.releaseLock(); }
 }
@@ -2056,6 +2067,7 @@ function savePostGroup_(p) {
       writeCreativeRow_(sh, r + 1, nr);
     }
     if (gone.length) deleteRowsBatch_(sh, gone);
+    try { relinkSlots_(sources.filter(x => x !== newId), newId); } catch (err) {}
     return { ok: true, id: newId };
   } finally { lock.releaseLock(); }
 }
@@ -2069,6 +2081,239 @@ function getAllCards_() {
     .slice(0, 1500);
   cards.forEach(c => delete c.i);
   return { ok: true, cards };
+}
+
+/* ---------- Planner slots & weekly templates ----------
+   A TEMPLATE item is a weekly outline (weekday, type, channels, time, title, note).
+   Applying a template to a week COPIES it into PlanSlots: from then on the slot is independent, so editing or deleting a slot never touches the template.
+   A SLOT is an empty reserved place in the Socials planner (date, time, type, channels, title, note). A task is linked to it by hand (TaskID);
+   one task sits in at most one slot. */
+const PLAN_SLOTS_SHEET = 'PlanSlots';
+const PLAN_SLOT_HEADERS = ['ID', 'Kind', 'Channels', 'Date', 'Time', 'Title', 'Note', 'TaskID', 'TemplateID', 'Created'];
+const PLAN_TPL_SHEET = 'PlanTemplates';
+const PLAN_TPL_HEADERS = ['ID', 'Kind', 'Channels', 'Weekday', 'Time', 'Title', 'Note', 'Created'];
+function planSlotsSheet_(create) { return textSheet_(PLAN_SLOTS_SHEET, PLAN_SLOT_HEADERS, create); }
+function planTplSheet_(create) { return textSheet_(PLAN_TPL_SHEET, PLAN_TPL_HEADERS, create); }
+function planWriteRow_(sh, headers, idx, row) {
+  while (row.length < headers.length) row.push('');
+  if (row.length > headers.length) row = row.slice(0, headers.length);
+  const at = idx || (sh.getLastRow() + 1);
+  if (at > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), at - sh.getMaxRows());
+  sh.getRange(at, 1, 1, headers.length).setNumberFormat('@').setValues([row]);
+}
+function cleanChannels_(v) {
+  const out = [];
+  String(v || '').split(',').forEach(x => { x = x.trim(); if (['fb', 'ig', 'yt', 'tt'].indexOf(x) >= 0 && out.indexOf(x) < 0) out.push(x); });
+  return out.join(',');
+}
+function addDaysIso_(iso, n) {
+  const m = String(iso).split('-');
+  return Utilities.formatDate(new Date(+m[0], +m[1] - 1, +m[2] + n, 12), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+function slotOut_(r) {
+  return { id: String(r[0]), kind: String(r[1]) === 'video' ? 'video' : 'post', channels: cleanChannels_(r[2]).split(',').filter(Boolean), date: fmtDateCell_(r[3]),
+    time: cleanTime_(fmtTimeCell_(r[4])), title: String(r[5] || ''), note: String(r[6] || ''), taskId: String(r[7] || ''), templateId: String(r[8] || '') };
+}
+function tplOut_(r) {
+  const wd = Number(r[3]);
+  return { id: String(r[0]), kind: String(r[1]) === 'video' ? 'video' : 'post', channels: cleanChannels_(r[2]).split(',').filter(Boolean), weekday: wd >= 0 && wd <= 6 ? wd : 0,
+    time: cleanTime_(fmtTimeCell_(r[4])), title: String(r[5] || ''), note: String(r[6] || '') };
+}
+function getPlan_() {
+  const ss = planSlotsSheet_(false), ts = planTplSheet_(false);
+  const slots = ss ? ss.getDataRange().getValues().slice(1).filter(r => r[0]).map(slotOut_) : [];
+  const templates = ts ? ts.getDataRange().getValues().slice(1).filter(r => r[0]).map(tplOut_) : [];
+  return { ok: true, templates, slots };
+}
+
+// Upsert a slot. Only the fields present in the request change.
+function saveSlot_(p) {
+  const id = String(p.id || '').trim();
+  if (id && !/^sl_[0-9a-f]{4,16}$/.test(id)) return { ok: false, error: 'not a slot' };
+  if ('kind' in p && ['video', 'post'].indexOf(String(p.kind)) < 0) return { ok: false, error: 'invalid type' };
+  if ('date' in p && !cleanDate_(p.date)) return { ok: false, error: 'invalid date' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = planSlotsSheet_(true), found = id ? findRow_(sh, id) : null;
+    if (id && !found) return { ok: false, error: 'not found' };
+    if (!found && !cleanDate_(p.date)) return { ok: false, error: 'pick a date' };
+    const row = found ? found.row.slice() : [newId_('sl'), 'post', '', '', '', '', '', '', '', nowStamp_()];
+    if ('kind' in p) {
+      if (found && row[7] && String(row[1]) !== String(p.kind)) return { ok: false, error: 'unlink the task before changing the type' };
+      row[1] = String(p.kind);
+    }
+    if ('channels' in p) row[2] = cleanChannels_(p.channels);
+    if ('date' in p) row[3] = cleanDate_(p.date);
+    if ('time' in p) row[4] = cleanTime_(p.time);
+    if ('title' in p) row[5] = String(p.title || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+    if ('note' in p) row[6] = String(p.note || '').trim().slice(0, 1000);
+    planWriteRow_(sh, PLAN_SLOT_HEADERS, found ? found.idx : 0, row);
+    return { ok: true, id: String(row[0]) };
+  } finally { lock.releaseLock(); }
+}
+
+function deleteSlot_(id) {
+  id = String(id || '');
+  if (!/^sl_[0-9a-f]{4,16}$/.test(id)) return { ok: false, error: 'not a slot' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = planSlotsSheet_(false), found = sh && findRow_(sh, id);
+    if (!found) return { ok: false, error: 'not found' };
+    sh.deleteRow(found.idx);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+
+// Link a task to a slot by hand (taskId '' = unlink). A task sits in one slot at most: any other slot that held it is emptied.
+function linkSlot_(p) {
+  const slotId = String(p.slotId || '').trim(), taskId = String(p.taskId || '').trim();
+  if (!/^sl_[0-9a-f]{4,16}$/.test(slotId)) return { ok: false, error: 'not a slot' };
+  if (taskId && !/^(v_[0-9a-f]{4,16}|pc_[0-9a-f]{4,16}|pg_.+)$/.test(taskId)) return { ok: false, error: 'not a video or post task' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = planSlotsSheet_(false), found = sh && findRow_(sh, slotId);
+    if (!found) return { ok: false, error: 'slot not found' };
+    if (taskId && (String(found.row[1]) === 'video') !== (taskId.indexOf('v_') === 0)) return { ok: false, error: 'a video slot takes a video task and a post slot takes a post task' };
+    if (taskId) {
+      const data = sh.getDataRange().getValues();
+      for (let r = 1; r < data.length; r++) {
+        if (r + 1 !== found.idx && String(data[r][7]) === taskId) { const nr = data[r].slice(); nr[7] = ''; planWriteRow_(sh, PLAN_SLOT_HEADERS, r + 1, nr); }
+      }
+    }
+    const row = found.row.slice(); row[7] = taskId;
+    planWriteRow_(sh, PLAN_SLOT_HEADERS, found.idx, row);
+    return { ok: true, slotId, taskId };
+  } finally { lock.releaseLock(); }
+}
+
+// Called by deleteCreative_ / mergeVideoTasks_ / savePostGroup_ (inside their lock): slots that held these tasks follow newId, or become empty.
+function relinkSlots_(oldIds, newId) {
+  const sh = planSlotsSheet_(false); if (!sh || !oldIds.length) return;
+  const data = sh.getDataRange().getValues();
+  let taken = !!newId && data.some((r, i) => i > 0 && String(r[7]) === newId);
+  for (let r = 1; r < data.length; r++) {
+    if (oldIds.indexOf(String(data[r][7])) < 0) continue;
+    const nr = data[r].slice();
+    if (newId && !taken) { nr[7] = newId; taken = true; } else nr[7] = '';
+    planWriteRow_(sh, PLAN_SLOT_HEADERS, r + 1, nr);
+  }
+}
+
+// Delete every EMPTY slot of one week (weekStart = its Sunday). Slots with a task are kept. Templates are never touched.
+function clearSlots_(p) {
+  const start = cleanDate_(p.weekStart);
+  if (!start) return { ok: false, error: 'pick a week' };
+  const end = addDaysIso_(start, 6);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = planSlotsSheet_(false);
+    if (!sh) return { ok: true, cleared: 0, kept: 0 };
+    const data = sh.getDataRange().getValues(), del = []; let kept = 0;
+    for (let r = 1; r < data.length; r++) {
+      const d = fmtDateCell_(data[r][3]);
+      if (!data[r][0] || d < start || d > end) continue;
+      if (String(data[r][7] || '')) kept++; else del.push(r + 1);
+    }
+    if (del.length) deleteRowsBatch_(sh, del);
+    return { ok: true, cleared: del.length, kept };
+  } finally { lock.releaseLock(); }
+}
+
+function saveTemplate_(p) {
+  const id = String(p.id || '').trim();
+  if (id && !/^tp_[0-9a-f]{4,16}$/.test(id)) return { ok: false, error: 'not a template' };
+  if ('kind' in p && ['video', 'post'].indexOf(String(p.kind)) < 0) return { ok: false, error: 'invalid type' };
+  if ('weekday' in p && !(Number(p.weekday) >= 0 && Number(p.weekday) <= 6)) return { ok: false, error: 'invalid day' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = planTplSheet_(true), found = id ? findRow_(sh, id) : null;
+    if (id && !found) return { ok: false, error: 'not found' };
+    const row = found ? found.row.slice() : [newId_('tp'), 'post', '', '0', '', '', '', nowStamp_()];
+    if ('kind' in p) row[1] = String(p.kind);
+    if ('channels' in p) row[2] = cleanChannels_(p.channels);
+    if ('weekday' in p) row[3] = String(Math.round(Number(p.weekday)));
+    if ('time' in p) row[4] = cleanTime_(p.time);
+    if ('title' in p) row[5] = String(p.title || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+    if ('note' in p) row[6] = String(p.note || '').trim().slice(0, 1000);
+    planWriteRow_(sh, PLAN_TPL_HEADERS, found ? found.idx : 0, row);
+    return { ok: true, id: String(row[0]) };
+  } finally { lock.releaseLock(); }
+}
+
+function deleteTemplate_(id) {
+  id = String(id || '');
+  if (!/^tp_[0-9a-f]{4,16}$/.test(id)) return { ok: false, error: 'not a template' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = planTplSheet_(false), found = sh && findRow_(sh, id);
+    if (!found) return { ok: false, error: 'not found' };
+    sh.deleteRow(found.idx);   // slots already made from it stay as they are
+    return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+
+// Save one week of slots AS the weekly template (replaces the current template items), so it can be applied to other weeks.
+// The week's slots are tagged with the new template items, so applying the template to that same week again adds nothing twice.
+function saveWeekAsTemplate_(p) {
+  const start = cleanDate_(p.weekStart);
+  if (!start) return { ok: false, error: 'pick a week' };
+  const end = addDaysIso_(start, 6);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ss = planSlotsSheet_(false);
+    const data = ss ? ss.getDataRange().getValues() : [];
+    const mine = [];
+    for (let r = 1; r < data.length; r++) { const d = fmtDateCell_(data[r][3]); if (data[r][0] && d >= start && d <= end) mine.push({ idx: r + 1, row: data[r].slice(), d }); }
+    if (!mine.length) return { ok: false, error: 'that week has no slots to save' };
+    mine.sort((a, b) => (a.d + cleanTime_(fmtTimeCell_(a.row[4]))).localeCompare(b.d + cleanTime_(fmtTimeCell_(b.row[4]))));
+    const ts = planTplSheet_(true);
+    if (ts.getLastRow() > 1) ts.deleteRows(2, ts.getLastRow() - 1);
+    const now = nowStamp_(), rows = [];
+    mine.forEach(m => {
+      let wd = 0; for (let i = 0; i < 7; i++) if (addDaysIso_(start, i) === m.d) wd = i;
+      const id = newId_('tp'); m.tpl = id;
+      rows.push([id, String(m.row[1]) === 'video' ? 'video' : 'post', cleanChannels_(m.row[2]), String(wd), cleanTime_(fmtTimeCell_(m.row[4])), String(m.row[5] || ''), String(m.row[6] || ''), now]);
+    });
+    const at = ts.getLastRow() + 1, need = at + rows.length - 1;
+    if (need > ts.getMaxRows()) ts.insertRowsAfter(ts.getMaxRows(), need - ts.getMaxRows());
+    ts.getRange(at, 1, rows.length, PLAN_TPL_HEADERS.length).setNumberFormat('@').setValues(rows);
+    mine.forEach(m => { m.row[8] = m.tpl; planWriteRow_(ss, PLAN_SLOT_HEADERS, m.idx, m.row); });
+    return { ok: true, saved: rows.length };
+  } finally { lock.releaseLock(); }
+}
+
+// Copy the weekly template into one week (weekStart = that week's Sunday). A template item that already has a slot in that week is skipped.
+function applyTemplates_(p) {
+  const start = cleanDate_(p.weekStart);
+  if (!start) return { ok: false, error: 'pick a week' };
+  const end = addDaysIso_(start, 6);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const ts = planTplSheet_(false);
+    const tpls = ts ? ts.getDataRange().getValues().slice(1).filter(r => r[0]).map(tplOut_) : [];
+    if (!tpls.length) return { ok: false, error: 'the template is empty: add items first' };
+    const sh = planSlotsSheet_(true), data = sh.getDataRange().getValues(), have = {};
+    for (let r = 1; r < data.length; r++) { const d = fmtDateCell_(data[r][3]); if (data[r][8] && d >= start && d <= end) have[String(data[r][8])] = true; }
+    const rows = []; let skipped = 0; const now = nowStamp_();
+    tpls.forEach(t => {
+      if (have[t.id]) { skipped++; return; }
+      rows.push([newId_('sl'), t.kind, t.channels.join(','), addDaysIso_(start, t.weekday), t.time, t.title, t.note, '', t.id, now]);
+    });
+    if (rows.length) {
+      const at = sh.getLastRow() + 1, need = at + rows.length - 1;
+      if (need > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), need - sh.getMaxRows());
+      sh.getRange(at, 1, rows.length, PLAN_SLOT_HEADERS.length).setNumberFormat('@').setValues(rows);
+    }
+    return { ok: true, added: rows.length, skipped };
+  } finally { lock.releaseLock(); }
 }
 
 /* ---------- socials (Facebook): published posts, daily page metrics and the all-time panels ---------- */
