@@ -521,7 +521,7 @@ function handleFile(input, kind) {
 handleFile($('#fileCamera'), 'camera');
 handleFile($('#fileUpload'), 'upload');
 const shipping = () => (mode === 'sold' && shipType() === 'none') ? 0 : (parseFloat($('#ship').value) || 0);
-const packaging = () => mode === 'sold' ? (parseFloat($('#pack').value) || 0) : 0;   // optional, sale only
+const packaging = () => mode === 'sold' && $('#packOn').checked ? (parseFloat($('#pack').value) || 0) : 0;   // optional, sale only: only counts when "Packaging was paid" is ticked
 // Purchase: shipping always counted in the total. Sold: shipping counts only when the buyer shoulders it (c/o buyer);
 // it's excluded when it's on us (c/o us) or when there's no shipping at all. Trade: there's no
 // item-for-item price, so the "total" is just whatever cash changed hands (if any).
@@ -576,6 +576,7 @@ async function setMode(m) {
   linkedTask = null; $('#soldPicker').style.display = ''; $('#taskHint').hidden = true;
   $('#safekeep').checked = false; $('#safekeep').disabled = false; $('#safekeepNote').hidden = true; fixSafekeepMethod();
   lots = {}; $('#payExtra').innerHTML = ''; $('#payAmt').value = '';
+  $('#shipAcctOn').checked = false;   // the shipping account differs per receipt type
   if (m === 'sold' || m === 'trade') {
     const loading = '<p class="stub-note">Loading onhand cards\u2026</p>';
     if (m === 'sold') $('#items').innerHTML = loading; else $('#tradedItems').innerHTML = loading;
@@ -589,6 +590,35 @@ async function setMode(m) {
 }
 $$('.tab').forEach(t => t.onclick = () => setMode(t.dataset.mode));
 
+/* Shipping account: on a purchase, shipping can be paid from a different account than the items (e.g. items by Maribank, shipping in Cash);
+   on a sale where the buyer pays shipping, the fee can land in a different account than the sale. Off = it follows the payment above. */
+const shipAcctShown = () => (mode === 'purchase' || (mode === 'sold' && shipType() === 'buyer')) && shipping() > 0;
+const mainAcct = () => { const pm = payments(); return pm && pm.split ? pm.list[0].method : $('#pay').value === 'Others' ? ($('#payOther').value.trim() || 'Others') : $('#pay').value; };
+function fillShipAcct() {
+  const sel = $('#shipAcct'), opts = mode === 'sold' ? ['Cash', 'Maribank'] : ['Cash', 'Maribank', 'Others'];
+  if (sel.dataset.m === mode) return;
+  sel.dataset.m = mode; sel.innerHTML = opts.map(o => `<option>${o}</option>`).join('');
+}
+function updateShipAcct() {
+  const show = shipAcctShown();
+  $('#shipAcctField').hidden = !show;
+  if (!show) { $('#shipAcctOn').checked = false; }
+  fillShipAcct();
+  $('#shipAcctChk').textContent = mode === 'sold' ? 'Shipping fee received in a different account' : 'Shipping paid using a different account';
+  const on = show && $('#shipAcctOn').checked;
+  $('#shipAcct').hidden = !on;
+  $('#shipAcctOther').hidden = !(on && $('#shipAcct').value === 'Others');
+}
+// ticking it starts from whatever the payment above is ("Received in" / "Purchased using")
+$('#shipAcctOn').addEventListener('change', () => {
+  if ($('#shipAcctOn').checked) {
+    fillShipAcct();
+    const base = mainAcct(), sel = $('#shipAcct'), has = [...sel.options].some(o => o.value === base);
+    if (has) sel.value = base; else if (mode === 'purchase') { sel.value = 'Others'; $('#shipAcctOther').value = base; } else sel.value = 'Cash';
+  }
+  update();
+});
+const shipAcctValue = () => shipAcctShown() && $('#shipAcctOn').checked ? acct('#shipAcct', '#shipAcctOther') : '';
 function update() {
   $$('[data-only]').forEach(e => { e.hidden = !e.dataset.only.split(' ').includes(mode); });
   if (mode === 'sold') $('#taskField').hidden = !shipTasks.length;
@@ -611,6 +641,9 @@ function update() {
   }
   $('#ship').disabled = mode === 'sold' && shipType() === 'none';
   if (mode === 'sold') $('#sched').closest('.field').hidden = $('#safekeep').checked;   // a safekeep card has no schedule yet
+  $('#packWrap').hidden = !$('#packOn').checked;
+  $('#pMethodOther').hidden = !(mode === 'purchase' && $('#pMethod').value === 'Others');
+  updateShipAcct();
   updatePayUI();
 
   if (mode === 'trade') {
@@ -631,7 +664,7 @@ function update() {
   $('#buyerWarn').hidden = !(mode === 'sold' && shipType() === 'buyer');
   $('#totalVal').textContent = php(grandTotal());
 }
-['#ship', '#pack', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod', '#trFrom', '#trTo', '#trAmt', '#trFee', '#payAmt'].forEach(s => $(s).addEventListener('input', update));
+['#ship', '#pack', '#packOn', '#pMethod', '#shipAcct', '#method', '#deduct', '#pay', '#cashAmount', '#cashMethod', '#trFrom', '#trTo', '#trAmt', '#trFee', '#payAmt'].forEach(s => $(s).addEventListener('input', update));
 $$('input[name=st]').forEach(r => r.addEventListener('change', update));
 $('#safekeep').addEventListener('change', update);
 $('#method').addEventListener('input', () => {
@@ -668,7 +701,8 @@ function collect() {
     items: its, entries: ents, multi: ents.length > 1,
     sub: trade ? 0 : subtotal(), ship: trade ? 0 : shipping(), pack: packaging(),
     total: grandTotal(),
-    method: $('#method').value === 'Others' ? ($('#methodOther').value.trim() || 'Others') : $('#method').value,
+    method: mode === 'purchase' ? ($('#pMethod').value === 'Others' ? ($('#pMethodOther').value.trim() || 'Others') : $('#pMethod').value) : $('#method').value === 'Others' ? ($('#methodOther').value.trim() || 'Others') : $('#method').value,
+    shipAcct: shipAcctValue(),   // purchase: shipping paid using / sale: shipping fee received in (blank = same as the payment above)
     shipTaskId: mode === 'sold' && linkedTask ? linkedTask.id : '',
     safekeep: mode === 'sold' && $('#safekeep').checked && !$('#safekeep').disabled,   // paid, but the cards stay with us for the buyer
     shipType: t, sched: mode === 'sold' && $('#safekeep').checked ? '' : $('#sched').value, shipAddr: mode === 'sold' ? $('#shipAddr').value.trim() : '',
@@ -816,8 +850,13 @@ function draw(x, d, s, dry, logo) {
       row('Shipping method', d.method);
       row('Shipping', d.shipType === 'none' ? 'No shipping (PHP 0.00)' : `${php(d.ship)} (${SHIP_LABEL[d.shipType]})`);
       if (d.shipType === 'us') row('Shipping deducted from', d.deduct);
+      if (d.shipType === 'buyer' && d.ship > 0 && d.shipAcct) row('Shipping received in', d.shipAcct);
       if (d.safekeep) row('Status', 'Paid \u00b7 held for safekeep');
-    } else row('Shipping', php(d.ship));
+    } else {
+      row('Shipping method', d.method);
+      row('Shipping', php(d.ship));
+      if (d.ship > 0 && d.shipAcct) row('Shipping paid using', d.shipAcct);
+    }
 
     y += 6 * s; rule(y, G); y += 24 * s;
     set(400, 30, true); txt(sold ? 'TOTAL RECEIVED' : 'TOTAL SPENT', P, y + 12 * s, '#fff');
@@ -854,7 +893,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // portfolio-flagged items also get a new Cards row — d.portfolio is ONE checkbox for the whole receipt.
 function purchaseBody(d, receiptPhoto) {
   if (!d.items.length) return null;
-  return { action: 'purchase', date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, ship: d.ship, notes: d.notes, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
+  return { action: 'purchase', date: d.date, time: d.time, seller: d.party, people: d.people, pay: d.pay, ship: d.ship, shipMethod: d.method, shipPay: d.ship > 0 ? d.shipAcct : '', notes: d.notes, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
     items: d.items.map(i => lotFields({ name: i.name, cost: i.cost, photo: i.photo, portfolio: d.portfolio }, i)), ...lotsAndPay(d), receiptPhoto };
 }
 // Cards sold always move to "shipping" so they show up under To ship, even with no shipping fee; the
@@ -863,7 +902,7 @@ function saleBody(d, receiptPhoto) {
   const sold = d.items.filter(i => i.cardId);
   if (!sold.length) return null;
   return { action: 'sell', date: d.date, time: d.time, buyer: d.party, notes: d.notes, pay: d.pay,
-    shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipSched: d.sched, safekeep: d.safekeep,
+    shipType: d.shipType, shipMethod: d.method, shipFee: d.ship, shipDeductFrom: d.deduct, shipReceivedIn: d.shipType === 'buyer' && d.ship > 0 ? d.shipAcct : '', shipSched: d.sched, safekeep: d.safekeep,
     shippingTaskId: d.shipTaskId, shipAddress: d.shipAddr, shipContact: d.shipContact, packaging: d.pack, vlog: d.vlog, vlogTaskId: d.vlogTaskId,
     items: sold.map(i => lotFields({ cardId: i.cardId, name: i.name, cost: i.cost }, i)), ...(d.payments.length > 1 ? { payments: d.payments } : {}), receiptPhoto };
 }
@@ -1093,7 +1132,7 @@ function resetAfterCardReceipt(d) {
     onhandCards = onhandCards.filter(c => !used.has(String(c.id)));
     $('#items').innerHTML = ''; refreshPicker('sold');
     $('#payExtra').innerHTML = ''; $('#payAmt').value = '';   // split amounts belonged to that sale's total
-    $('#pack').value = ''; $('#shipAddr').value = ''; $('#shipContact').value = '';   // per-sale fields: never carry one buyer's over to the next sale
+    $('#pack').value = ''; $('#packOn').checked = false; $('#shipAcctOn').checked = false; $('#shipAddr').value = ''; $('#shipContact').value = '';   // per-sale fields: never carry one buyer's over to the next sale
     $('#safekeep').checked = false; fixSafekeepMethod();
     if (d.shipTaskId) {   // the task now has its receipt: drop it from the list and clear what it had filled in
       shipTasks = shipTasks.filter(t => t.id !== d.shipTaskId);

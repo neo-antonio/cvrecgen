@@ -132,8 +132,14 @@
   </div>
 
   <div class="field" data-only="sold" hidden>
-    <label for="pack">Packaging paid <small>(optional)</small></label>
-    <div class="money"><em>PHP</em><input type="number" id="pack" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+    <label class="port-chk"><input type="checkbox" id="packOn"><span>Packaging was paid <small>(tick only if packaging money was received, not the shipping fee)</small></span></label>
+    <div class="money" id="packWrap" hidden><em>PHP</em><input type="number" id="pack" inputmode="decimal" min="0" step="0.01" placeholder="Packaging amount" aria-label="Packaging paid"></div>
+  </div>
+
+  <div class="field" data-only="purchase" hidden>
+    <label for="pMethod">Shipping method</label>
+    <select id="pMethod"><option>Meet-up</option><option>LBC</option><option>Lalamove</option><option>Grab</option><option>Online Shopping</option><option>Others</option></select>
+    <input type="text" id="pMethodOther" placeholder="Specify shipping method" hidden>
   </div>
 
   <div class="field" data-only="purchase sold" hidden>
@@ -143,8 +149,14 @@
       <label class="rad"><input type="radio" name="st" value="us"><span>Care of us</span></label>
       <label class="rad"><input type="radio" name="st" value="none"><span>No shipping</span></label>
     </div>
-    <p class="warn" id="buyerWarn" hidden><b>Warning:</b> For c/o buyer, please do not add a shipping fee if we do not receive the shipping money in our account. This can happen for Lalamove, Grab, Meet-ups.</p>
+    <p class="warn" id="buyerWarn" hidden><b>Warning:</b> For c/o buyer, please do not add a shipping fee if we do not receive the shipping money in our account. This can happen for Lalamove, Grab, Meet-ups. All shipping costs are paid and deducted from cash.</p>
     <div class="money"><em>PHP</em><input type="number" id="ship" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></div>
+  </div>
+
+  <div class="field" id="shipAcctField" hidden>
+    <label class="port-chk"><input type="checkbox" id="shipAcctOn"><span id="shipAcctChk">Shipping paid using a different account</span></label>
+    <select id="shipAcct" aria-label="Shipping account" hidden></select>
+    <input type="text" id="shipAcctOther" placeholder="Specify account" hidden>
   </div>
 
   <div class="field" data-only="sold" hidden>
@@ -212,7 +224,6 @@
 
 <footer class="site-footer">
   <p>&copy;2026 Court Vision<br>All rights reserved.</p>
-  <p>trackello <span class="ver">v1.2</span></p>
 </footer>
 
 <input type="file" accept="image/*" id="fileCamera" capture="environment" hidden>
