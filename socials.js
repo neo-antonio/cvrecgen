@@ -37,8 +37,11 @@
     return res;
   }
 
-  let tab = 'insights', view = 'd30', vMode = 'views';   // view: the date range (all | d90 | d30 | d14 | d7), Last 30 days by default
-  const RANGE_DAYS = { d7: 7, d14: 14, d30: 30, d90: 90 };   // vMode: what the top chart shows (views | both | reach)
+  let tab = 'insights', view = 'd30', vMode = 'views', grp = '';   // grp: '' = the time view that fits the date range, else day | week | month
+     // view: the date range (all | d90 | d30 | d14 | d7 | custom), Last 30 days by default; custom uses cFrom / cTo (yyyy-mm-dd)
+  const RANGE_DAYS = { d7: 7, d14: 14, d30: 30, d90: 90 };
+  let cFrom = '', cTo = '', compare = true;   // compare: show the change vs the same number of days right before the range
+  const rangeN = () => view === 'custom' ? Math.round((parseIso(cTo) - parseIso(cFrom)) / 864e5) + 1 : (RANGE_DAYS[view] || 30);   // vMode: what the top chart shows (views | both | reach)
   const startOfWeek = d => addDays(d, -d.getDay());   // weeks start on Sunday, like Meta's planner
   let weekStart = startOfWeek(new Date()), selDay = todayIso();
   let soc = { fb: { daily: [], meta: {} }, ig: { daily: [], meta: {} }, configured: false }, cre = { videos: [], posts: [], free: [] };
@@ -57,16 +60,6 @@
   const CHN = { fb: { n: 'Facebook', c: '#1877f2' }, ig: { n: 'Instagram', c: '#e1306c' } };
   const normSoc = r => ({ fb: { daily: (r && r.daily) || [], meta: (r && r.meta) || {} }, ig: { daily: (r && r.ig && r.ig.daily) || [], meta: (r && r.ig && r.ig.meta) || {} }, configured: !!(r && r.configured) });
   const selKeys = () => plat === 'all' ? ['fb', 'ig'] : [plat];   // the channels switched on above the charts
-  /* all-time panels of both channels added together (followers vs non-followers, and traffic sources by name) */
-  function mergeMeta(a, b) {
-    const out = {}, both = k => [a[k], b[k]].filter(Boolean), newest = list => list.map(x => x.updated || '').sort().pop() || '';
-    const au = both('audience');
-    if (au.length) out.audience = { value: { followers: au.reduce((n, x) => n + (Number(x.value.followers) || 0), 0), nonFollowers: au.reduce((n, x) => n + (Number(x.value.nonFollowers) || 0), 0) }, updated: newest(au) };
-    const tr = both('traffic');
-    if (tr.length) { const m = {}; tr.forEach(x => (x.value.items || []).forEach(i => { m[i.label] = (m[i.label] || 0) + (Number(i.value) || 0); })); out.traffic = { value: { items: Object.keys(m).map(k => ({ label: k, value: m[k] })) }, updated: newest(tr) }; }
-    return out;
-  }
-  const metaNow = () => plat === 'all' ? mergeMeta(soc.fb.meta, soc.ig.meta) : soc[plat].meta;
   function setPlatHeader() {
     const ic = $('soPlatIcon');
     ic.className = plat === 'ig' ? 'so-ig' : plat === 'fb' ? 'so-fb' : 'so-both';
@@ -74,28 +67,35 @@
     $('soPlatName').textContent = PNAME[plat];
     $('soPlat').value = plat;
   }
-  /* buckets of `size` days anchored on the newest day with data in ANY shown channel (daily 1, weekly 7, monthly 30); All time uses calendar months.
-     Each bucket keeps one sum per channel (b.by) and their total (b.all), so the charts can draw the channels side by side. */
+  /* Time view: how the range is cut into points. A range can be shown daily, weekly (Sunday to Saturday) or monthly; the default fits the range:
+     7 / 14 / 30 days daily, 90 days weekly, All time monthly (weekly when there is under four months of data, daily under a month).
+     Buckets at the edges of the range are cut to it. Each bucket keeps one sum per channel (b.by) and their total (b.all), so the charts can draw the channels side by side. */
+  const GROUPS = { day: 'Daily', week: 'Weekly', month: 'Monthly' };
+  const spanDays = sets => { const f = parseIso(sets.map(s => s.rows[0].d).sort()[0]), l = parseIso(sets.map(s => s.rows[s.rows.length - 1].d).sort().pop()); return Math.round((l - f) / 864e5) + 1; };
+  const allowedGroups = sets => view === 'custom' ? (rangeN() <= 7 ? ['day'] : rangeN() <= 31 ? ['day', 'week'] : ['day', 'week', 'month']) : view === 'd7' ? ['day'] : (view === 'd14' || view === 'd30') ? ['day', 'week'] : (view === 'd90' || spanDays(sets) > 28) ? ['day', 'week', 'month'] : ['day', 'week'];
+  function effGroup(sets) {
+    const ok = allowedGroups(sets);
+    if (grp && ok.indexOf(grp) >= 0) return grp;
+    if (view === 'custom') { const n = rangeN(); return n > 120 ? 'month' : n > 31 ? 'week' : 'day'; }
+    if (view === 'all') { const n = spanDays(sets); return n > 120 ? 'month' : n > 31 ? 'week' : 'day'; }
+    return view === 'd90' ? 'week' : 'day';
+  }
   function buckets(sets) {
-    const out = [], firsts = sets.map(s => s.rows[0].d).sort(), lasts = sets.map(s => s.rows[s.rows.length - 1].d).sort();
+    const out = [];
     if (!sets.length) return out;
-    const last = parseIso(lasts[lasts.length - 1]);
-    if (view === 'all') {
-      const first = parseIso(firsts[0]);
-      let y = first.getFullYear(), m = first.getMonth();
-      while (y < last.getFullYear() || (y === last.getFullYear() && m <= last.getMonth())) {
-        const from = new Date(y, m, 1), to = new Date(y, m + 1, 0);
-        out.push({ from, to, label: from.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) });
-        m++; if (m > 11) { m = 0; y++; }
-      }
-    } else {
-      // Last N days: one point per day, ending on the newest day with data
-      const count = RANGE_DAYS[view] || 30;
-      for (let i = count - 1; i >= 0; i--) { const to = addDays(last, -i); out.push({ from: to, to, label: shortDay(to) }); }
-    }
-    out.forEach(b => { b.by = {}; b.all = zero(); sets.forEach(s => { const t = sumRange(s.rows, b.from, b.to); b.by[s.k] = t; FIELDS.forEach(f => { b.all[f] += t[f]; }); }); });
+    const last = view === 'custom' ? parseIso(cTo) : parseIso(sets.map(s => s.rows[s.rows.length - 1].d).sort().pop());
+    const first = view === 'custom' ? parseIso(cFrom) : view === 'all' ? parseIso(sets.map(s => s.rows[0].d).sort()[0]) : addDays(last, -((RANGE_DAYS[view] || 30) - 1));
+    const g = effGroup(sets);
+    if (g === 'day') for (let d = first; d <= last; d = addDays(d, 1)) out.push({ from: d, to: d, label: shortDay(d) });
+    else if (g === 'week') for (let ws = startOfWeek(first); ws <= last; ws = addDays(ws, 7)) { const from = ws < first ? first : ws, to = addDays(ws, 6) > last ? last : addDays(ws, 6); out.push({ from, to, label: shortDay(from) }); }
+    else { let y = first.getFullYear(), m = first.getMonth(); while (y < last.getFullYear() || (y === last.getFullYear() && m <= last.getMonth())) {
+      const ms = new Date(y, m, 1), me = new Date(y, m + 1, 0);
+      out.push({ from: ms < first ? first : ms, to: me > last ? last : me, label: ms.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) });
+      m++; if (m > 11) { m = 0; y++; } } }
+    out.forEach(b => { b.g = g; b.by = {}; b.all = zero(); sets.forEach(s => { const t = sumRange(s.rows, b.from, b.to); b.by[s.k] = t; FIELDS.forEach(f => { b.all[f] += t[f]; }); }); });
     return out;
   }
+  const bucketTitle = b => b.g === 'day' ? longDay(b.from) : b.g === 'month' ? b.from.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + (b.from.getDate() !== 1 || b.to.getDate() !== new Date(b.to.getFullYear(), b.to.getMonth() + 1, 0).getDate() ? ' (' + shortDay(b.from) + ' \u2013 ' + shortDay(b.to) + ')' : '') : shortDay(b.from) + ' \u2013 ' + longDay(b.to);
   function totalBucket(bs, keys) {
     const t = { all: zero(), by: {} };
     keys.forEach(k => { t.by[k] = zero(); });
@@ -187,31 +187,33 @@
     const keys = selKeys(), sets = keys.map(k => ({ k, rows: soc[k].daily })).filter(s => s.rows.length), has = sets.length > 0, multi = sets.length > 1;
     $('soState').hidden = has;
     $('soCards').hidden = !has; $('soCharts').hidden = !has;
-    $('soAllTime').hidden = view !== 'all';
     renderFollowers();
     if (!has) {
       $('soRange').textContent = '';
       $('soState').textContent = 'No data yet. Tap Add day to enter your first numbers.';
-      if (view === 'all') renderAllTimePanels();
       return;
     }
     const present = sets.map(s => s.k), bs = buckets(sets), cur = bs[bs.length - 1];
+    syncGroup(sets);
     const hasReach = sets.some(s => s.rows.some(r => r.reach > 0)), hasPv = sets.some(s => s.rows.some(r => r.pv > 0));
     const dayset = {}; sets.forEach(s => s.rows.forEach(r => { dayset[r.d] = 1; }));
     const dates = Object.keys(dayset).sort(), firstDay = parseIso(dates[0]), lastDay = parseIso(dates[dates.length - 1]);
     const src = totalBucket(bs, present);   // the whole range, per channel and added up
     // the comparison is the same number of days right before the range (7 days vs the 7 before, 30 vs the 30 before, ...); All time has none
     let prev = null;
-    if (view !== 'all') {
-      const n = RANGE_DAYS[view], pEnd = addDays(bs[0].from, -1), pStart = addDays(pEnd, -(n - 1));
+    if (view !== 'all' && compare) {
+      const n = rangeN(), pEnd = addDays(bs[0].from, -1), pStart = addDays(pEnd, -(n - 1));
       prev = { all: zero(), by: {} };
       sets.forEach(s => { const t = sumRange(s.rows, pStart, pEnd); prev.by[s.k] = t; FIELDS.forEach(f => { prev.all[f] += t[f]; }); });
       prev.from = pStart; prev.to = pEnd;
     }
     if (view === 'all') $('soRange').textContent = `All data on record: ${longDay(firstDay)} \u2013 ${longDay(lastDay)} (${pl(dates.length, 'day')})`;
     else {
-      const n = RANGE_DAYS[view];
-      $('soRange').textContent = `Last ${n} days: ${shortDay(bs[0].from)} \u2013 ${longDay(cur.to)}, vs the ${n} days before (${shortDay(prev.from)} \u2013 ${shortDay(prev.to)})`;
+      const n = rangeN();
+      $('soRange').textContent = `${view === 'custom' ? '' : 'Last ' + n + ' days: '}${shortDay(bs[0].from)} \u2013 ${longDay(cur.to)}${view === 'custom' ? ' (' + pl(n, 'day') + ')' : ''}${prev ? `, vs the ${n} days before (${shortDay(prev.from)} \u2013 ${shortDay(prev.to)})` : ''}`;
+    }
+    $('soRange').textContent += ` \u00b7 ${GROUPS[cur.g]} view`;
+    {
     }
     // when two channels are shown the card is their total, with each channel's own number underneath
     const by = (f, b) => multi ? `<div class="so-by">${present.map(k => `<span><i style="background:${CHN[k].c}"></i>${num(b.by[k][f])}</span>`).join('')}</div>` : '';
@@ -225,6 +227,7 @@
     const nm = (k, w) => multi ? CHN[k].n + ' ' + w.toLowerCase() : w;
     const lineSet = (f, label, base, o) => present.map(k => Object.assign({ label: nm(k, label), data: bs.map(b => b.by[k][f]), borderColor: colorOf(k, base), backgroundColor: multi ? colorOf(k, base) : gradient(base), fill: !multi }, o || {}));
     const barSet = (f, label, base) => present.map(k => ({ label: nm(k, label), data: bs.map(b => b.by[k][f]), backgroundColor: rgba(colorOf(k, base), 0.9) }));
+    const tip = { callbacks: { title: it => { const b = it.length && bs[it[0].dataIndex]; return b ? bucketTitle(b) : ''; } } };
     const legend = on => ({ display: on, position: 'bottom', labels: { color: mut } });
     // the top chart: views, reach, or both overlaid on the same axis (reach dashed)
     const mode = hasReach ? vMode : 'views', ds = [];
@@ -233,44 +236,40 @@
     $('chViewsTitle').textContent = mode === 'both' ? 'Views & reach' : mode === 'reach' ? 'Reach' : 'Views';
     $('soViewMode').hidden = !hasReach;
     $('soViewMode').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.m === mode ? 'true' : 'false'));
-    draw('chViews', { type: 'line', data: { labels, datasets: ds }, options: { plugins: { legend: legend(ds.length > 1) }, scales: axes() } });
-    draw('chEng', { type: 'bar', data: { labels, datasets: barSet('eng', 'Engagement', COL.orange) }, options: { plugins: { legend: legend(multi) }, scales: axes() } });
-    draw('chAud', { type: 'bar', data: { labels, datasets: barSet('fol', 'Follows', COL.blue) }, options: { plugins: { legend: legend(multi) }, scales: axes() } });
+    draw('chViews', { type: 'line', data: { labels, datasets: ds }, options: { plugins: { legend: legend(ds.length > 1), tooltip: tip }, scales: axes() } });
+    draw('chEng', { type: 'bar', data: { labels, datasets: barSet('eng', 'Engagement', COL.orange) }, options: { plugins: { legend: legend(multi), tooltip: tip }, scales: axes() } });
+    draw('chAud', { type: 'bar', data: { labels, datasets: barSet('fol', 'Follows', COL.blue) }, options: { plugins: { legend: legend(multi), tooltip: tip }, scales: axes() } });
     $('chPvWrap').hidden = !hasPv;
-    if (hasPv) draw('chPv', { type: 'line', data: { labels, datasets: lineSet('pv', 'Profile visits', COL.green) }, options: { plugins: { legend: legend(multi) }, scales: axes() } });
-    if (view === 'all') renderAllTimePanels();
+    if (hasPv) draw('chPv', { type: 'line', data: { labels, datasets: lineSet('pv', 'Profile visits', COL.green) }, options: { plugins: { legend: legend(multi), tooltip: tip }, scales: axes() } });
   }
 
-  /* all-time only: followers vs non-followers pie and the traffic bars, each with its own last-updated stamp */
-  function renderAllTimePanels() {
-    const M = metaNow(), au = M.audience, tr = M.traffic, notYet = plat === 'all' ? 'Not entered yet. Choose Facebook or Instagram to add it.' : 'Not entered yet. Tap Update.';
-    $('soEditAud').hidden = $('soEditTr').hidden = plat === 'all';
-    const f = au ? Number(au.value.followers) || 0 : 0, n = au ? Number(au.value.nonFollowers) || 0 : 0, tot = f + n;
-    $('soAudUpd').textContent = au && au.updated ? 'Last updated ' + fmtStamp(au.updated) : notYet;
-    if (charts.chPie) { charts.chPie.destroy(); delete charts.chPie; }
-    $('soPieLegend').innerHTML = '';
-    if (tot > 0 && window.Chart) {
-      draw('chPie', { type: 'pie', data: { labels: ['Followers', 'Non-followers'], datasets: [{ data: [f, n], backgroundColor: [COL.blue, COL.orange], borderColor: css('--panel') || '#fff', borderWidth: 3 }] },
-        options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${c.label}: ${num(c.parsed)} (${(c.parsed / tot * 100).toFixed(1)}%)` } } } } });
-      $('soPieLegend').innerHTML = [['Followers', f, COL.blue], ['Non-followers', n, COL.orange]].map(x => `<span><i style="background:${x[2]}"></i>${x[0]} <b>${num(x[1])}</b> (${(x[1] / tot * 100).toFixed(1)}%)</span>`).join('');
-    }
-    const items = tr && tr.value && Array.isArray(tr.value.items) ? tr.value.items.slice().sort((a, b) => b.value - a.value) : [];
-    $('soTrUpd').textContent = tr && tr.updated ? 'Last updated ' + fmtStamp(tr.updated) : notYet;
-    $('soTrWrap').style.height = Math.max(140, items.length * 38 + 40) + 'px';
-    if (charts.chTraffic) { charts.chTraffic.destroy(); delete charts.chTraffic; }
-    if (items.length && window.Chart) {
-      const mut = css('--mut') || '#737373', grid = css('--line') || '#eee';
-      draw('chTraffic', { type: 'bar', data: { labels: items.map(i => i.label), datasets: [{ label: 'Views', data: items.map(i => i.value), backgroundColor: rgba(COL.blue, 0.9) }] },
-        options: { indexAxis: 'y', plugins: { legend: { display: false } },
-          scales: { x: { beginAtZero: true, grid: { color: grid }, border: { display: false }, ticks: { color: mut } }, y: { grid: { display: false }, ticks: { color: mut } } } } });
-    }
+  /* the Time view select shows (and offers only) the views that make sense for the date range */
+  function syncGroup(sets) {
+    const ok = allowedGroups(sets), eff = effGroup(sets), sel = $('soGroup');
+    [...sel.options].forEach(o => { o.disabled = ok.indexOf(o.value) < 0; });
+    sel.value = eff;
   }
-
   $('soViewMode').addEventListener('click', e => {
     const b = e.target.closest('button[data-m]'); if (!b) return;
     vMode = b.dataset.m; renderInsights();
   });
-  $('soView').addEventListener('change', () => { view = $('soView').value; renderInsights(); });
+  /* Custom range: two date pickers appear under the filters; a start after the end is swapped */
+  function syncCustom() { $('soCustom').hidden = view !== 'custom'; }
+  $('soView').addEventListener('change', () => {
+    view = $('soView').value; grp = '';
+    if (view === 'custom' && (!cFrom || !cTo)) { cTo = todayIso(); cFrom = isoOf(addDays(parseIso(cTo), -29)); }
+    if (view === 'custom') { $('soFrom').value = cFrom; $('soTo').value = cTo; }
+    syncCustom(); renderInsights();
+  });   // a new range goes back to the time view that fits it
+  const onCustom = () => {
+    let a = $('soFrom').value, b = $('soTo').value;
+    if (!a || !b) return;
+    if (a > b) { const t = a; a = b; b = t; $('soFrom').value = a; $('soTo').value = b; }
+    cFrom = a; cTo = b; grp = ''; renderInsights();
+  };
+  $('soFrom').addEventListener('change', onCustom); $('soTo').addEventListener('change', onCustom);   // a new range goes back to the time view that fits it
+  $('soCmp').addEventListener('change', () => { compare = $('soCmp').checked; renderInsights(); });
+  $('soGroup').addEventListener('change', () => { grp = $('soGroup').value; renderInsights(); });
   $('soPlat').addEventListener('change', () => { plat = $('soPlat').value; setPlatHeader(); renderInsights(); });
 
   /* ---- load ---- */
@@ -404,26 +403,6 @@
     const n = $('flNum').value.trim(); if (n === '' || !isFinite(+n) || +n < 0) return toast('Enter the total followers.');
     const b = $('flSave'); b.disabled = true; b.textContent = 'Saving\u2026';
     try { await call('saveSocialPanel', { key: 'followers', platform: flK, json: JSON.stringify({ total: Math.round(+n) }) }); $('flSheet').hidden = true; toast('Saved.'); await loadSocials(true); }
-    catch (err) { toast('Could not save: ' + backendErr(err)); }
-    b.disabled = false; b.textContent = 'Save';
-  };
-
-  /* ---- all-time panels ---- */
-  $('soEditAud').onclick = () => { if (plat === 'all') return; const a = soc[plat].meta.audience; $('auFol').value = a ? a.value.followers || '' : ''; $('auNon').value = a ? a.value.nonFollowers || '' : ''; $('auSheet').hidden = false; };
-  $('auCancel').onclick = () => { $('auSheet').hidden = true; };
-  $('auSave').onclick = async () => {
-    const b = $('auSave'); b.disabled = true; b.textContent = 'Saving\u2026';
-    try { await call('saveSocialPanel', { key: 'audience', platform: plat, json: JSON.stringify({ followers: +$('auFol').value || 0, nonFollowers: +$('auNon').value || 0 }) }); $('auSheet').hidden = true; toast('Saved.'); await loadSocials(true); }
-    catch (err) { toast('Could not save: ' + backendErr(err)); }
-    b.disabled = false; b.textContent = 'Save';
-  };
-  $('soEditTr').onclick = () => { if (plat === 'all') return; const t = soc[plat].meta.traffic; $('trText').value = t && t.value.items ? t.value.items.map(i => i.label + ': ' + i.value).join('\n') : ''; $('trSheet').hidden = false; };
-  $('trCancel').onclick = () => { $('trSheet').hidden = true; };
-  $('trSave').onclick = async () => {
-    const items = $('trText').value.split('\n').map(l => { const m = l.match(/^(.*?)[:=,\t]\s*([\d,.\s]+)$/); return m ? { label: m[1].trim(), value: parseFloat(m[2].replace(/[,\s]/g, '')) || 0 } : null; }).filter(i => i && i.label);
-    if (!items.length) return toast('Add lines like  Feed: 1200');
-    const b = $('trSave'); b.disabled = true; b.textContent = 'Saving\u2026';
-    try { await call('saveSocialPanel', { key: 'traffic', platform: plat, json: JSON.stringify({ items }) }); $('trSheet').hidden = true; toast('Saved.'); await loadSocials(true); }
     catch (err) { toast('Could not save: ' + backendErr(err)); }
     b.disabled = false; b.textContent = 'Save';
   };
@@ -1054,7 +1033,7 @@
   }));
 
   /* ---- a reserved slot ---- */
-  let slId = '';
+  let slId = '', slPend = '';   // slPend: the task picked in the list, linked when Save is pressed
   function openSlot(id, date) {
     const sl = id ? plan.slots.find(x => x.id === id) : null; if (id && !sl) return;
     slId = sl ? sl.id : '';
@@ -1064,20 +1043,23 @@
     const a = isoOf(weekStart), b = isoOf(addDays(weekStart, 6));
     $('slDate').value = sl ? sl.date : (date || (selDay >= a && selDay <= b ? selDay : a));
     $('slTime').value = sl ? sl.time : ''; $('slTitle').value = sl ? sl.title : ''; $('slNote').value = sl ? sl.note : '';
-    $('slDel').hidden = !sl; $('slSearch').value = '';
+    $('slDel').hidden = !sl; $('slSearch').value = ''; slPend = ''; $('slNewWrap').hidden = true; $('slNewTitle').value = '';
     renderSlLink();
     $('pubSheet').hidden = true; $('pdSheet').hidden = true; $('slSheet').hidden = false;
   }
-  const closeSlot = () => { $('slSheet').hidden = true; slId = ''; };
+  const closeSlot = () => { $('slSheet').hidden = true; slId = ''; slPend = ''; };
   function renderSlLink() {
-    const sl = slId ? plan.slots.find(x => x.id === slId) : null, cur = sl && sl.taskId ? find(sl.taskId) : null, kind = $('slKind').value;
+    const sl = slId ? plan.slots.find(x => x.id === slId) : null, linked = sl && sl.taskId ? find(sl.taskId) : null, pend = !linked && slPend ? find(slPend) : null, cur = linked || pend, kind = $('slKind').value;
     $('slKind').disabled = !!cur;   // the type is fixed while a task is in the slot
     $('slCur').hidden = !cur; $('slPickWrap').hidden = !!cur;
+    $('slCur').classList.toggle('pend', !!pend); $('slUnlink').textContent = pend ? 'Change' : 'Unlink';
+    $('slSave').textContent = pend ? 'Save & link' : 'Save';
+    $('slNew').textContent = kind === 'video' ? '+ New video task' : '+ New post task';
     if (cur) {
       const th = thumbOf(cur);
       $('slCurThumb').innerHTML = th ? `<img src="${esc(th)}" alt="">` : svgI(cur.kind);
       $('slCurTitle').textContent = cur.title;
-      $('slCurSub').textContent = `${kindLabel(cur)} \u00b7 ${isPosted(cur) ? 'Posted' : isReady(cur) ? 'Done, not posted yet' : 'To do'}${cur.hidden ? ' \u00b7 hidden' : ''}`;
+      $('slCurSub').textContent = `${pend ? 'Selected \u00b7 links when you save \u00b7 ' : ''}${kindLabel(cur)} \u00b7 ${isPosted(cur) ? 'Posted' : isReady(cur) ? 'Done, not posted yet' : 'To do'}${cur.hidden ? ' \u00b7 hidden' : ''}`;
       return;
     }
     const q = $('slSearch').value.trim().toLowerCase();
@@ -1092,7 +1074,7 @@
     }).join('')).join('');
     $('slPick').innerHTML = rows || `<p class="stub-note" style="margin:6px 0">No ${kind === 'video' ? 'video' : 'post'} tasks to link${q ? ' match your search' : ' yet'}.</p>`;
   }
-  $('slKind').addEventListener('change', () => { if (!slId) { chSet(slChs, DEF_CH[$('slKind').value]); chPick('slChs', slChs); } renderSlLink(); });
+  $('slKind').addEventListener('change', () => { slPend = ''; $('slNewWrap').hidden = true; if (!slId) { chSet(slChs, DEF_CH[$('slKind').value]); chPick('slChs', slChs); } renderSlLink(); });
   $('slSearch').addEventListener('input', renderSlLink);
   /* save what is typed in the sheet; returns the slot id (a new slot is created here) or '' */
   async function slotFormSave() {
@@ -1104,11 +1086,21 @@
     catch (err) { toast('Could not save: ' + backendErr(err)); return ''; }
   }
   $('slSave').onclick = async () => {
-    const b = $('slSave'); b.disabled = true; b.textContent = 'Saving\u2026';
+    const b = $('slSave'), label = b.textContent; b.disabled = true; b.textContent = slPend ? 'Linking\u2026' : 'Saving\u2026';
     const id = await slotFormSave();
-    b.disabled = false; b.textContent = 'Save';
-    if (!id) return;
-    const d = $('slDate').value; closeSlot(); toast('Slot saved.'); goWeek(d); await refreshAll();
+    if (!id) { b.disabled = false; b.textContent = label; return; }
+    const date = $('slDate').value, time = $('slTime').value || '';
+    let msg = 'Slot saved.';
+    if (slPend) {
+      const t = find(slPend);
+      try {
+        await call('linkSlot', { slotId: id, taskId: slPend });
+        // a task that is not posted yet takes the slot's planned date (and time); a posted one keeps the date it really went up
+        if (t && !isPosted(t)) await call('saveCreative', Object.assign({ id: t.id, date }, time ? { time } : {}));
+        msg = 'Slot saved and task linked.';
+      } catch (err) { toast('The slot was saved, but linking failed: ' + backendErr(err)); b.disabled = false; b.textContent = label; return; }
+    }
+    b.disabled = false; b.textContent = 'Save'; closeSlot(); toast(msg); goWeek(date); await refreshAll();
   };
   $('slCancel').onclick = closeSlot;
   $('slDel').onclick = async () => {
@@ -1118,23 +1110,32 @@
     catch (err) { toast('Could not delete: ' + backendErr(err)); }
   };
   $('slUnlink').onclick = async () => {
+    if (slPend) { slPend = ''; renderSlLink(); return; }   // "Change": drop the pick and choose again
     const sl = plan.slots.find(x => x.id === slId); if (!sl) return;
     try { await call('linkSlot', { slotId: sl.id, taskId: '' }); toast('Unlinked. The slot is open again.'); await refreshAll(); renderSlLink(); }
     catch (err) { toast('Could not unlink: ' + backendErr(err)); }
   };
-  $('slPick').addEventListener('click', async e => {
+  // picking a task only selects it (it shows above, marked as selected); it is linked when Save & link is pressed
+  $('slPick').addEventListener('click', e => {
     const btn = e.target.closest('[data-task]'); if (!btn) return;
     const t = find(btn.dataset.task); if (!t) return;
-    btn.disabled = true;
-    const id = await slotFormSave(); if (!id) { btn.disabled = false; return; }
-    const date = $('slDate').value, time = $('slTime').value || '';
-    try {
-      await call('linkSlot', { slotId: id, taskId: t.id });
-      // a task that is not posted yet takes the slot's planned date (and time); a posted one keeps the date it really went up
-      if (!isPosted(t)) await call('saveCreative', Object.assign({ id: t.id, date }, time ? { time } : {}));
-      closeSlot(); toast('Linked to the slot.'); goWeek(date); await refreshAll();
-    } catch (err) { toast('Could not link: ' + backendErr(err)); btn.disabled = false; }
+    slPend = t.id; renderSlLink();
   });
+  // a brand new video or post task, made for this slot and linked straight away
+  $('slNew').onclick = () => { const w = $('slNewWrap'); w.hidden = !w.hidden; if (!w.hidden) { if (!$('slNewTitle').value) $('slNewTitle').value = $('slTitle').value.trim(); $('slNewTitle').focus(); } };
+  $('slNewGo').onclick = async () => {
+    const title = $('slNewTitle').value.trim(); if (!title) return toast('Give the new task a title.');
+    const b = $('slNewGo'); b.disabled = true; b.textContent = 'Creating\u2026';
+    const id = await slotFormSave();
+    if (!id) { b.disabled = false; b.textContent = 'Create & link'; return; }
+    const date = $('slDate').value, time = $('slTime').value || '', video = $('slKind').value === 'video';
+    try {
+      const r = video ? await call('saveCreative', Object.assign({ title, date }, time ? { time } : {})) : await call('savePostGroup', { title, date, time, cardIds: '', mergeIds: '' });
+      await call('linkSlot', { slotId: id, taskId: r.id });
+      closeSlot(); toast(`New ${video ? 'video' : 'post'} task created and linked.`); goWeek(date); await refreshAll();
+    } catch (err) { toast('Could not create the task: ' + backendErr(err)); }
+    b.disabled = false; b.textContent = 'Create & link';
+  };
   $('pubSlot').onclick = () => { const sl = plan.slots.find(x => x.taskId === pubId); if (!sl) return; closePub(); openSlot(sl.id); };
   $('pdSlot').onclick = () => { const sl = plan.slots.find(x => x.taskId === pdId); if (!sl) return; closeDetail(); openSlot(sl.id); };
 
@@ -1235,8 +1236,8 @@
   });
   $('imgViewClose').onclick = () => { $('imgView').hidden = true; };
   $('imgView').addEventListener('click', e => { if (e.target.id === 'imgView') $('imgView').hidden = true; });
-  ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'auSheet', 'trSheet', 'hdSheet', 'flSheet', 'fpSheet', 'tmSheet', 'tiSheet', 'slSheet'].forEach(id => $(id).addEventListener('click', e => { if (e.target.id === id) $(id).hidden = true; }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'auSheet', 'trSheet', 'hdSheet', 'flSheet', 'fpSheet', 'tmSheet', 'tiSheet', 'slSheet', 'imgView'].forEach(id => { $(id).hidden = true; }); });
+  ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'hdSheet', 'flSheet', 'fpSheet', 'tmSheet', 'tiSheet', 'slSheet'].forEach(id => $(id).addEventListener('click', e => { if (e.target.id === id) $(id).hidden = true; }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') ['pubSheet', 'pdSheet', 'csvSheet', 'vwSheet', 'dySheet', 'hdSheet', 'flSheet', 'fpSheet', 'tmSheet', 'tiSheet', 'slSheet', 'imgView'].forEach(id => { $(id).hidden = true; }); });
 
   setupChartDefaults();
   setPlatHeader(); syncViewsBtn();

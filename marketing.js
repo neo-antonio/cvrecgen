@@ -28,7 +28,7 @@ const api = (action, params = {}) => CONFIG.portfolio.endpoint + '?action=' + ac
   + Object.keys(params).map(k => '&' + k + '=' + encodeURIComponent(params[k])).join('')
   + '&secret=' + encodeURIComponent(CONFIG.portfolio.secret);
 
-/* ---------- Profile extras (photo, gender, nickname, manual flags, blacklist) and the details toggle.
+/* ---------- Profile extras (photo, nickname, blacklist) and the details toggle.
    Saved in the Entities sheet (column K) and the profile photos in the Drive folder, so every device and teammate sees the same profile.
    This device keeps a copy (keyed by entity id) so the page still shows them offline. ---------- */
 const PROF_KEY = 'trackello.entProfiles', DET_KEY = 'trackello.entDetails';
@@ -36,19 +36,19 @@ let prof = {};
 try { prof = JSON.parse(localStorage.getItem(PROF_KEY) || '{}') || {}; } catch (_) { prof = {}; }
 let showDetails = true;
 try { showDetails = localStorage.getItem(DET_KEY) !== '0'; } catch (_) {}
-const profOf = id => Object.assign({ g: '', pic: '', n: '', fc: '', fs: '', bl: false, blr: '' }, prof[id]);
+const profOf = id => Object.assign({ pic: '', n: '', bl: false, blr: '' }, prof[id]);
 // patch = only the fields to change; a profile with nothing left in it is dropped
 function setProf(id, patch) {
   if (!id) return true;
   const p = Object.assign(profOf(id), patch);
-  if (!p.g && !p.pic && !p.n && !p.fc && !p.fs && !p.bl) delete prof[id];
-  else prof[id] = { g: p.g, pic: p.pic, n: p.n, fc: p.fc, fs: p.fs, bl: !!p.bl, blr: p.bl ? p.blr : '' };
+  if (!p.pic && !p.n && !p.bl) delete prof[id];
+  else prof[id] = { pic: p.pic, n: p.n, bl: !!p.bl, blr: p.bl ? p.blr : '' };
   try { localStorage.setItem(PROF_KEY, JSON.stringify(prof)); return true; } catch (_) { return false; }
 }
 function clearProf(id) { delete prof[id]; try { localStorage.setItem(PROF_KEY, JSON.stringify(prof)); } catch (_) {} }
 
 // What goes to the sheet. A photo that is still a raw upload (data:) is sent separately (see uploadPhoto).
-const profPayload = p => ({ g: p.g, n: p.n, fc: p.fc, fs: p.fs, bl: !!p.bl, blr: p.bl ? p.blr : '', pic: /^data:/.test(p.pic || '') ? '' : (p.pic || '') });
+const profPayload = p => ({ n: p.n, bl: !!p.bl, blr: p.bl ? p.blr : '', pic: /^data:/.test(p.pic || '') ? '' : (p.pic || '') });
 const profEmpty = p => !p || !Object.keys(p).length;
 // The sheet is the source of truth: an entity that has a saved profile there replaces this device's copy.
 function adoptServerProfiles() {
@@ -58,7 +58,7 @@ function adoptServerProfiles() {
     const local = prof[e.id] || {};
     // keep a not-yet-uploaded local photo until it reaches Drive
     const pic = /^data:/.test(local.pic || '') && !sp.pic ? local.pic : (sp.pic || '');
-    prof[e.id] = { g: sp.g || '', pic, n: sp.n || '', fc: sp.fc || '', fs: sp.fs || '', bl: !!sp.bl, blr: sp.bl ? (sp.blr || '') : '' };
+    prof[e.id] = { pic, n: sp.n || '', bl: !!sp.bl, blr: sp.bl ? (sp.blr || '') : '' };
   });
   try { localStorage.setItem(PROF_KEY, JSON.stringify(prof)); } catch (_) {}
 }
@@ -100,14 +100,10 @@ async function migrateLocalProfiles() {
   if (moved) { cacheSet('entities', data); renderAll(); toast('Profiles saved to your Drive and sheet.'); }
 }
 
-/* Blank profile pictures: neutral, male, female. */
-const AV_SVG = {
-  n: '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="24" r="11"/><path d="M10 64c0-14 9-22 22-22s22 8 22 22z"/></svg>',
-  m: '<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="27" y="32" width="10" height="12" rx="3"/><circle cx="32" cy="22" r="11"/><path d="M4 64c0-13 11-21 28-21s28 8 28 21z"/></svg>',
-  f: '<svg viewBox="0 0 64 64" aria-hidden="true"><path class="hair" d="M18 28c0-12 6-19 14-19s14 7 14 19v13c0 3-2 5-5 5H23c-3 0-5-2-5-5z"/><circle cx="32" cy="24" r="10.5"/><path d="M12 64c0-13 8-20 20-20s20 7 20 20z"/></svg>'
-};
-const avatarRaw = (pic, g, size) => `<span class="av av-${size} g-${g || 'n'}">${AV_SVG[g || 'n']}${pic ? `<img src="${escMk(pic)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}</span>`;
-const avatar = (e, size) => { const p = e ? profOf(e.id) : {}; return avatarRaw(p.pic, p.g, size); };
+/* Blank profile picture (one neutral silhouette). */
+const AV_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="24" r="11"/><path d="M10 64c0-14 9-22 22-22s22 8 22 22z"/></svg>';
+const avatarRaw = (pic, size) => `<span class="av av-${size}">${AV_SVG}${pic ? `<img src="${escMk(pic)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}</span>`;
+const avatar = (e, size) => { const p = e ? profOf(e.id) : {}; return avatarRaw(p.pic, size); };
 /* real name first, nickname as small text after it */
 const nickOf = e => (e && profOf(e.id).n) || '';
 const nameHtml = e => `${escMk(e.name)}${nickOf(e) ? ` <small class="pf-nick">\u201c${escMk(nickOf(e))}\u201d</small>` : ''}`;
@@ -193,15 +189,11 @@ function autoFlags() {
   flagSrc = data;
   return flagVal = { C, S, th: { nCust: cNames.length, nSupp: sNames.length, med, heroCut, spendCut, unitCut } };
 }
-// effective flag = manual choice if there is one, otherwise the automatic one
+// flags are automatic; only the blacklist is set by hand
 function flagsOf(e) {
   const A = autoFlags(), p = profOf(e.id);
-  const pick = (ov, auto, defs) => {
-    if (ov === 'none') return null;
-    if (ov && defs[ov]) return { key: ov, manual: true, why: 'Set manually. ' + (auto ? 'Automatic would be ' + defs[auto.key][0] + '.' : 'No automatic flag.') };
-    return auto ? { key: auto.key, manual: false, why: auto.why } : null;
-  };
-  return { c: pick(p.fc, A.C[e.name], CF), s: pick(p.fs, A.S[e.name], SF), bl: p.bl ? (p.blr || 'No reason given') : '' };
+  const pick = auto => auto ? { key: auto.key, manual: false, why: auto.why } : null;
+  return { c: pick(A.C[e.name]), s: pick(A.S[e.name]), bl: p.bl ? (p.blr || 'No reason given') : '' };
 }
 const flChip = (f, defs, title) => `<span class="fl fl-${defs[f.key][1]}" title="${escMk(title === undefined ? f.why : title)}">${defs[f.key][0]}</span>`;
 // which: 'c' customer only, 's' supplier only, '' neither (Blacklisted always shows)
@@ -302,10 +294,8 @@ function detailRows(e, full) {
   const so = socialInfo(e.facebook), rows = [];
   const add = (ic, label, html) => rows.push(`<div class="pf-row">${pfIc(ic)}<div><small>${label}</small>${html}</div></div>`);
   if (e.contact) add('phone', 'Phone', full ? `<a href="tel:${escMk(e.contact.replace(/\s+/g, ''))}">${escMk(e.contact)}</a>` : `<span>${escMk(e.contact)}</span>`);
-  if (e.email) add('mail', 'Email', full ? `<a href="mailto:${escMk(e.email)}">${escMk(e.email)}</a>` : `<span>${escMk(e.email)}</span>`);
   if (so) add('link', so.name || 'Social', full ? `<a href="${escMk(so.url)}" target="_blank" rel="noopener">${escMk(so.text)}</a>` : `<span>${escMk(so.text)}</span>`);
   if (e.address) add('pin', 'Address', `<span class="${full ? '' : 'clamp'}">${escMk(e.address).replace(/\n/g, '<br>')}</span>`);
-  if (e.payment.length) add('pay', 'Payment methods', `<div class="ed-chips">${e.payment.map(p => `<span class="chip">${escMk(p)}</span>`).join('')}</div>`);
   if (!full && e.notes) add('note', 'Notes', `<span class="clamp">${escMk(e.notes)}</span>`);
   return rows.join('');
 }
@@ -395,7 +385,7 @@ $m('entActive').addEventListener('click', e => {
 function showFlagInfo() {
   const t = autoFlags().th;
   const li = (name, txt) => `<div class="fi-row"><b>${name}</b><span>${txt}</span></div>`;
-  $m('flagInfoBody').innerHTML = `<p class="fi-lead">Flags are worked out automatically from your sales and purchases and refresh every time the page loads. Set a flag on a profile and your choice always wins. Blacklist is only ever set by hand. Trades are not counted.</p>
+  $m('flagInfoBody').innerHTML = `<p class="fi-lead">Flags are worked out automatically from your sales and purchases and refresh every time the page loads. Blacklist is the only flag you set by hand. Trades are not counted.</p>
     <h4>Customers (sold to)</h4>
     <p class="fi-note">An order is one day with sales, however many cards. Top 10% means lifetime sales of ${mkPhp(t.heroCut)} or more across ${plural(t.nCust, 'customer')}. A good spender is at or above the middle customer (${mkPhp(t.med)}).</p>
     ${li('Hero', 'Top 10% spender, 2+ orders, now quiet for longer than twice their usual gap (at least 3 weeks, up to 180 days).')}
@@ -426,7 +416,7 @@ function renderEntities() {
   const q = $m('entSearch').value.trim().toLowerCase();
   const by = aggregate('', '');
   let list = data.entities.slice();
-  if (q) list = list.filter(e => [e.name, nickOf(e), flagLabels(e), e.contact, e.address, e.email, e.facebook, e.notes].concat(e.aliases, e.payment).join(' ').toLowerCase().includes(q));
+  if (q) list = list.filter(e => [e.name, nickOf(e), flagLabels(e), e.contact, e.address, e.facebook, e.notes].concat(e.aliases).join(' ').toLowerCase().includes(q));
   if (entFlag) list = list.filter(flagMatch);
   const S = SORTS[entSort];
   if (S) { const d = entDir === 'least' ? 1 : -1; list.sort((x, y) => d * (S.val(by[x.name]) - S.val(by[y.name])) || x.name.localeCompare(y.name)); }
@@ -509,35 +499,13 @@ $m('mkRefresh').onclick = loadData;
 $m('entSearch').addEventListener('input', renderEntities);
 
 /* ---------- Add / rename / edit details ---------- */
-let editEntId = '', entPay = [], reopenView = false, editPic = '', editGender = '';
-const PAY_PRESETS = ['Cash', 'GCash', 'Maya', 'Maribank', 'Bank transfer'];
+let editEntId = '', reopenView = false, editPic = '';
 const findEnt = id => data.entities.find(e => e.id === id);
-const hasPay = p => entPay.some(x => x.toLowerCase() === p.toLowerCase());
-function renderPay() {
-  const extra = entPay.filter(p => !PAY_PRESETS.some(x => x.toLowerCase() === p.toLowerCase()));
-  $m('entPayChips').innerHTML = PAY_PRESETS.concat(extra).map(p => `<button type="button" class="chip${hasPay(p) ? ' active' : ''}" data-pay="${escMk(p)}">${escMk(p)}</button>`).join('');
-}
-$m('entPayChips').addEventListener('click', e => {
-  const c = e.target.closest('.chip'); if (!c) return;
-  const p = c.dataset.pay;
-  entPay = hasPay(p) ? entPay.filter(x => x.toLowerCase() !== p.toLowerCase()) : entPay.concat(p);
-  renderPay();
-});
-function addPay() {
-  const v = $m('entPayOther').value.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
-  if (v && !hasPay(v)) entPay.push(v);
-  $m('entPayOther').value = ''; renderPay();
-}
-$m('entPayAdd').onclick = addPay;
-$m('entPayOther').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addPay(); } });
-
-/* profile picture + gender inside the edit sheet */
+/* profile picture inside the edit sheet */
 function renderEditAvatar() {
-  $m('entAvatar').innerHTML = avatarRaw(editPic, editGender, 'xl');
+  $m('entAvatar').innerHTML = avatarRaw(editPic, 'xl');
   $m('entPicRemove').hidden = !editPic;
-  document.querySelectorAll('input[name=entGender]').forEach(r => r.checked = r.value === editGender);
 }
-document.querySelectorAll('input[name=entGender]').forEach(r => r.addEventListener('change', () => { if (r.checked) { editGender = r.value; renderEditAvatar(); } }));
 $m('entPicUpload').onclick = () => $m('entPicFile').click();
 $m('entPicLink').onclick = () => { const f = $m('entPicLinkField'); f.hidden = !f.hidden; if (!f.hidden) $m('entPicUrl').focus(); };
 $m('entPicRemove').onclick = () => { editPic = ''; renderEditAvatar(); };
@@ -574,12 +542,8 @@ $m('entPicFile').addEventListener('change', async () => {
   try { editPic = await fileToAvatar(f); renderEditAvatar(); } catch (_) { toast('Could not read that image.'); }
 });
 
-function fillFlagSelects(e) {
-  const A = autoFlags(), p = e ? profOf(e.id) : profOf('');
-  const opts = (defs, auto) => `<option value="">${auto ? 'Auto (' + defs[auto.key][0] + ')' : 'Auto (no flag yet)'}</option>`
-    + Object.keys(defs).map(k => `<option value="${k}">${defs[k][0]}</option>`).join('') + '<option value="none">No flag</option>';
-  $m('entFlagC').innerHTML = opts(CF, e && A.C[e.name]); $m('entFlagC').value = p.fc;
-  $m('entFlagS').innerHTML = opts(SF, e && A.S[e.name]); $m('entFlagS').value = p.fs;
+function fillBlacklist(e) {
+  const p = e ? profOf(e.id) : profOf('');
   $m('entBl').checked = !!p.bl; $m('entBlReason').value = p.blr || ''; $m('entBlField').hidden = !p.bl;
 }
 $m('entBl').addEventListener('change', () => { $m('entBlField').hidden = !$m('entBl').checked; if ($m('entBl').checked) $m('entBlReason').focus(); });
@@ -588,10 +552,9 @@ function openEnt(id, fromView) {
   editEntId = e ? e.id : ''; reopenView = !!fromView;
   $m('entHeading').textContent = e ? 'Edit profile' : 'Add entity';
   $m('entName').value = e ? e.name : ''; $m('entNick').value = e ? nickOf(e) : ''; $m('entContact').value = e ? e.contact : '';
-  $m('entAddress').value = e ? e.address : ''; $m('entEmail').value = e ? e.email : '';
+  $m('entAddress').value = e ? e.address : '';
   $m('entFb').value = e ? e.facebook : ''; $m('entNotes').value = e ? e.notes : '';
-  entPay = e ? e.payment.slice() : []; $m('entPayOther').value = ''; renderPay();
-  const p = e ? profOf(e.id) : {}; editPic = p.pic || ''; editGender = p.g || '';
+  const p = e ? profOf(e.id) : {}; editPic = p.pic || ''; fillBlacklist(e);
   $m('entPicUrl').value = ''; $m('entPicLinkField').hidden = true; renderEditAvatar();
   $m('entHint').hidden = !e;
   $m('entSheet').hidden = false;
@@ -601,14 +564,13 @@ const closeEnt = () => { $m('entSheet').hidden = true; editEntId = ''; };
 $m('entAdd').onclick = () => openEnt('');
 $m('entCancel').onclick = () => { const back = reopenView && editEntId; closeEnt(); if (back) openView(back); };
 $m('entSheet').addEventListener('click', e => { if (e.target.id === 'entSheet') $m('entCancel').onclick(); });
-const entParams = (e, over) => Object.assign({ entityId: e.id, name: e.name, contact: e.contact, address: e.address, email: e.email, facebook: e.facebook, payment: e.payment.join('|'), notes: e.notes }, over);
+const entParams = (e, over) => Object.assign({ entityId: e.id, name: e.name, contact: e.contact, address: e.address, facebook: e.facebook, notes: e.notes }, over);
 $m('entSave').onclick = async () => {
   const name = $m('entName').value.trim().replace(/\s+/g, ' ');
   if (!name) return toast('Enter a name.');
-  if ($m('entPayOther').value.trim()) addPay();
   const old = editEntId ? findEnt(editEntId) : null;
-  const fields = { name, contact: $m('entContact').value.trim(), address: $m('entAddress').value.trim(), email: $m('entEmail').value.trim(), facebook: $m('entFb').value.trim(), payment: entPay.join('|'), notes: $m('entNotes').value.trim() };
-  const changed = !old || ['name', 'contact', 'address', 'email', 'facebook', 'notes'].some(k => fields[k] !== old[k]) || fields.payment !== old.payment.join('|');
+  const fields = { name, contact: $m('entContact').value.trim(), address: $m('entAddress').value.trim(), facebook: $m('entFb').value.trim(), notes: $m('entNotes').value.trim() };
+  const changed = !old || ['name', 'contact', 'address', 'facebook', 'notes'].some(k => fields[k] !== old[k]);
   if (old && name !== old.name && !confirm(`Rename "${old.name}" to "${name}"?\n\nEvery receipt, card and finance entry that uses the old spelling will be updated. This can take a few seconds.`)) return;
   const btn = $m('entSave'); btn.disabled = true; btn.textContent = 'Saving\u2026';
   try {
@@ -622,7 +584,7 @@ $m('entSave').onclick = async () => {
     if (changed) await loadData();
     const id = wasId || (data.entities.find(x => x.name.toLowerCase() === name.toLowerCase()) || {}).id;
     const bl = $m('entBl').checked;
-    const np = { g: editGender, pic: editPic, n: $m('entNick').value.replace(/\s+/g, ' ').trim().slice(0, 40), fc: $m('entFlagC').value, fs: $m('entFlagS').value, bl, blr: bl ? $m('entBlReason').value.trim().slice(0, 120) : '' };
+    const np = { pic: editPic, n: $m('entNick').value.replace(/\s+/g, ' ').trim().slice(0, 40), bl, blr: bl ? $m('entBlReason').value.trim().slice(0, 120) : '' };
     const kept = setProf(id, np);
     // save the profile to the sheet; a new upload goes to the Drive folder and its link replaces the raw photo
     let synced = true;
@@ -666,7 +628,7 @@ function openView(id) {
     .map(([l, f, defs]) => `<div class="pf-fl"><small>${l}</small>${flChip(f, defs, '')}<span>${escMk(f.why)}</span></div>`).join('');
   const when = (label, t) => t ? `<div class="ed-row"><small>${label}</small><span>${escMk(txLine(t))}</span></div>` : '';
   $m('entViewBody').innerHTML = `${blBox}<div class="pf-hero">
-      <div class="pf-avwrap">${avatar(e, 'xl')}<button type="button" class="pf-cam" id="pfCam" aria-label="Change photo or gender" title="Change photo or gender">${pfIc('cam')}</button></div>
+      <div class="pf-avwrap">${avatar(e, 'xl')}<button type="button" class="pf-cam" id="pfCam" aria-label="Change photo" title="Change photo">${pfIc('cam')}</button></div>
       <b class="pf-name">${escMk(e.name)}</b>
       ${nickOf(e) ? `<span class="pf-nick big">\u201c${escMk(nickOf(e))}\u201d</span>` : ''}
       ${e.aliases.length ? `<span class="pf-alias">Also spelled: ${e.aliases.map(escMk).join(', ')}</span>` : ''}
@@ -766,9 +728,9 @@ $m('mergeGo').onclick = async () => {
   try {
     const res = await jsonp(api('mergeEntities', { fromIds: from.id, intoId: into.id }), 90000);
     if (!res.ok) throw new Error(res.error || 'Request failed');
-    // the kept profile inherits the merged one's photo / gender when it has none of its own
+    // the kept profile inherits the merged one's photo / nickname when it has none of its own
     const pf = profOf(from.id), pi = profOf(into.id);
-    setProf(into.id, { g: pi.g || pf.g, pic: pi.pic || pf.pic, n: pi.n || pf.n, bl: pi.bl || pf.bl, blr: pi.blr || pf.blr }); clearProf(from.id);
+    setProf(into.id, { pic: pi.pic || pf.pic, n: pi.n || pf.n, bl: pi.bl || pf.bl, blr: pi.blr || pf.blr }); clearProf(from.id);
     closeMerge(); toast(`Merged into ${into.name}.`);
     await loadData();
   } catch (err) { toast('Could not merge: ' + backendErr(err)); }

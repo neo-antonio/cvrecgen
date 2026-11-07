@@ -87,28 +87,12 @@
       <button type="button" class="ghost sm" id="entPicUse">Use</button>
     </div>
     <div class="field">
-      <label>Gender <small>(sets the blank profile picture)</small></label>
-      <div class="radios">
-        <label class="rad"><input type="radio" name="entGender" value="m"><span>Male</span></label>
-        <label class="rad"><input type="radio" name="entGender" value="f"><span>Female</span></label>
-        <label class="rad"><input type="radio" name="entGender" value="" checked><span>Not set</span></label>
-      </div>
-    </div>
-    <div class="field">
       <label for="entName">Name</label>
       <input type="text" id="entName" autocomplete="off" placeholder="e.g. Kuya Rick">
     </div>
     <div class="field">
       <label for="entNick">Nickname <small>(optional, shown small after the name)</small></label>
       <input type="text" id="entNick" autocomplete="off" maxlength="40" placeholder="e.g. Kuya Rick">
-    </div>
-    <div class="field">
-      <label for="entFlagC">Customer flag <small>(sold to)</small></label>
-      <select id="entFlagC"></select>
-    </div>
-    <div class="field">
-      <label for="entFlagS">Supplier flag <small>(bought from)</small></label>
-      <select id="entFlagS"></select>
     </div>
     <label class="port-chk bl-chk"><input type="checkbox" id="entBl"><span>Blacklist &ndash; do not transact</span></label>
     <div class="field" id="entBlField" hidden><input type="text" id="entBlReason" maxlength="120" autocomplete="off" placeholder="Reason (optional)"></div>
@@ -121,20 +105,8 @@
       <textarea id="entAddress" rows="3" maxlength="300" placeholder="Street, barangay, city, province, ZIP"></textarea>
     </div>
     <div class="field">
-      <label for="entEmail">Email <small>(optional)</small></label>
-      <input type="email" id="entEmail" inputmode="email" autocomplete="off" maxlength="120" placeholder="name@example.com">
-    </div>
-    <div class="field">
       <label for="entFb">Facebook profile link <small>(optional)</small></label>
       <input type="url" id="entFb" inputmode="url" autocomplete="off" maxlength="300" placeholder="https://facebook.com/...">
-    </div>
-    <div class="field">
-      <label>Payment methods <small>(tap to select, or add your own)</small></label>
-      <div class="pay-chips" id="entPayChips"></div>
-      <div class="pay-add">
-        <input type="text" id="entPayOther" maxlength="40" autocomplete="off" placeholder="Other method">
-        <button type="button" class="ghost sm" id="entPayAdd">Add</button>
-      </div>
     </div>
     <div class="field">
       <label for="entNotes">Notes <small>(optional)</small></label>
